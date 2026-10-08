@@ -7,10 +7,17 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "db:push": "drizzle-kit push"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
+    "@types/node": "26.4.1",
+    "drizzle-kit": "0.31.11",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "postgres": "3.4.9"
   }
 }
