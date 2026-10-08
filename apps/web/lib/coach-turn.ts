@@ -125,8 +125,9 @@ export async function coachTurn({
     messages: [...history, ...read.messages],
     tools,
     toolsContext: coachToolsContext(userId),
-    // The list was just read for the model, so it isn't offered listArea.
-    toolChoice: "none",
+    // freshRead already injected the list; activeTools lets the model write
+    // and call listArea again after a write. No turn-wide toolChoice:"none".
+    activeTools: ["createTask", "completeTask", "listArea"],
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
     // Thinking counts toward maxReplyTokens. Top level, so the fallback

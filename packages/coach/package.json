@@ -16,6 +16,7 @@
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "@repo/domain": "*",
     "zod": "4.6.5"
   }
 }

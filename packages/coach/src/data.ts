@@ -12,6 +12,18 @@ export type ListedTask = {
 export type CoachData = {
   // The user's open Tasks in Priority List order, the Next one marked.
   listOpenTasks(userId: string): Promise<ListedTask[]>;
+  // Null when the name or note is refused. `sourceId` is the tool-call id, so
+  // a retry of the same call is the same add.
+  createTask(
+    userId: string,
+    input: { name: string; note?: string },
+    from: { source: "coach"; sourceId: string },
+  ): Promise<{ id: string; name: string } | null>;
+  // Null when that id is not an open Task of this user.
+  completeTask(
+    userId: string,
+    taskId: string,
+  ): Promise<{ id: string; name: string } | null>;
 };
 
 // What a tool's handler runs with: the session user, the model's tool-call id

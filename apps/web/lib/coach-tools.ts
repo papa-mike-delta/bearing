@@ -1,10 +1,19 @@
-import { listArea, type CoachData } from "@repo/coach";
+import {
+  completeTask,
+  createTask,
+  listArea,
+  type CoachData,
+} from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import { nextTask } from "@repo/domain";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Db } from "./db.ts";
-import { openTasks } from "./tasks.ts";
+import {
+  addTask,
+  completeTask as completeTaskRow,
+  openTasks,
+} from "./tasks.ts";
 
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb): CoachData {
@@ -19,6 +28,12 @@ export function coachData(db: Db = defaultDb): CoachData {
         isNext: id === next?.id,
       }));
     },
+    createTask(userId, input, from) {
+      return addTask(userId, { ...input, from }, db);
+    },
+    completeTask(userId, taskId) {
+      return completeTaskRow(userId, taskId, db);
+    },
   };
 }
 
@@ -26,36 +41,65 @@ export function coachData(db: Db = defaultDb): CoachData {
 // on every call. A call without it fails before the tool runs.
 const userContext = z.object({ userId: z.uuid() });
 
+type ToolRun = {
+  userId: string;
+  toolCallId: string;
+  data: CoachData;
+};
+
 // A thrown database error must not reach the model (it can carry SQL and the
 // user id). Log the error name and SQLSTATE, then throw a fixed sentence.
-async function runListArea(
-  input: {},
-  {
-    userId,
-    toolCallId,
-    data,
-  }: { userId: string; toolCallId: string; data: CoachData },
-) {
+function logToolError(toolName: string, toolCallId: string, error: unknown) {
+  console.error(
+    JSON.stringify({
+      event: "coach.tool.error",
+      tool: toolName,
+      toolCallId,
+      error: error instanceof Error ? error.name : "Error",
+      code:
+        error instanceof Error
+          ? (error.cause as { code?: string } | undefined)?.code
+          : undefined,
+    }),
+  );
+}
+
+async function runListArea(input: {}, { userId, toolCallId, data }: ToolRun) {
   try {
     return await listArea.run(input, { userId, toolCallId, data });
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "coach.tool.error",
-        tool: "listArea",
-        toolCallId,
-        error: error instanceof Error ? error.name : "Error",
-        code:
-          error instanceof Error
-            ? (error.cause as { code?: string } | undefined)?.code
-            : undefined,
-      }),
-    );
+    logToolError("listArea", toolCallId, error);
     throw new Error("The list couldn't be read.");
   }
 }
 
+async function runCreateTask(
+  input: { name: string; note?: string },
+  { userId, toolCallId, data }: ToolRun,
+) {
+  try {
+    return await createTask.run(input, { userId, toolCallId, data });
+  } catch (error) {
+    logToolError("createTask", toolCallId, error);
+    throw new Error("Couldn't create that task.");
+  }
+}
+
+async function runCompleteTask(
+  input: { taskId: string },
+  { userId, toolCallId, data }: ToolRun,
+) {
+  try {
+    return await completeTask.run(input, { userId, toolCallId, data });
+  } catch (error) {
+    logToolError("completeTask", toolCallId, error);
+    throw new Error("Couldn't complete that task.");
+  }
+}
+
 export function coachTools(data: CoachData) {
+  // At most one completeTask per turn; a second call is refused before data.
+  let completedThisTurn = false;
   return {
     listArea: tool({
       description: listArea.description,
@@ -68,12 +112,43 @@ export function coachTools(data: CoachData) {
           data,
         }),
     }),
+    createTask: tool({
+      description: createTask.description,
+      inputSchema: createTask.inputSchema,
+      contextSchema: userContext,
+      execute: (input, { context, toolCallId }) =>
+        runCreateTask(input, {
+          userId: context.userId,
+          toolCallId,
+          data,
+        }),
+    }),
+    completeTask: tool({
+      description: completeTask.description,
+      inputSchema: completeTask.inputSchema,
+      contextSchema: userContext,
+      execute: (input, { context, toolCallId }) => {
+        if (completedThisTurn) {
+          throw new Error("You can complete only one Task per reply.");
+        }
+        completedThisTurn = true;
+        return runCompleteTask(input, {
+          userId: context.userId,
+          toolCallId,
+          data,
+        });
+      },
+    }),
   };
 }
 
 // The Coach's tools. coachToolsContext is built from this list; the test
 // checks it matches the keys coachTools registers.
-export const coachToolNames = ["listArea"] as const;
+export const coachToolNames = [
+  "listArea",
+  "createTask",
+  "completeTask",
+] as const;
 
 // The context for every Coach tool, from the session user.
 export function coachToolsContext(userId: string) {

@@ -11,6 +11,12 @@ function fake(tasks: ListedTask[]) {
       asked.push(userId);
       return tasks;
     },
+    async createTask() {
+      throw new Error("createTask was not expected");
+    },
+    async completeTask() {
+      throw new Error("completeTask was not expected");
+    },
   };
   return { data, asked };
 }
