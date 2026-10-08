@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { areas, coachMessages, createDb, tasks, users } from "@repo/db";
+import { coachMessages, createDb, users } from "@repo/db";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
@@ -17,7 +17,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
-import { completeTask, createArea } from "./tasks.ts";
+import { addTask, changePriority, completeTask, createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 
@@ -257,25 +257,16 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     return { chunks, broke };
   }
 
-  // Adds open Tasks to the user's Area as [name, priority] pairs, oldest
-  // first, and returns their ids by name.
+  // Adds Tasks as [name, priority] pairs, oldest first, the way the list
+  // does, and returns their ids by name.
   async function addTasks(userId: string, list: [string, number][]) {
-    const [area] = await db
-      .select({ id: areas.id })
-      .from(areas)
-      .where(eq(areas.userId, userId));
     const ids: Record<string, string> = {};
-    for (const [i, [name, priority]] of list.entries()) {
-      const [row] = await db
-        .insert(tasks)
-        .values({
-          areaId: area!.id,
-          name,
-          priority,
-          createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)),
-        })
-        .returning({ id: tasks.id });
-      ids[name] = row!.id;
+    for (const [name, priority] of list) {
+      const { id } = (await addTask(userId, { name }, db))!;
+      for (let i = 0; i < Math.abs(priority); i++) {
+        await changePriority(userId, id, priority > 0 ? 1 : -1, db);
+      }
+      ids[name] = id;
     }
     return ids;
   }

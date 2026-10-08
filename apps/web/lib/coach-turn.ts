@@ -28,8 +28,10 @@ export function coachModel() {
 export const fallbackModel = "openai/gpt-6-astra";
 
 // The model sees only the most recent messages of the thread (20 exchanges),
-// and each model step of a reply is capped. At 4,000 characters a message, that bounds a turn's
-// prompt at roughly 40k tokens. The whole thread is still saved and shown.
+// and each model step of a reply is capped. At 4,000 characters a message,
+// the messages bound a turn's prompt at roughly 40k tokens, plus what tool
+// calls returned (listArea lists at most 50 Tasks). The whole thread is still
+// saved and shown.
 export const historyWindow = 40;
 export const maxReplyTokens = 1_000;
 
@@ -51,17 +53,18 @@ function newMessageText(message: unknown) {
 // The route passes the session user; tests pass a scripted model and their
 // own database. Refuses, writing nothing:
 // - 400: a message that isn't a user message with a uuid id and one
-//   non-blank text part of at most maxCoachMessageLength;
+//   non-blank text part of at most maxCoachMessageLength, or a thread whose
+//   saved tool calls don't fit the tools;
 // - 404: a thread that isn't the user's;
 // - 409: an id already used by another thread or role, or by an earlier
 //   message (only the last message can be resent).
 // The message is rebuilt from its text alone, so nothing else the client
-// sends is stored or reaches the model. The whole thread is checked against
-// the tools before the model sees it. The Coach's tools act for `userId`
-// only, and a turn stops after maxCoachSteps model steps. It is saved before the model runs
-// and the reply when it finishes, so a closed tab doesn't lose the turn:
-// `saved` settles once both are written. Stopping in the browser doesn't
-// stop the model; the reply still finishes and is saved.
+// sends is stored or reaches the model. The Coach's tools act for `userId`
+// only, and a turn stops after maxCoachSteps model steps. The message is
+// saved before the model runs and the reply when it finishes, so a closed
+// tab doesn't lose the turn: `saved` settles once both are written. Stopping
+// in the browser doesn't stop the model; the reply still finishes and is
+// saved.
 export async function coachTurn({
   userId,
   threadId,
@@ -131,9 +134,7 @@ export async function coachTurn({
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream.pipeThrough(
-      failWhenCutOffBeforeText(() => (failed = true)),
-    ),
+    stream: result.stream.pipeThrough(failOnErrors(() => (failed = true))),
     tools,
     sendReasoning: false,
     originalMessages: messages,
@@ -147,11 +148,11 @@ export async function coachTurn({
   return { stream, saved: readToEnd(ownCopy) };
 }
 
-// Calls `fail` on an error part, the model's or our own. Reasoning counts
-// toward maxReplyTokens, so a reply can hit the cap before writing any text.
-// That's a failed turn (an error part, so it isn't saved and the browser
-// offers Resend), not an empty reply the browser would hide.
-function failWhenCutOffBeforeText(fail: () => void) {
+// Calls `fail` on an error part. Reasoning counts toward maxReplyTokens, so
+// a reply can hit the cap before writing any text. That's a failed turn too
+// (an error part is added, so it isn't saved and the browser offers Resend),
+// not an empty reply the browser would hide.
+function failOnErrors(fail: () => void) {
   let wroteText = false;
   return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
     transform(part, controller) {
