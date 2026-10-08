@@ -15,6 +15,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import {
+  migrateConnectionTimeoutMs,
+  migrateLockTimeout,
+} from "./migrate-client.ts";
 import { decide } from "./migrate-guard.ts";
 
 const vercel = process.argv.includes("--vercel");
@@ -40,9 +44,14 @@ console.log(
   `db migrate: ${process.env.VERCEL_ENV ?? "local"} → ${host}${new URL(url).pathname}`,
 );
 
-const client = new Client({ connectionString: url });
-await client.connect();
+const client = new Client({
+  connectionString: url,
+  connectionTimeoutMillis: migrateConnectionTimeoutMs,
+});
 try {
+  await client.connect();
+  // Don't stall production queries behind a stuck ALTER TABLE.
+  await client.query(`set lock_timeout = '${migrateLockTimeout}'`);
   // Two deploys migrating the same database take turns; the second finds
   // nothing left to apply.
   const deadline = Date.now() + lockWaitMs;
@@ -78,9 +87,15 @@ try {
     );
   }
 } catch (error) {
-  console.error("db migrate: failed, nothing from this run was applied");
+  console.error(
+    "db migrate: failed; the pending migrations were rolled back. See the error below",
+  );
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await client.end(); // also releases the advisory lock
+  try {
+    await client.end(); // also releases the advisory lock
+  } catch {
+    // connect() never ran, or the client is already closed
+  }
 }

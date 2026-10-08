@@ -6,7 +6,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, mock, test } from "node:test";
 import { coachMessages, createDb, users } from "@repo/db";
-import { APICallError, simulateReadableStream, type UIMessage } from "ai";
+import {
+  APICallError,
+  convertToModelMessages,
+  simulateReadableStream,
+  type UIMessage,
+} from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
 import { maxCoachMessageLength, receipt } from "@repo/coach";
@@ -17,6 +22,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
+import { coachTools } from "./coach-tools.ts";
 import { addTask, changePriority, completeTask, createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
@@ -836,15 +842,19 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       // Text around a read in one reply.
       [text("And then?")],
       [step, text("Let me look."), read("toolu_e", 1), step, text("Alpha.")],
+      // Two assistant replies in a row (the user message between them never
+      // saved): textOnly must join them, not leave consecutive assistants.
+      [text("Say more")],
+      [step, text("First answer.")],
+      [step, text("Second answer.")],
       // A message whose reply failed, so the next one follows it.
       [text("Lost reply")],
     ];
-    for (const [i, parts] of old.entries()) {
+    for (const parts of old) {
       const role = parts.some((p) => p.type === "step-start")
         ? "assistant"
         : "user";
       await saveMessage(c, thread, { id: randomUUID(), role, parts }, db);
-      assert.equal(role, i % 2 && i < 10 ? "assistant" : "user");
     }
     const model = replying("Your list is empty.");
     const done = await turn(
@@ -862,7 +872,17 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     // Alternating, from the person, ending with the person.
     assert.deepEqual(
       history.map((m) => m.role),
-      ["user", "assistant", "user", "assistant", "user", "assistant", "user"],
+      [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+      ],
     );
     for (const m of history) {
       assert.ok(
@@ -874,6 +894,11 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         assert.ok(part.text?.trim(), JSON.stringify(m));
       }
     }
+    // Consecutive assistant replies were joined into one turn.
+    assert.deepEqual(
+      (history.at(-2)!.content as { text: string }[]).map((p) => p.text),
+      ["First answer.", "Second answer."],
+    );
     // The failed reply's message and the new one are one turn of the person's.
     assert.deepEqual(
       (history.at(-1)!.content as { text: string }[]).map((p) => p.text),
@@ -900,7 +925,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const model = new MockLanguageModelV4({
       doStream: async () => {
         throw new APICallError({
-          message: "messages.1.content.0.type: Expected `thinking`",
+          message: `${"x".repeat(350)}: Expected thinking`,
           url: "https://ai-gateway.vercel.sh/v3/ai/language-model",
           requestBodyValues: { secret: "What's on my list?" },
           statusCode: 400,
@@ -925,11 +950,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
           threadId: thread,
           model: "mock-model-id",
           error: "AI_APICallError",
-          message: "messages.1.content.0.type: Expected `thinking`",
+          message: `${"x".repeat(350)}: Expected thinking`.slice(0, 300),
           status: 400,
         },
       ],
     );
+    assert.equal(JSON.parse(lines[0]!).message.length, 300);
     for (const secret of [c, "What's on my list?"]) {
       assert.ok(!lines[0]!.includes(secret), secret);
     }
@@ -943,10 +969,30 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const data = {
       listOpenTasks: () => Promise.reject(new Error("database down")),
     };
-    await assert.rejects(
-      coachTurn({ userId: c, threadId: thread, message, model, db, data }),
-      /database down/,
+    const error = mock.method(console, "error", () => {});
+    try {
+      await assert.rejects(
+        coachTurn({ userId: c, threadId: thread, message, model, db, data }),
+        /The list couldn't be read\./,
+      );
+    } finally {
+      error.mock.restore();
+    }
+    const logged = error.mock.calls.map((call) =>
+      call.arguments.map(String).join(" "),
     );
+    assert.ok(
+      logged.some((line) => {
+        try {
+          const entry = JSON.parse(line);
+          return entry.event === "coach.tool.error" && entry.error === "Error";
+        } catch {
+          return false;
+        }
+      }),
+      logged.join("\n"),
+    );
+    assert.ok(!logged.join("\n").includes("database down"));
     assert.equal(model.doStreamCalls.length, 0);
     assert.equal(await rowOf(message.id), undefined);
   });
@@ -1003,8 +1049,10 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     // A model that calls the tool anyway, every step.
     const model = scripted({ listArea: "{}" });
     await turn(c, thread, userMessage("Keep reading my list"), model);
-    assert.deepEqual(model.doStreamCalls[0]!.toolChoice, { type: "none" });
     assert.equal(model.doStreamCalls.length, 8);
+    for (const call of model.doStreamCalls) {
+      assert.deepEqual(call.toolChoice, { type: "none" });
+    }
     assert.deepEqual(
       receiptsOf(await threadMessages(c, thread, db)),
       Array(9).fill("Read your list (1 open)"),
@@ -1034,7 +1082,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal((await threadMessages(c, thread, db))!.length, 4);
   });
 
-  test("a saved tool part that doesn't fit its tool is refused before the model runs", async () => {
+  test("a saved tool part that doesn't fit its tool still gets a reply", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     await saveMessage(c, thread, userMessage("Earlier"), db);
@@ -1049,19 +1097,84 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
             type: "tool-listArea",
             toolCallId: "call_x",
             state: "output-available",
+            // listArea's input is {}, so a string fails validation.
             input: "everyone's tasks",
             output: { open: 0, tasks: [] },
+          },
+          {
+            type: "text",
+            text: "I looked.",
+            state: "done",
           },
         ],
       },
       db,
     );
-    const model = replying("Should not run.");
-    const message = userMessage("Next?");
-    assert.deepEqual(await turn(c, thread, message, model), { refused: 400 });
-    assert.equal(model.doStreamCalls.length, 0);
-    assert.equal(await rowOf(message.id), undefined);
+    const model = replying("Still here.");
+    const error = mock.method(console, "error", () => {});
+    let done;
+    try {
+      done = await turn(c, thread, userMessage("Next?"), model);
+    } finally {
+      error.mock.restore();
+    }
+    assert.ok("chunks" in done && !done.broke);
+    assert.equal(model.doStreamCalls.length, 1);
+    const logged = error.mock.calls.map((call) =>
+      call.arguments.map(String).join(" "),
+    );
+    const invalid = logged.flatMap((line) => {
+      try {
+        const entry = JSON.parse(line);
+        return entry.event === "coach.history.invalid" ? [entry] : [];
+      } catch {
+        return [];
+      }
+    });
+    assert.equal(invalid.length, 1, logged.join("\n"));
+    assert.equal(invalid[0].error, "AI_TypeValidationError");
+    assert.match(invalid[0].message, /messages\[/);
+    assert.ok(!invalid[0].message.includes("Value:"));
+    assert.ok(!logged.join("\n").includes("everyone's tasks"));
+    // The bad tool part is out of the model's view; the earlier text remains.
+    const history = model.doStreamCalls[0]!.prompt.filter(
+      (m) => m.role !== "system",
+    );
+    assert.ok(!JSON.stringify(history).includes("everyone's tasks"));
+    assert.ok(JSON.stringify(history).includes("I looked."));
+    assert.deepEqual(textOf(await threadMessages(c, thread, db))?.at(-1), [
+      "assistant",
+      "Still here.",
+    ]);
   });
+
+  test("convertToModelMessages needs the tools to keep a listArea part", async () => {
+    const tools = coachTools({ listOpenTasks: async () => [] });
+    const messages: UIMessage[] = [
+      {
+        id: randomUUID(),
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-listArea",
+            toolCallId: "call_keep",
+            state: "output-available",
+            input: {},
+            output: { open: 0, tasks: [] },
+          },
+        ],
+      },
+    ];
+    const withTools = await convertToModelMessages(messages, { tools });
+    assert.deepEqual(
+      withTools.map((m) => m.role),
+      ["assistant", "tool"],
+    );
+    const call = withTools[0]!.content as { type: string; toolName: string }[];
+    assert.equal(call[0]!.type, "tool-call");
+    assert.equal(call[0]!.toolName, "listArea");
+  });
+
   test("a finished turn logs one coach.turn line with its listArea reads, and nothing private", async () => {
     const c = await account();
     const thread = await coachThread(c, db);

@@ -41,7 +41,7 @@ export const sessions = pgTable("sessions", {
   expires: timestamp("expires", { mode: "date", withTimezone: true }).notNull(),
 });
 
-// One Area per account in phase 1, created at sign-up.
+// One Area per account in phase 1, created at sign-up (and on demand for older accounts that predate Areas).
 export const areas = pgTable(
   "areas",
   {
