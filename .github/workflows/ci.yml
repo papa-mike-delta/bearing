@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The account-isolation test runs against this database and fails in CI
+      # without it. The build needs no real secrets, and its Vercel-only
+      # migrate step is skipped here (no VERCEL=1).
+      TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # package.json pins npm 10.9.9 in devEngines. There is no lockfile, so
+      # npm install rather than npm ci.
+      - run: npm i -g npm@10.9.9
+      - run: npm install
+      - name: Migrations match schema.ts
+        run: |
+          npm run db:generate -w @repo/db
+          git add -N packages/db/drizzle
+          git diff --exit-code -- packages/db/drizzle
+      # The same migrate script Vercel builds run, against the service database.
+      - run: POSTGRES_URL_NON_POOLING=$TEST_POSTGRES_URL npm run db:migrate -w @repo/db
+      - run: npx turbo run check-types lint test build --force
