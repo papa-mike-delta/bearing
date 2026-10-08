@@ -1,11 +1,11 @@
 import { maxPriority, minPriority, nextTask } from "@repo/domain";
 import { requireUser } from "../auth";
+import { Header } from "./header";
 import { openTasks } from "../lib/tasks";
 import {
   addTaskToList,
   changeTaskPriority,
   completeTaskOnList,
-  signOutOfBearing,
 } from "./actions";
 
 export default async function Home() {
@@ -15,12 +15,7 @@ export default async function Home() {
 
   return (
     <main>
-      <header>
-        <span>{user.email}</span>
-        <form action={signOutOfBearing}>
-          <button type="submit">Sign out</button>
-        </form>
-      </header>
+      <Header email={user.email} />
       <form action={addTaskToList}>
         <input
           name="name"
@@ -44,7 +39,10 @@ export default async function Home() {
                   aria-label={`Complete ${task.name}`}
                 />
               </form>
-              <span>{task.name}</span>
+              <span>
+                {task.name}
+                {task.note ? <small>{task.note}</small> : null}
+              </span>
               {task === next ? <strong>Next</strong> : null}
               <form action={changeTaskPriority}>
                 <input type="hidden" name="id" value={task.id} />

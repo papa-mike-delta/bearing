@@ -10,15 +10,15 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 // Every query here takes the session user. Tasks are reached through the
 // user's Area, so another account's rows never match.
 
-type Db = Pick<typeof db, "insert">;
+type Db = Pick<typeof db, "select" | "insert">;
 
 export async function createArea(userId: string, tx: Db = db) {
   const workflow: Workflow = "priority-list";
   await tx.insert(areas).values({ userId, name: "Tasks", workflow });
 }
 
-function userAreaIds(userId: string) {
-  return db
+function userAreaIds(userId: string, tx: Db = db) {
+  return tx
     .select({ id: areas.id })
     .from(areas)
     .where(eq(areas.userId, userId));
@@ -29,6 +29,7 @@ export async function openTasks(userId: string) {
     .select({
       id: tasks.id,
       name: tasks.name,
+      note: tasks.note,
       priority: tasks.priority,
       createdAt: tasks.createdAt,
       completedAt: tasks.completedAt,
@@ -43,12 +44,17 @@ export async function openTasks(userId: string) {
   return priorityList(rows);
 }
 
-export async function addTask(userId: string, name: string) {
-  const [area] = await userAreaIds(userId).limit(1);
+// The one way a task is created, whether added on the list or filed from a Draft.
+export async function addTask(
+  userId: string,
+  task: { name: string; note?: string },
+  tx: Db = db,
+) {
+  const [area] = await userAreaIds(userId, tx).limit(1);
   if (!area) return;
-  await db
+  await tx
     .insert(tasks)
-    .values({ areaId: area.id, name, priority: normalPriority });
+    .values({ ...task, areaId: area.id, priority: normalPriority });
 }
 
 export async function completeTask(userId: string, taskId: string) {

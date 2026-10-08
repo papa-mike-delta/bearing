@@ -54,8 +54,26 @@ export const tasks = pgTable("tasks", {
     .notNull()
     .references(() => areas.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  note: text("note").notNull().default(""),
   priority: integer("priority").notNull(),
   completedAt: timestamp("completed_at", { mode: "date", withTimezone: true }),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// Captured text. It stays in the inbox until filed, then moves to archive.
+export const drafts = pgTable("drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  workspace: text("workspace").notNull().default("inbox"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
