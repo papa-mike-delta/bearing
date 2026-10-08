@@ -1,5 +1,7 @@
 import {
+  type CoachData,
   coachSystemPrompt,
+  listArea,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -7,10 +9,12 @@ import { db as defaultDb } from "@repo/db";
 import {
   convertToModelMessages,
   isStepCount,
+  pruneMessages,
   streamText,
   toUIMessageStream,
   validateUIMessages,
   type LanguageModel,
+  type ModelMessage,
   type TextStreamPart,
   type ToolSet,
   type UIMessage,
@@ -29,9 +33,9 @@ export const fallbackModel = "openai/gpt-6-luna";
 
 // The model sees only the most recent messages of the thread (20 exchanges),
 // and each model step of a reply is capped. At 4,000 characters a message,
-// the messages bound a turn's prompt at roughly 40k tokens, plus what tool
-// calls returned (listArea lists at most 50 Tasks). The whole thread is still
-// saved and shown.
+// the messages bound a turn's prompt at roughly 50k tokens (Haiku's
+// tokenizer), plus this turn's read of the list (at most 50 Tasks). The whole
+// thread is still saved and shown.
 export const historyWindow = 40;
 export const maxReplyTokens = 1_000;
 
@@ -60,11 +64,13 @@ function newMessageText(message: unknown) {
 //   message (only the last message can be resent).
 // The message is rebuilt from its text alone, so nothing else the client
 // sends is stored or reaches the model. The Coach's tools act for `userId`
-// only, and a turn stops after maxCoachSteps model steps. The message is
-// saved before the model runs and the reply when it finishes, so a closed
-// tab doesn't lose the turn: `saved` settles once both are written. Stopping
-// in the browser doesn't stop the model; the reply still finishes and is
-// saved.
+// only, and a turn stops after maxCoachSteps model steps. Every turn reads
+// the list once before the model answers (see freshRead), and the model sees
+// no tool output from earlier turns, so it answers from the list as it is
+// now. The message is saved before the model runs and the reply when it
+// finishes, so a closed tab doesn't lose the turn: `saved` settles once both
+// are written. Stopping in the browser doesn't stop the model; the reply
+// still finishes and is saved.
 export async function coachTurn({
   userId,
   threadId,
@@ -92,7 +98,8 @@ export async function coachTurn({
     role: "user",
     parts: [{ type: "text", text: incoming.text }],
   };
-  const tools = coachTools(coachData(db));
+  const data = coachData(db);
+  const tools = coachTools(data);
   let messages: UIMessage[];
   try {
     messages = await validateUIMessages({
@@ -106,6 +113,8 @@ export async function coachTurn({
     return { refused: 400 } as const;
   }
   const thread = threadId as string;
+  // Read before saving, so a failed read writes nothing.
+  const read = await freshRead(userId, data);
   if (!(await saveMessage(userId, thread, userMessage, db))) {
     return { refused: 409 } as const;
   }
@@ -113,14 +122,24 @@ export async function coachTurn({
   // Start the model's view at a user message.
   const recent = messages.slice(-historyWindow);
   while (recent[0]?.role !== "user") recent.shift();
+  const history = pruneMessages({
+    messages: await convertToModelMessages(recent, { tools }),
+    toolCalls: "all",
+  });
   const result = streamText({
     model,
     system: coachSystemPrompt,
-    messages: await convertToModelMessages(recent, { tools }),
+    messages: [...history, ...read.messages],
     tools,
     toolsContext: coachToolsContext(userId),
+    // The list was just read for the model. listArea stays defined, because
+    // the prompt holds its call, but the model isn't offered it.
+    toolChoice: "none",
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
+    // Thinking counts toward maxReplyTokens. Top level, so the fallback
+    // model gets it too.
+    reasoning: "low",
     providerOptions: {
       gateway: { models: [fallbackModel], user: userId, tags: ["coach"] },
     },
@@ -134,7 +153,9 @@ export async function coachTurn({
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream.pipeThrough(failOnErrors(() => (failed = true))),
+    stream: result.stream
+      .pipeThrough(read.receipt)
+      .pipeThrough(failOnErrors(() => (failed = true))),
     tools,
     sendReasoning: false,
     originalMessages: messages,
@@ -147,6 +168,42 @@ export async function coachTurn({
     },
   }).tee();
   return { stream, saved: readToEnd(ownCopy) };
+}
+
+// The person's open Tasks, read by Bearing at the start of a turn instead of
+// waiting for the model to ask: so every answer is about the list as it is
+// now, and a turn reads it once. `messages` hands the read to the model as a
+// listArea call and its result. `receipt` adds the same call to the streamed
+// reply, so it shows, saves and reloads as a listArea receipt.
+async function freshRead(userId: string, data: CoachData) {
+  const toolCallId = `read-${crypto.randomUUID()}`;
+  const call = { toolCallId, toolName: "listArea" } as const;
+  const output = await listArea.run({}, { userId, toolCallId, data });
+  const messages: ModelMessage[] = [
+    { role: "assistant", content: [{ type: "tool-call", ...call, input: {} }] },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          ...call,
+          output: { type: "json", value: output },
+        },
+      ],
+    },
+  ];
+  const receipt = new TransformStream<
+    TextStreamPart<ToolSet>,
+    TextStreamPart<ToolSet>
+  >({
+    transform(part, controller) {
+      controller.enqueue(part);
+      if (part.type !== "start") return;
+      controller.enqueue({ type: "tool-call", ...call, input: {} });
+      controller.enqueue({ type: "tool-result", ...call, input: {}, output });
+    },
+  });
+  return { messages, receipt };
 }
 
 // Calls `fail` on an error part. Reasoning counts toward maxReplyTokens, so

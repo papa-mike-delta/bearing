@@ -336,6 +336,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       tags: ["coach"],
     });
     assert.equal(model.doStreamCalls[0]!.maxOutputTokens, maxReplyTokens);
+    assert.equal(model.doStreamCalls[0]!.reasoning, "low");
   });
 
   test("the model sees only the most recent messages, starting with the person's", async () => {
@@ -351,7 +352,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const sent = model.doStreamCalls[0]!.prompt.filter(
       (m) => m.role !== "system",
     );
-    assert.ok(sent.length <= historyWindow);
+    // The thread's messages, then this turn's read of the list.
+    assert.deepEqual(
+      sent.slice(-2).map((m) => m.role),
+      ["assistant", "tool"],
+    );
+    assert.ok(sent.length - 2 <= historyWindow);
     assert.equal(sent[0]!.role, "user");
     const text = JSON.stringify(sent);
     assert.ok(text.includes("#50#") && text.includes("#12#"));
@@ -734,7 +740,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       ["assistant", "Yes."],
     ]);
   });
-  test("listArea gives the person's open Tasks in Priority List order with Next marked, and the receipt reloads", async () => {
+  test("every turn reads the list once before the model answers, in Priority List order with Next marked", async () => {
     const c = await account();
     const d = await account();
     const ids = await addTasks(c, [
@@ -747,11 +753,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await completeTask(c, ids.Done!, db);
     await addTasks(d, [["Someone else's", 2]]);
     const thread = await coachThread(c, db);
-    // The model tries to read another account by passing its id.
-    const model = scripted(
-      { listArea: JSON.stringify({ userId: d }) },
-      { text: "Do High first." },
-    );
+    // The model never calls the tool itself.
+    const model = replying("Do High first.");
     await turn(c, thread, userMessage("What should I do next?"), model);
     const reloaded = await threadMessages(c, thread, db);
     assert.deepEqual(
@@ -768,35 +771,70 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       ["user", "What should I do next?"],
       ["assistant", "Do High first."],
     ]);
-    // The model got the list back before it answered.
-    const prompt = JSON.stringify(model.doStreamCalls[1]!.prompt);
-    assert.ok(prompt.includes("High") && !prompt.includes("Someone else"));
+    // The model's one step already had the list, and nothing of d's.
+    assert.equal(model.doStreamCalls.length, 1);
+    const prompt = JSON.stringify(model.doStreamCalls[0]!.prompt);
+    assert.ok(prompt.includes('"open":4') && prompt.includes("High"));
+    assert.ok(!prompt.includes("Someone else"));
   });
 
-  test("listArea on an empty list reads nothing", async () => {
+  test("an empty list is read as empty", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     await turn(
       c,
       thread,
       userMessage("What's on my list?"),
-      scripted({ listArea: "{}" }, { text: "Your list is empty." }),
+      replying("Your list is empty."),
     );
     const reloaded = await threadMessages(c, thread, db);
     assert.deepEqual(listedIn(reloaded), { open: 0, tasks: [] });
     assert.deepEqual(receiptsOf(reloaded), ["Read your list (0 open)"]);
   });
 
-  test("the loop stops after 8 model steps, and the steps it took reload", async () => {
+  test("after the list is emptied, the next turn answers from a fresh read, not the earlier one", async () => {
+    const c = await account();
+    const ids = await addTasks(c, [
+      ["Alpha", 0],
+      ["Beta", 0],
+      ["Gamma", 0],
+    ]);
+    const thread = await coachThread(c, db);
+    await turn(
+      c,
+      thread,
+      userMessage("What's on my list?"),
+      replying("Three."),
+    );
+    for (const id of Object.values(ids)) await completeTask(c, id, db);
+    for (let i = 0; i < 3; i++) {
+      const model = replying("It's empty.");
+      await turn(c, thread, userMessage("What's on my list?"), model);
+      const prompt = JSON.stringify(model.doStreamCalls[0]!.prompt);
+      assert.ok(prompt.includes('"open":0'), "the fresh read");
+      assert.ok(!prompt.includes('"open":3'), "no earlier read");
+      assert.ok(!prompt.includes("Alpha"), "no completed Task");
+    }
+    assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
+      "Read your list (3 open)",
+      "Read your list (0 open)",
+      "Read your list (0 open)",
+      "Read your list (0 open)",
+    ]);
+  });
+
+  test("the model isn't offered listArea, and the loop still stops after 8 model steps", async () => {
     const c = await account();
     await addTasks(c, [["One", 0]]);
     const thread = await coachThread(c, db);
+    // A model that calls the tool anyway, every step.
     const model = scripted({ listArea: "{}" });
     await turn(c, thread, userMessage("Keep reading my list"), model);
+    assert.deepEqual(model.doStreamCalls[0]!.toolChoice, { type: "none" });
     assert.equal(model.doStreamCalls.length, 8);
     assert.deepEqual(
       receiptsOf(await threadMessages(c, thread, db)),
-      Array(8).fill("Read your list (1 open)"),
+      Array(9).fill("Read your list (1 open)"),
     );
   });
 
@@ -805,15 +843,18 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const thread = await coachThread(c, db);
     const model = scripted(
       { listArea: JSON.stringify(["not", "an", "object"]) },
-      { text: "I couldn't read your list." },
+      { text: "I couldn't read that." },
     );
     const done = await turn(c, thread, userMessage("What's next?"), model);
     assert.ok("chunks" in done && !done.broke);
     const reloaded = await threadMessages(c, thread, db);
-    assert.deepEqual(receiptsOf(reloaded), ["Couldn't read your list"]);
+    assert.deepEqual(receiptsOf(reloaded), [
+      "Read your list (0 open)",
+      "Couldn't read your list",
+    ]);
     assert.deepEqual(textOf(reloaded)?.at(-1), [
       "assistant",
-      "I couldn't read your list.",
+      "I couldn't read that.",
     ]);
     // The thread still takes the next turn.
     await turn(c, thread, userMessage("Try again"), replying("Ok."));
@@ -848,20 +889,18 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(model.doStreamCalls.length, 0);
     assert.equal(await rowOf(message.id), undefined);
   });
-  test("a finished turn logs one coach.turn line with its tool calls, and nothing private", async () => {
+  test("a finished turn logs one coach.turn line with its listArea reads, and nothing private", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const info = mock.method(console, "info", () => {});
     try {
+      await turn(c, thread, userMessage("Is my list empty?"), replying("Yes."));
+      // A model that reads the list again anyway shows up as a second read.
       await turn(
         c,
         thread,
-        userMessage("Is my list empty?"),
-        scripted(
-          { listArea: "{}" },
-          { listArea: "{}" },
-          { text: "It's empty." },
-        ),
+        userMessage("Sure?"),
+        scripted({ listArea: "{}" }, { text: "It's empty." }),
       );
     } finally {
       info.mock.restore();
@@ -869,17 +908,28 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const lines = info.mock.calls
       .map((call) => String(call.arguments[0]))
       .filter((line) => line.includes("coach.turn"));
-    assert.equal(lines.length, 1);
-    assert.deepEqual(JSON.parse(lines[0]!), {
-      event: "coach.turn",
-      threadId: thread,
-      model: "mock-model-id",
-      steps: 3,
-      toolCalls: { listArea: 2 },
-      finishReason: "stop",
-    });
-    for (const secret of [c, "Is my list empty?", "It's empty.", '"open"']) {
-      assert.ok(!lines[0]!.includes(secret), secret);
+    assert.deepEqual(
+      lines.map((line) => JSON.parse(line)),
+      [
+        { listArea: 1, steps: 1 },
+        { listArea: 2, steps: 2 },
+      ].map(({ listArea, steps }) => ({
+        event: "coach.turn",
+        threadId: thread,
+        model: "mock-model-id",
+        steps,
+        toolCalls: { listArea },
+        finishReason: "stop",
+      })),
+    );
+    for (const secret of [
+      c,
+      "Is my list empty?",
+      "Yes.",
+      "It's empty.",
+      '"open"',
+    ]) {
+      assert.ok(!lines.join("\n").includes(secret), secret);
     }
   });
 });

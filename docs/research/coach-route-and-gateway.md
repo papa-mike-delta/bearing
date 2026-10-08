@@ -123,7 +123,7 @@ Known risks:
 3. **Where the data functions live.** Either keep them in `apps/web/lib` and inject them into `packages/coach` (recommended for Phase 2: smallest change), or move them to a package first.
 4. **`addTask` and `completeTask` return values.** Tool results must carry the entity id (§11.3) and a one-line receipt (§8.5). `addTask` returns `boolean` and `completeTask` returns `void` (C12). Both need to return `{ id, name } | null`. This is a small change to PR #11's functions once it merges.
 5. **Thread model for Phase 2.** Recommend one implicit thread per user, opened at `/coach`, with the table still allowing many.
-6. **Default model.** Recommend `COACH_MODEL=spacexai/grok-4.7`, the cheaper of the two spec examples at 1/5 the input price (T6), with `openai/gpt-6-astra` as the Gateway fallback. This is Paul's cost call.
+6. **Default model.** Superseded: the Coach now defaults to `anthropic/claude-haiku-5.5` with fallback `openai/gpt-6-luna` (Oct 8, 2026). Recommend `COACH_MODEL=spacexai/grok-4.7`, the cheaper of the two spec examples at 1/5 the input price (T6), with `openai/gpt-6-astra` as the Gateway fallback. This is Paul's cost call.
 
 ## What Build should wrap
 
