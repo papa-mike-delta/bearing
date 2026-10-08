@@ -33,9 +33,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      # package.json pins npm 10.9.9 in devEngines. There is no lockfile, so
-      # npm install rather than npm ci.
+      # package.json pins npm 10.9.9 in devEngines. Install it from outside the
+      # repo: Node 24's npm 11 enforces the pin even for a global install run
+      # here. There is no lockfile, so npm install rather than npm ci.
       - run: npm i -g npm@10.9.9
+        working-directory: ${{ runner.temp }}
       - run: npm install
       - name: Migrations match schema.ts
         run: |
