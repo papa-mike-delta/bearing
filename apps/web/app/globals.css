@@ -43,7 +43,7 @@ main {
 header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
   padding-bottom: 1rem;
   margin-bottom: 2rem;
   border-bottom: 1px solid var(--line);
@@ -75,7 +75,19 @@ label {
   gap: 0.25rem;
 }
 
+header nav {
+  display: flex;
+  gap: 1rem;
+  margin-right: auto;
+}
+
+header a {
+  color: inherit;
+  text-decoration: none;
+}
+
 input,
+textarea,
 button {
   font: inherit;
   padding: 0.5rem 0.75rem;
@@ -116,6 +128,12 @@ li {
 
 li > span {
   flex: 1;
+  white-space: pre-wrap;
+}
+
+li small {
+  display: block;
+  color: var(--muted);
 }
 
 li button {

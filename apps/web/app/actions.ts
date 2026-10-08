@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
 import { hashPassword, parseCredentials } from "../lib/credentials";
+import { captureDraft, fileDraftAsTask } from "../lib/drafts";
 import {
   addTask,
   changePriority,
@@ -50,7 +51,7 @@ export async function signOutOfBearing() {
 export async function addTaskToList(formData: FormData) {
   const { id: userId } = await requireUser();
   const name = String(formData.get("name") ?? "").trim();
-  if (name) await addTask(userId, name);
+  if (name) await addTask(userId, { name });
   revalidatePath("/");
 }
 
@@ -64,5 +65,20 @@ export async function changeTaskPriority(formData: FormData) {
   const { id: userId } = await requireUser();
   const step = formData.get("step") === "up" ? 1 : -1;
   await changePriority(userId, String(formData.get("id")), step);
+  revalidatePath("/");
+}
+
+export async function captureToInbox(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const body = String(formData.get("body") ?? "");
+  if (!body.trim()) redirect("/inbox?error=empty");
+  await captureDraft(userId, body);
+  revalidatePath("/inbox");
+}
+
+export async function fileDraft(formData: FormData) {
+  const { id: userId } = await requireUser();
+  await fileDraftAsTask(userId, String(formData.get("id")));
+  revalidatePath("/inbox");
   revalidatePath("/");
 }
