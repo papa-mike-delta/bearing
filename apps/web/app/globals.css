@@ -1,24 +1,23 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --muted: #6b6b6b;
+  --line: #e5e5e5;
+  --accent: #2f5fd0;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --muted: #9a9a9a;
+    --line: #262626;
+    --accent: #7c9cf0;
   }
-}
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
+  html {
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -27,24 +26,74 @@ body {
   margin: 0;
 }
 
-a {
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 20rem;
+}
+
+header form {
+  flex-direction: row;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
   color: inherit;
-  text-decoration: none;
 }
 
-.imgDark {
-  display: none;
+button {
+  cursor: pointer;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+main > form button:first-of-type {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
 
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+[role="alert"],
+main > p {
+  color: var(--muted);
 }

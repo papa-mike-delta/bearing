@@ -7,10 +7,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "db:push": "drizzle-kit push"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
+    "@types/node": "26.4.1",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "@vercel/functions": "3.9.11",
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.1"
   }
 }
