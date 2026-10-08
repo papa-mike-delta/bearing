@@ -57,11 +57,11 @@ const usage = {
 };
 
 // A model that streams `reply` in words, slowly enough to stop mid-reply.
-function replying(reply: string) {
+function replying(reply: string, chunkDelayInMs = 5) {
   return new MockLanguageModelV4({
     doStream: async () => ({
       stream: simulateReadableStream({
-        chunkDelayInMs: 5,
+        chunkDelayInMs,
         chunks: [
           { type: "text-start", id: "t" },
           ...reply.split(/(?= )/).map((delta) => ({
@@ -110,6 +110,38 @@ function failingMidway(how: "error part" | "stream error") {
     }),
   });
 }
+
+// A reasoning model that hits the token cap: some reasoning and maybe some
+// text, then finishReason "length".
+function cutOff(text?: string) {
+  return new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: simulateReadableStream({
+        chunks: [
+          { type: "reasoning-start", id: "r" },
+          { type: "reasoning-delta", id: "r", delta: "Thinking it over" },
+          { type: "reasoning-end", id: "r" },
+          ...(text
+            ? [
+                { type: "text-start" as const, id: "t" },
+                { type: "text-delta" as const, id: "t", delta: text },
+                { type: "text-end" as const, id: "t" },
+              ]
+            : []),
+          {
+            type: "finish",
+            finishReason: { unified: "length", raw: undefined },
+            usage,
+          },
+        ],
+      }),
+    }),
+  });
+}
+
+// How many times the prompt holds the person's messages.
+const userTurnsIn = (model: MockLanguageModelV4) =>
+  model.doStreamCalls[0]!.prompt.filter((m) => m.role === "user").length;
 
 const failing = () =>
   new MockLanguageModelV4({
@@ -415,7 +447,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
         ["user", "Tell me something"],
       ]);
-      await turn(c, thread, message, replying("A whole reply."));
+      const resend = replying("A whole reply.");
+      await turn(c, thread, message, resend);
+      assert.equal(userTurnsIn(resend), 1);
       assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
         ["user", "Tell me something"],
         ["assistant", "A whole reply."],
@@ -448,11 +482,95 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
       ["user", "Are you there?"],
     ]);
-    await turn(c, thread, message, replying("Yes."));
+    const resend = replying("Yes.");
+    await turn(c, thread, message, resend);
+    assert.equal(userTurnsIn(resend), 1);
     assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
       ["user", "Are you there?"],
       ["assistant", "Yes."],
     ]);
+  });
+
+  test("a reply stopped in the browser still reloads before the next message", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const first = await coachTurn({
+      userId: c,
+      threadId: thread,
+      message: userMessage("First"),
+      model: replying("Slow first answer that keeps going", 60),
+      db,
+    });
+    assert.ok(!("refused" in first));
+    const reader = first.stream.getReader();
+    await reader.read();
+    // Stop. Not awaited: a tee branch's cancel waits for the source to end.
+    void reader.cancel();
+    await turn(c, thread, userMessage("Second"), replying("Second answer."));
+    await first.saved;
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "First"],
+      ["assistant", "Slow first answer that keeps going"],
+      ["user", "Second"],
+      ["assistant", "Second answer."],
+    ]);
+  });
+
+  test("a reply can't borrow the place of a message in another thread", async () => {
+    const theirs = await coachThread(b, db);
+    const early = userMessage("Their early message");
+    await saveMessage(b, theirs, early, db);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const c = await account();
+    const mine = await coachThread(c, db);
+    await turn(c, mine, userMessage("Mine"), replying("Reply."));
+    const reply = { id: randomUUID(), role: "assistant" as const, parts: [] };
+    await saveMessage(c, mine, reply, db, early.id);
+    // Saved at now(), not just after their message.
+    assert.deepEqual(textOf(await threadMessages(c, mine, db)), [
+      ["user", "Mine"],
+      ["assistant", "Reply."],
+      ["assistant", ""],
+    ]);
+  });
+
+  test("a reply cut off by the token cap before any text isn't saved, and can be resent", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Plan my week");
+    const failed = await turn(c, thread, message, cutOff());
+    assert.ok("chunks" in failed);
+    assert.ok(failed.chunks.some((chunk) => chunk.type === "error"));
+    assert.ok(
+      !failed.chunks.some((chunk) => chunk.type.startsWith("reasoning")),
+    );
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "Plan my week"],
+    ]);
+    const resend = replying("Start with Monday.");
+    await turn(c, thread, message, resend);
+    assert.equal(userTurnsIn(resend), 1);
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "Plan my week"],
+      ["assistant", "Start with Monday."],
+    ]);
+  });
+
+  test("a reply cut off after some text is saved, without its reasoning", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const done = await turn(
+      c,
+      thread,
+      userMessage("Go on"),
+      cutOff("As far as I got"),
+    );
+    assert.ok("chunks" in done);
+    assert.ok(!done.chunks.some((chunk) => chunk.type === "error"));
+    assert.ok(!done.chunks.some((chunk) => chunk.type.startsWith("reasoning")));
+    const [, reply] = (await threadMessages(c, thread, db))!;
+    assert.ok(!reply!.parts.some((p) => p.type === "reasoning"));
+    assert.deepEqual(textOf([reply!]), [["assistant", "As far as I got"]]);
   });
 
   // From Arjan's review of #19 (M1 and B1).

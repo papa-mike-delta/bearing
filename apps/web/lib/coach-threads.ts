@@ -67,11 +67,16 @@ export async function threadMessages(
 // forged id can't overwrite another thread's message. Returns false when the
 // id belongs to another thread or role. Throws if the thread isn't the
 // user's (callers check that first).
+// A reply passes `answering`, the id of the message it answers, and is placed
+// just after it, however long it ran: a reply still running after Stop then
+// reloads before anything sent in the meantime. Only a message in the same
+// thread counts; otherwise the reply is placed now.
 export async function saveMessage(
   userId: string,
   threadId: string,
   message: UIMessage,
   db: Db = defaultDb,
+  answering?: string,
 ) {
   const [saved] = await db
     .insert(coachMessages)
@@ -81,6 +86,9 @@ export async function saveMessage(
       threadId: sql`(select ${coachThreads.id} from ${coachThreads} where ${threadOf(userId, threadId)})`,
       role: message.role,
       parts: message.parts,
+      ...(answering && {
+        createdAt: sql`coalesce((select ${coachMessages.createdAt} + interval '1 microsecond' from ${coachMessages} where ${and(eq(coachMessages.id, answering), eq(coachMessages.threadId, threadId))}), now())`,
+      }),
     })
     .onConflictDoUpdate({
       target: coachMessages.id,

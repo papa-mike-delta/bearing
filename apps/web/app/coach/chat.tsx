@@ -2,7 +2,8 @@
 
 import { useChat } from "@ai-sdk/react";
 import { maxCoachMessageLength } from "@repo/coach";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function Chat({
@@ -13,10 +14,20 @@ export function Chat({
   initialMessages: UIMessage[];
 }) {
   const [input, setInput] = useState("");
+  const router = useRouter();
   const { messages, sendMessage, status, stop, error, regenerate } = useChat({
     id: threadId,
     messages: initialMessages,
     generateId: () => crypto.randomUUID(),
+    // 409: the server's thread has moved on, e.g. a Resend after the
+    // connection dropped but the reply was saved. Reload the thread from the
+    // server; the page keys this component by its last message, so it starts
+    // over with the saved thread and no error.
+    onError: (error) => {
+      if (APICallError.isInstance(error) && error.statusCode === 409) {
+        router.refresh();
+      }
+    },
     transport: new DefaultChatTransport({
       api: "/api/coach",
       // Only the newest message; the server loads the rest of the thread.

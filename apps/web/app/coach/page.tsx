@@ -11,7 +11,11 @@ export default async function Coach() {
   return (
     <main>
       <Header email={user.email} />
-      <Chat threadId={threadId} initialMessages={messages ?? []} />
+      <Chat
+        key={messages?.at(-1)?.id ?? "empty"}
+        threadId={threadId}
+        initialMessages={messages ?? []}
+      />
     </main>
   );
 }

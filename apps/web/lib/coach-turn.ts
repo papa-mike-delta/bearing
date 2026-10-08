@@ -6,6 +6,8 @@ import {
   toUIMessageStream,
   validateUIMessages,
   type LanguageModel,
+  type TextStreamPart,
+  type ToolSet,
   type UIMessage,
 } from "ai";
 import { saveMessage, threadMessages } from "./coach-threads.ts";
@@ -112,9 +114,10 @@ export async function coachTurn({
   // "completed" after an error part, so the outcome alone isn't enough.)
   let failed = false;
   // One copy streams to the browser, the other is read here, so the reply is
-  // still saved if the browser stops reading.
+  // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream,
+    stream: result.stream.pipeThrough(failWhenCutOffBeforeText()),
+    sendReasoning: false,
     originalMessages: messages,
     generateMessageId: () => crypto.randomUUID(),
     onError: () => {
@@ -123,11 +126,34 @@ export async function coachTurn({
     },
     onEnd: async ({ responseMessage, outcome }) => {
       if (!failed && outcome.status === "completed") {
-        await saveMessage(userId, thread, responseMessage, db);
+        await saveMessage(userId, thread, responseMessage, db, userMessage.id);
       }
     },
   }).tee();
   return { stream, saved: readToEnd(ownCopy) };
+}
+
+// Reasoning counts toward maxReplyTokens, so a reply can hit the cap before
+// writing any text. That's a failed turn (an error part, so it isn't saved
+// and the browser offers Resend), not an empty reply the browser would hide.
+function failWhenCutOffBeforeText() {
+  let wroteText = false;
+  return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
+    transform(part, controller) {
+      if (part.type === "text-delta" && part.text.trim()) wroteText = true;
+      if (
+        part.type === "finish" &&
+        part.finishReason === "length" &&
+        !wroteText
+      ) {
+        controller.enqueue({
+          type: "error",
+          error: new Error("The reply hit the token cap before any text"),
+        });
+      }
+      controller.enqueue(part);
+    },
+  });
 }
 
 async function readToEnd(stream: ReadableStream) {

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { minPasswordLength } from "../../lib/credentials";
 import { createAccount, signInWithPassword } from "../actions";
+import { SubmitButtons } from "./submit-buttons";
 
 const errors: Record<string, string> = {
   "wrong-password": "Wrong email or password.",
@@ -36,12 +37,10 @@ export default async function SignIn({
           />
         </label>
         {error && errors[error] ? <p role="alert">{errors[error]}</p> : null}
-        <button type="submit" formAction={signInWithPassword}>
-          Sign in
-        </button>
-        <button type="submit" formAction={createAccount}>
-          Create account
-        </button>
+        <SubmitButtons
+          signIn={signInWithPassword}
+          createAccount={createAccount}
+        />
       </form>
     </main>
   );
