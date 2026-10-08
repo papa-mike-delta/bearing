@@ -69,6 +69,16 @@ npm test
 
 `next start` outside Vercel also needs `AUTH_TRUST_HOST=true`.
 
+### Password
+
+Signed in, **Password** in the header opens Change password. It checks the current password, stores a new hash with the same rules as sign-up (at least 8 characters), and signs out every other session for that account.
+
+Locked out, reset from a terminal. It reads `POSTGRES_URL_NON_POOLING` (or `POSTGRES_URL` if that isn't set), asks for a new password, and if you leave it blank it generates one and prints it once. It never prints the connection string. Every session for that account is signed out.
+
+```sh
+POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- you@example.com
+```
+
 Node 24 is what the starter declares. Remote cache: `npx turbo login` then `npx turbo link`.
 
 ## Agent skills
