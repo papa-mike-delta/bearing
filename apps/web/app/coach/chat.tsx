@@ -4,7 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { maxCoachMessageLength, shownParts } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function Chat({
   threadId,
@@ -37,6 +37,24 @@ export function Chat({
     }),
   });
   const replying = status === "submitted" || status === "streaming";
+
+  // Keep the newest message and the composer in view: on load, on send, and
+  // as a reply streams in, unless the person has scrolled up to read.
+  const end = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  useEffect(() => {
+    const onScroll = () => {
+      const { scrollHeight } = document.documentElement;
+      following.current =
+        window.innerHeight + window.scrollY >= scrollHeight - 80;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    if (following.current) end.current?.scrollIntoView({ block: "end" });
+  }, [messages, status]);
+
   // A reply that failed before any text or tool call has nothing to show.
   const shown = messages.flatMap((message) => {
     const parts = shownParts(message.parts);
@@ -78,6 +96,7 @@ export function Chat({
         onSubmit={(event) => {
           event.preventDefault();
           if (!input.trim() || replying) return;
+          following.current = true;
           sendMessage({ text: input });
           setInput("");
         }}
@@ -98,6 +117,7 @@ export function Chat({
           <button type="submit">Send</button>
         )}
       </form>
+      <div ref={end} />
     </>
   );
 }

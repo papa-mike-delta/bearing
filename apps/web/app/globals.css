@@ -99,6 +99,7 @@ button {
 
 button {
   cursor: pointer;
+  white-space: nowrap;
 }
 
 main > form button:first-of-type {
@@ -199,12 +200,31 @@ li strong {
   margin-top: 8px;
 }
 
+/* Stays at the bottom of the screen on a long thread, so Stop and the
+   input are always in reach. */
 form.composer {
+  position: sticky;
+  bottom: 0;
   flex-direction: row;
   max-width: none;
   gap: 0.5rem;
+  padding: 8px 0;
+  background: var(--background);
 }
 
 form.composer input {
   flex: 1;
+}
+
+/* Phones: the email gives way so the header fits on one line, and 16px
+   inputs stop iOS Safari zooming in on focus. */
+@media (max-width: 480px) {
+  header > span {
+    display: none;
+  }
+
+  input,
+  textarea {
+    font-size: 16px;
+  }
 }
