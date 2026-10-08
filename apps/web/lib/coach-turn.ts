@@ -8,6 +8,7 @@ import { db as defaultDb } from "@repo/db";
 import {
   convertToModelMessages,
   isStepCount,
+  safeValidateUIMessages,
   streamText,
   toUIMessageStream,
   validateUIMessages,
@@ -59,8 +60,7 @@ function newMessageText(message: unknown) {
 // The route passes the session user; tests pass a scripted model and their
 // own database. Refuses, writing nothing:
 // - 400: a message that isn't a user message with a uuid id and one
-//   non-blank text part of at most maxCoachMessageLength, or a thread whose
-//   saved tool calls don't fit the tools;
+//   non-blank text part of at most maxCoachMessageLength;
 // - 404: a thread that isn't the user's;
 // - 409: an id already used by another thread or role, or by an earlier
 //   message (only the last message can be resent).
@@ -104,19 +104,12 @@ export async function coachTurn({
     parts: [{ type: "text", text: incoming.text }],
   };
   const tools = coachTools(data);
-  let messages: UIMessage[];
-  try {
-    messages = await validateUIMessages({
-      messages: [
-        ...(resent === -1 ? earlier : earlier.slice(0, -1)),
-        userMessage,
-      ],
-      tools,
-    });
-  } catch {
-    return { refused: 400 } as const;
-  }
   const thread = threadId as string;
+  const prior = resent === -1 ? earlier : earlier.slice(0, -1);
+  // A stored tool part that no longer fits its tool must not brick the
+  // thread. Keep the new message's strict check (above); fall back on the
+  // history so the person still gets a reply.
+  const messages = await historyForModel(prior, userMessage, tools, thread);
   // Read before saving, so a failed read writes nothing.
   const read = await freshRead(userId, data);
   if (!(await saveMessage(userId, thread, userMessage, db))) {
@@ -135,6 +128,10 @@ export async function coachTurn({
     toolsContext: coachToolsContext(userId),
     // The list was just read for the model, so it isn't offered listArea.
     toolChoice: "none",
+    // When write tools arrive (#16), earlier steps may call them; the last
+    // step still has to answer in text.
+    prepareStep: ({ stepNumber }) =>
+      stepNumber === maxCoachSteps - 1 ? { toolChoice: "none" as const } : {},
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
     // Thinking counts toward maxReplyTokens. Top level, so the fallback
@@ -173,6 +170,51 @@ export async function coachTurn({
     },
   }).tee();
   return { stream, saved: readToEnd(ownCopy) };
+}
+
+// Validates the thread for the model. The new message is already shape-checked.
+// When a saved tool part no longer fits its tool (renamed, removed, or a
+// changed schema), log it and leave those tool parts out of the model's view
+// instead of refusing the turn forever. The stored thread is untouched.
+async function historyForModel(
+  earlier: UIMessage[],
+  userMessage: UIMessage,
+  tools: ReturnType<typeof coachTools>,
+  threadId: string,
+) {
+  try {
+    return await validateUIMessages({
+      messages: [...earlier, userMessage],
+      tools,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(
+      JSON.stringify({
+        event: "coach.history.invalid",
+        threadId,
+        message: detail.slice(0, 300),
+      }),
+    );
+    const kept: UIMessage[] = [];
+    for (const message of earlier) {
+      const ok = await safeValidateUIMessages({ messages: [message], tools });
+      if (ok.success) {
+        kept.push(ok.data[0]!);
+        continue;
+      }
+      const stripped: UIMessage = {
+        ...message,
+        parts: message.parts.filter((part) => !part.type.startsWith("tool-")),
+      };
+      const again = await safeValidateUIMessages({
+        messages: [stripped],
+        tools,
+      });
+      if (again.success && again.data[0]) kept.push(again.data[0]);
+    }
+    return [...kept, userMessage];
+  }
 }
 
 // The thread as the model sees it: what was said, nothing else. Earlier tool
@@ -255,7 +297,8 @@ function logTurnError(threadId: string, model: LanguageModel, error: unknown) {
       threadId,
       model: typeof model === "string" ? model : model.modelId,
       error: name,
-      message,
+      // Providers sometimes echo a fragment of the prompt; keep the line short.
+      message: message.slice(0, 300),
       status: statusCode,
     }),
   );

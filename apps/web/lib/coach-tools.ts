@@ -26,6 +26,33 @@ export function coachData(db: Db = defaultDb): CoachData {
 // on every call. A call without it fails before the tool runs.
 const userContext = z.object({ userId: z.uuid() });
 
+// A thrown database error must not reach the model (it can carry SQL and the
+// user id). Log the real error, then throw a fixed sentence.
+async function runListArea(
+  input: {},
+  {
+    userId,
+    toolCallId,
+    data,
+  }: { userId: string; toolCallId: string; data: CoachData },
+) {
+  try {
+    return await listArea.run(input, { userId, toolCallId, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      JSON.stringify({
+        event: "coach.tool.error",
+        tool: "listArea",
+        toolCallId,
+        error: error instanceof Error ? error.name : "Error",
+        message: message.slice(0, 300),
+      }),
+    );
+    throw new Error("The list couldn't be read.");
+  }
+}
+
 export function coachTools(data: CoachData) {
   return {
     listArea: tool({
@@ -33,26 +60,40 @@ export function coachTools(data: CoachData) {
       inputSchema: listArea.inputSchema,
       contextSchema: userContext,
       execute: (input, { context, toolCallId }) =>
-        listArea.run(input, { userId: context.userId, toolCallId, data }),
+        runListArea(input, {
+          userId: context.userId,
+          toolCallId,
+          data,
+        }),
     }),
   };
 }
 
-// The context for every Coach tool, from the session user.
+// The context for every Coach tool, from the session user. Derived from the
+// tool names so a new tool can't be forgotten here.
 export function coachToolsContext(userId: string) {
-  return { listArea: { userId } };
+  const tools = coachTools({
+    listOpenTasks: async () => [],
+  });
+  return Object.fromEntries(
+    (Object.keys(tools) as (keyof typeof tools)[]).map((name) => [
+      name,
+      { userId },
+    ]),
+  ) as { [Name in keyof typeof tools]: { userId: string } };
 }
 
 // The person's open Tasks, read by Bearing at the start of a turn instead of
 // waiting for the model to ask: so every answer is about the list as it is
 // now, and a turn reads it once. `messages` hands the read to the model as a
-// listArea call and its result, noted as the list right now. `receipt` adds the same call to the streamed
-// reply, so it shows, saves and reloads as a listArea receipt.
+// listArea call and its result, noted as the list right now. `receipt` adds
+// the same call to the streamed reply, so it shows, saves and reloads as a
+// listArea receipt.
 export async function freshRead(userId: string, data: CoachData) {
   // At most 40 characters: OpenAI refuses longer tool-call ids.
   const toolCallId = `read_${crypto.randomUUID().replaceAll("-", "")}`;
   const call = { toolCallId, toolName: "listArea" } as const;
-  const output = await listArea.run({}, { userId, toolCallId, data });
+  const output = await runListArea({}, { userId, toolCallId, data });
   const messages: ModelMessage[] = [
     { role: "assistant", content: [{ type: "tool-call", ...call, input: {} }] },
     {
@@ -63,7 +104,8 @@ export async function freshRead(userId: string, data: CoachData) {
           ...call,
           output: {
             type: "json",
-            value: { note: "The person's list right now.", ...output },
+            // note last so a field of the same name in output can't overwrite it
+            value: { ...output, note: "The person's list right now." },
           },
         },
       ],

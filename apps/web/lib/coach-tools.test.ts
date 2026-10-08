@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import type { CoachData } from "@repo/coach";
 import { simulateReadableStream, streamText, type ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -83,4 +83,85 @@ test("a tool call with no context, or no user id in it, fails and doesn't run", 
     assert.ok(!types.includes("tool-result"), JSON.stringify(context));
     assert.ok(types.includes("error"), JSON.stringify(context));
   }
+});
+
+test("a tool error reaches the model as a fixed sentence, not the database text", async () => {
+  const userId = randomUUID();
+  const data: CoachData = {
+    async listOpenTasks() {
+      throw new Error(`Failed query: select … params: ${userId}`);
+    },
+  };
+  let step = 0;
+  let secondPrompt = "";
+  const model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      step += 1;
+      if (step === 1) {
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              {
+                type: "tool-call",
+                toolCallId: "call_1",
+                toolName: "listArea",
+                input: "{}",
+              },
+              {
+                type: "finish",
+                finishReason: { unified: "tool-calls", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        };
+      }
+      secondPrompt = JSON.stringify(options.prompt);
+      return {
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "t" },
+            { type: "text-delta", id: "t", delta: "ok" },
+            { type: "text-end", id: "t" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              usage,
+            },
+          ],
+        }),
+      };
+    },
+  });
+  const error = mock.method(console, "error", () => {});
+  const result = streamText({
+    model,
+    prompt: "What's on my list?",
+    tools: coachTools(data) as ToolSet,
+    toolsContext: coachToolsContext(userId) as never,
+    stopWhen: ({ steps }) => steps.length >= 2,
+    onError: () => {},
+  });
+  try {
+    for await (const _ of result.stream);
+  } finally {
+    error.mock.restore();
+  }
+  assert.ok(secondPrompt.includes("The list couldn't be read."));
+  assert.ok(!secondPrompt.includes(userId));
+  assert.ok(!secondPrompt.includes("Failed query"));
+  assert.ok(
+    error.mock.calls.some((call) =>
+      call.arguments.map(String).join(" ").includes("Failed query"),
+    ),
+  );
+});
+
+test("coachToolsContext lists every tool coachTools registers", () => {
+  const userId = randomUUID();
+  const tools = coachTools({ listOpenTasks: async () => [] });
+  assert.deepEqual(
+    Object.keys(coachToolsContext(userId)).sort(),
+    Object.keys(tools).sort(),
+  );
 });

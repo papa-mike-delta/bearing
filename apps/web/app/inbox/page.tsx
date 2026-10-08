@@ -32,7 +32,9 @@ export default async function Inbox({
           maxLength={maxDraftLength}
           required
         />
-        {error && errors[error] ? <p role="alert">{errors[error]}</p> : null}
+        {error && Object.hasOwn(errors, error) ? (
+          <p role="alert">{errors[error]}</p>
+        ) : null}
         <button type="submit">Capture</button>
       </form>
       {drafts.length === 0 ? (

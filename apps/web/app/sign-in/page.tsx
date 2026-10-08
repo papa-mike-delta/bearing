@@ -36,7 +36,9 @@ export default async function SignIn({
             required
           />
         </label>
-        {error && errors[error] ? <p role="alert">{errors[error]}</p> : null}
+        {error && Object.hasOwn(errors, error) ? (
+          <p role="alert">{errors[error]}</p>
+        ) : null}
         <SubmitButtons
           signIn={signInWithPassword}
           createAccount={createAccount}
