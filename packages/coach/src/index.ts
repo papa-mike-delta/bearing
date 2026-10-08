@@ -1,6 +1,8 @@
 // Tool definitions, skill files, and knowledge markdown.
 // No model calls. apps/web owns the AI SDK route.
 
+export { coachSystemPrompt } from "./prompt.ts";
+
 export const skills = [
   "weekly-review",
   "habit-design",

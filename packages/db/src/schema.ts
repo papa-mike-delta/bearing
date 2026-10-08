@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -115,3 +117,47 @@ export const drafts = pgTable("drafts", {
     .defaultNow()
     .$onUpdate(() => new Date()),
 });
+
+// Coach threads. Phase 2 opens one per person, but nothing stops more.
+export const coachThreads = pgTable(
+  "coach_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("coach_threads_user_id_idx").on(t.userId)],
+);
+
+// One row per AI SDK UI message. id is the message's own uuid, and parts is
+// its parts array, so a saved thread reloads as the messages useChat sent.
+export const coachMessages = pgTable(
+  "coach_messages",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => coachThreads.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    parts: jsonb("parts_json").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check("coach_messages_role", sql`${t.role} in ('user', 'assistant')`),
+    index("coach_messages_thread_created_idx").on(t.threadId, t.createdAt),
+  ],
+);

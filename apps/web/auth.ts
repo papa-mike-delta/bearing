@@ -64,9 +64,15 @@ export const { auth, signIn, signOut } = NextAuth({
   },
 });
 
+// The signed-in user, or null. API routes answer 401 on null.
+export async function getApiUser() {
+  const user = (await auth())?.user;
+  return user?.id ? { id: user.id, email: user.email } : null;
+}
+
 // The signed-in user, or a redirect to sign in.
 export async function requireUser() {
-  const user = (await auth())?.user;
-  if (!user?.id) redirect("/sign-in");
-  return { id: user.id, email: user.email };
+  const user = await getApiUser();
+  if (!user) redirect("/sign-in");
+  return user;
 }

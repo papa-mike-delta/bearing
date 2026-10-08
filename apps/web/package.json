@@ -12,15 +12,19 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@ai-sdk/react": "4.0.136",
     "@auth/drizzle-adapter": "1.11.3",
+    "@repo/coach": "*",
     "@repo/db": "*",
     "@repo/domain": "*",
     "@repo/ui": "*",
+    "ai": "7.0.133",
     "drizzle-orm": "0.45.3",
     "next": "16.3.4",
     "next-auth": "5.0.0-beta.32",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
