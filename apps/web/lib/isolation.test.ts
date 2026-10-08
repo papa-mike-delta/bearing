@@ -14,6 +14,7 @@ import {
   changePriority,
   completeTask,
   createArea,
+  maxSourceIdLength,
   openTasks,
   type Provenance,
 } from "./tasks.ts";
@@ -190,13 +191,16 @@ describe(
       for (const task of added) assert.equal(task?.id, open[0]!.id);
     });
 
-    test("a blank source id adds nothing", async () => {
+    test("a blank or overlong source id adds nothing", async () => {
       const before = (await openTasks(a, db)).length;
-      for (const sourceId of ["", "  "]) {
+      for (const sourceId of ["", "  ", "x".repeat(maxSourceIdLength + 1)]) {
         const from: Provenance = { source: "coach", sourceId };
         assert.equal(await addTask(a, { name: "No id", from }, db), null);
       }
       assert.equal((await openTasks(a, db)).length, before);
+      const longest = "x".repeat(maxSourceIdLength);
+      const from: Provenance = { source: "coach", sourceId: longest };
+      assert.ok(await addTask(a, { name: "Longest id", from }, db));
     });
 
     test("the same provenance in another account's Area adds a task there", async () => {

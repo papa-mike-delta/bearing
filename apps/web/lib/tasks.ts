@@ -71,13 +71,16 @@ export async function openTasks(userId: string, db: Db = defaultDb) {
 // Where a Task came from: the Coach and its tool-call id.
 export type Provenance = { source: "coach"; sourceId: string };
 
+// Keeps the provenance index row well under Postgres's btree size limit.
+export const maxSourceIdLength = 200;
+
 type TaskRef = { id: string; name: string };
 
 // The one way a task is created, whether added on the list, filed from a
 // Draft, or added with provenance. Returns the Task, or null when the domain
-// rule refuses the name or note or the source id is blank. With provenance
-// already used in the Area it adds nothing and returns that Task. Accounts
-// made before Areas existed get theirs here.
+// rule refuses the name or note, or the source id is blank or too long. With
+// provenance already used in the Area it adds nothing and returns that Task.
+// Accounts made before Areas existed get theirs here.
 export async function addTask(
   userId: string,
   input: { name: string; note?: string; from?: Provenance },
@@ -85,7 +88,9 @@ export async function addTask(
 ): Promise<TaskRef | null> {
   const task = newTask(input);
   const { from } = input;
-  if (!task || (from && !from.sourceId.trim())) return null;
+  const badSourceId =
+    from && (!from.sourceId.trim() || from.sourceId.length > maxSourceIdLength);
+  if (!task || badSourceId) return null;
   let [area] = await userAreaIds(userId, db);
   if (!area) {
     await createArea(userId, db);
