@@ -1,6 +1,6 @@
 import {
   type CoachData,
-  coachInstructions,
+  coachSystemPrompt,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -8,7 +8,6 @@ import { db as defaultDb } from "@repo/db";
 import {
   convertToModelMessages,
   isStepCount,
-  pruneMessages,
   streamText,
   toUIMessageStream,
   validateUIMessages,
@@ -127,14 +126,11 @@ export async function coachTurn({
   // Start the model's view at a user message.
   const recent = messages.slice(-historyWindow);
   while (recent[0]?.role !== "user") recent.shift();
-  const history = pruneMessages({
-    messages: await convertToModelMessages(recent, { tools }),
-    toolCalls: "all",
-  });
+  const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: coachInstructions(read.listed),
-    messages: history,
+    system: coachSystemPrompt,
+    messages: [...history, ...read.messages],
     tools,
     toolsContext: coachToolsContext(userId),
     // The list was just read for the model, so it isn't offered listArea.
@@ -177,6 +173,25 @@ export async function coachTurn({
     },
   }).tee();
   return { stream, saved: readToEnd(ownCopy) };
+}
+
+// The thread as the model sees it: what was said, nothing else. Earlier tool
+// calls and their output go (the list may have changed since), and so do
+// step markers and blank text. A reply left with nothing is dropped, and
+// back-to-back messages from one side are joined (a message whose reply
+// failed, then the next one), so the thread alternates as providers expect.
+function textOnly(messages: UIMessage[]) {
+  const said: UIMessage[] = [];
+  for (const message of messages) {
+    const parts = message.parts.filter(
+      (part) => part.type === "text" && part.text.trim(),
+    );
+    if (!parts.length) continue;
+    const last = said.at(-1);
+    if (last?.role === message.role) last.parts.push(...parts);
+    else said.push({ ...message, parts });
+  }
+  return said;
 }
 
 // Calls `fail` on an error part. Reasoning counts toward maxReplyTokens, so

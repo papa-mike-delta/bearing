@@ -359,8 +359,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const sent = model.doStreamCalls[0]!.prompt.filter(
       (m) => m.role !== "system",
     );
-    assert.ok(sent.length <= historyWindow);
-    assert.equal(sent.at(-1)!.role, "user");
+    // The thread's messages, then this turn's read of the list.
+    assert.deepEqual(
+      sent.slice(-2).map((m) => m.role),
+      ["assistant", "tool"],
+    );
+    assert.ok(sent.length - 2 <= historyWindow);
     assert.equal(sent[0]!.role, "user");
     const text = JSON.stringify(sent);
     assert.ok(text.includes("#50#") && text.includes("#12#"));
@@ -784,27 +788,107 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(!prompt.includes("Someone else"));
   });
 
-  test("the model gets this turn's read in its instructions, not as a tool call it didn't make", async () => {
+  test("an old thread reaches the model as alternating text, then this turn's read", async () => {
     const c = await account();
-    await addTasks(c, [["Write the plan", 1]]);
     const thread = await coachThread(c, db);
-    await turn(c, thread, userMessage("What's on my list?"), replying("One."));
-    const model = replying("Still one.");
-    await turn(c, thread, userMessage("And now?"), model);
-    const { prompt, toolChoice } = model.doStreamCalls[0]!;
-    const [system, ...thread_] = prompt;
-    assert.equal(system!.role, "system");
-    const instructions = String(system!.content);
-    assert.ok(instructions.includes('"open":1'), instructions);
-    assert.ok(instructions.includes("Write the plan"));
-    // No tool call or result at all: with thinking on, Anthropic refuses an
-    // assistant tool call that doesn't start with the model's own thinking.
-    assert.deepEqual(
-      thread_.map((m) => m.role),
-      ["user", "assistant", "user"],
+    const listed = (open: number) => ({
+      open,
+      tasks: open
+        ? [{ id: randomUUID(), name: "Alpha", priority: 0, isNext: true }]
+        : [],
+    });
+    const read = (toolCallId: string, open: number) => ({
+      type: "tool-listArea" as const,
+      toolCallId,
+      state: "output-available" as const,
+      input: {},
+      output: listed(open),
+    });
+    const step = { type: "step-start" as const };
+    const text = (t: string) => ({
+      type: "text" as const,
+      text: t,
+      state: "done" as const,
+    });
+    // Saved as earlier heads saved them.
+    const old: UIMessage["parts"][] = [
+      // Before #20: text only.
+      [text("Hi")],
+      [step, text("Hello. What's on your mind?")],
+      // 80210aa: the model read the list, then answered.
+      [text("What should I do next?")],
+      [step, read("toolu_a", 1), step, text("Do Alpha first.")],
+      // 7caee41: two reads in one reply, and an empty text part.
+      [text("What's on my list?")],
+      [step, read("toolu_b", 1), step, read("toolu_c", 1), step, text("")],
+      // Receipts only: a refused read.
+      [text("Again?")],
+      [
+        step,
+        {
+          type: "tool-listArea",
+          toolCallId: "toolu_d",
+          state: "output-error",
+          input: ["not", "an", "object"],
+          errorText: "Invalid input",
+        },
+      ],
+      // Text around a read in one reply.
+      [text("And then?")],
+      [step, text("Let me look."), read("toolu_e", 1), step, text("Alpha.")],
+      // A message whose reply failed, so the next one follows it.
+      [text("Lost reply")],
+    ];
+    for (const [i, parts] of old.entries()) {
+      const role = parts.some((p) => p.type === "step-start")
+        ? "assistant"
+        : "user";
+      await saveMessage(c, thread, { id: randomUUID(), role, parts }, db);
+      assert.equal(role, i % 2 && i < 10 ? "assistant" : "user");
+    }
+    const model = replying("Your list is empty.");
+    const done = await turn(
+      c,
+      thread,
+      userMessage("What's on my list now?"),
+      model,
     );
-    assert.ok(!/"tool-(call|result)"/.test(JSON.stringify(thread_)));
-    assert.deepEqual(toolChoice, { type: "none" });
+    assert.ok("chunks" in done && !done.broke);
+
+    const sent = model.doStreamCalls[0]!.prompt.filter(
+      (m) => m.role !== "system",
+    );
+    const history = sent.slice(0, -2);
+    // Alternating, from the person, ending with the person.
+    assert.deepEqual(
+      history.map((m) => m.role),
+      ["user", "assistant", "user", "assistant", "user", "assistant", "user"],
+    );
+    for (const m of history) {
+      assert.ok(
+        Array.isArray(m.content) && m.content.length,
+        JSON.stringify(m),
+      );
+      for (const part of m.content as { type: string; text?: string }[]) {
+        assert.equal(part.type, "text", JSON.stringify(m));
+        assert.ok(part.text?.trim(), JSON.stringify(m));
+      }
+    }
+    // The failed reply's message and the new one are one turn of the person's.
+    assert.deepEqual(
+      (history.at(-1)!.content as { text: string }[]).map((p) => p.text),
+      ["Lost reply", "What's on my list now?"],
+    );
+    // Then this turn's read: one listArea call and its result, nothing older.
+    const [call, result] = sent.slice(-2);
+    assert.equal(call!.role, "assistant");
+    assert.equal(result!.role, "tool");
+    const tail = JSON.stringify([call, result]);
+    assert.ok(
+      tail.includes('"toolCallId":"read_') && tail.includes('"open":0'),
+    );
+    assert.ok(!JSON.stringify(history).includes("toolu_"));
+    assert.deepEqual(model.doStreamCalls[0]!.toolChoice, { type: "none" });
   });
 
   test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
