@@ -33,6 +33,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          # Auto-caching runs `npm config get cache` with npm 11 in the repo,
+          # which trips the devEngines pin. There's no lockfile to key on anyway.
+          package-manager-cache: false
       # package.json pins npm 10.9.9 in devEngines. Install it from outside the
       # repo: Node 24's npm 11 enforces the pin even for a global install run
       # here. There is no lockfile, so npm install rather than npm ci.
