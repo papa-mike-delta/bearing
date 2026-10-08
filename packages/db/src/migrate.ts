@@ -15,6 +15,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import {
+  migrateConnectionTimeoutMs,
+  migrateLockTimeout,
+} from "./migrate-client.ts";
 import { decide } from "./migrate-guard.ts";
 
 const vercel = process.argv.includes("--vercel");
@@ -42,12 +46,12 @@ console.log(
 
 const client = new Client({
   connectionString: url,
-  connectionTimeoutMillis: 30_000,
+  connectionTimeoutMillis: migrateConnectionTimeoutMs,
 });
 try {
   await client.connect();
   // Don't stall production queries behind a stuck ALTER TABLE.
-  await client.query("set lock_timeout = '10s'");
+  await client.query(`set lock_timeout = '${migrateLockTimeout}'`);
   // Two deploys migrating the same database take turns; the second finds
   // nothing left to apply.
   const deadline = Date.now() + lockWaitMs;
@@ -83,7 +87,9 @@ try {
     );
   }
 } catch (error) {
-  console.error("db migrate: failed; see the error below");
+  console.error(
+    "db migrate: failed; the pending migrations were rolled back. See the error below",
+  );
   console.error(error);
   process.exitCode = 1;
 } finally {

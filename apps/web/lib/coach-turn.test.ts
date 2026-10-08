@@ -978,11 +978,21 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     } finally {
       error.mock.restore();
     }
-    assert.ok(
-      error.mock.calls.some((call) =>
-        call.arguments.map(String).join(" ").includes("database down"),
-      ),
+    const logged = error.mock.calls.map((call) =>
+      call.arguments.map(String).join(" "),
     );
+    assert.ok(
+      logged.some((line) => {
+        try {
+          const entry = JSON.parse(line);
+          return entry.event === "coach.tool.error" && entry.error === "Error";
+        } catch {
+          return false;
+        }
+      }),
+      logged.join("\n"),
+    );
+    assert.ok(!logged.join("\n").includes("database down"));
     assert.equal(model.doStreamCalls.length, 0);
     assert.equal(await rowOf(message.id), undefined);
   });
@@ -1113,16 +1123,19 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const logged = error.mock.calls.map((call) =>
       call.arguments.map(String).join(" "),
     );
-    assert.ok(
-      logged.some((line) => {
-        try {
-          return JSON.parse(line).event === "coach.history.invalid";
-        } catch {
-          return false;
-        }
-      }),
-      logged.join("\n"),
-    );
+    const invalid = logged.flatMap((line) => {
+      try {
+        const entry = JSON.parse(line);
+        return entry.event === "coach.history.invalid" ? [entry] : [];
+      } catch {
+        return [];
+      }
+    });
+    assert.equal(invalid.length, 1, logged.join("\n"));
+    assert.equal(invalid[0].error, "AI_TypeValidationError");
+    assert.match(invalid[0].message, /messages\[/);
+    assert.ok(!invalid[0].message.includes("Value:"));
+    assert.ok(!logged.join("\n").includes("everyone's tasks"));
     // The bad tool part is out of the model's view; the earlier text remains.
     const history = model.doStreamCalls[0]!.prompt.filter(
       (m) => m.role !== "system",

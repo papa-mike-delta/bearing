@@ -7,7 +7,11 @@ import { mock, test } from "node:test";
 import type { CoachData } from "@repo/coach";
 import { simulateReadableStream, streamText, type ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { coachTools, coachToolsContext } from "./coach-tools.ts";
+import {
+  coachToolNames,
+  coachTools,
+  coachToolsContext,
+} from "./coach-tools.ts";
 
 const usage = {
   inputTokens: {
@@ -89,7 +93,9 @@ test("a tool error reaches the model as a fixed sentence, not the database text"
   const userId = randomUUID();
   const data: CoachData = {
     async listOpenTasks() {
-      throw new Error(`Failed query: select … params: ${userId}`);
+      throw new Error(`Failed query: select … params: ${userId}`, {
+        cause: { code: "42P01" },
+      });
     },
   };
   let step = 0;
@@ -150,18 +156,25 @@ test("a tool error reaches the model as a fixed sentence, not the database text"
   assert.ok(secondPrompt.includes("The list couldn't be read."));
   assert.ok(!secondPrompt.includes(userId));
   assert.ok(!secondPrompt.includes("Failed query"));
-  assert.ok(
-    error.mock.calls.some((call) =>
-      call.arguments.map(String).join(" ").includes("Failed query"),
-    ),
+  const logged = error.mock.calls.map((call) =>
+    call.arguments.map(String).join(" "),
   );
+  const toolError = logged.find((line) => line.includes("coach.tool.error"));
+  assert.ok(toolError, logged.join("\n"));
+  const entry = JSON.parse(toolError);
+  assert.equal(entry.event, "coach.tool.error");
+  assert.equal(entry.error, "Error");
+  assert.equal(entry.code, "42P01");
+  for (const secret of ["params", "select", "Failed query", userId]) {
+    assert.ok(!toolError.includes(secret), secret);
+  }
 });
 
 test("coachToolsContext lists every tool coachTools registers", () => {
   const userId = randomUUID();
-  const tools = coachTools({ listOpenTasks: async () => [] });
-  assert.deepEqual(
-    Object.keys(coachToolsContext(userId)).sort(),
-    Object.keys(tools).sort(),
-  );
+  const registered = Object.keys(
+    coachTools({ listOpenTasks: async () => [] }),
+  ).sort();
+  assert.deepEqual([...coachToolNames].sort(), registered);
+  assert.deepEqual(Object.keys(coachToolsContext(userId)).sort(), registered);
 });

@@ -8,7 +8,6 @@ import { db as defaultDb } from "@repo/db";
 import {
   convertToModelMessages,
   isStepCount,
-  safeValidateUIMessages,
   streamText,
   toUIMessageStream,
   validateUIMessages,
@@ -128,10 +127,6 @@ export async function coachTurn({
     toolsContext: coachToolsContext(userId),
     // The list was just read for the model, so it isn't offered listArea.
     toolChoice: "none",
-    // When write tools arrive (#16), earlier steps may call them; the last
-    // step still has to answer in text.
-    prepareStep: ({ stepNumber }) =>
-      stepNumber === maxCoachSteps - 1 ? { toolChoice: "none" as const } : {},
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
     // Thinking counts toward maxReplyTokens. Top level, so the fallback
@@ -172,51 +167,6 @@ export async function coachTurn({
   return { stream, saved: readToEnd(ownCopy) };
 }
 
-// Validates the thread for the model. The new message is already shape-checked.
-// When a saved tool part no longer fits its tool (renamed, removed, or a
-// changed schema), log it and leave those tool parts out of the model's view
-// instead of refusing the turn forever. The stored thread is untouched.
-async function historyForModel(
-  earlier: UIMessage[],
-  userMessage: UIMessage,
-  tools: ReturnType<typeof coachTools>,
-  threadId: string,
-) {
-  try {
-    return await validateUIMessages({
-      messages: [...earlier, userMessage],
-      tools,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(
-      JSON.stringify({
-        event: "coach.history.invalid",
-        threadId,
-        message: detail.slice(0, 300),
-      }),
-    );
-    const kept: UIMessage[] = [];
-    for (const message of earlier) {
-      const ok = await safeValidateUIMessages({ messages: [message], tools });
-      if (ok.success) {
-        kept.push(ok.data[0]!);
-        continue;
-      }
-      const stripped: UIMessage = {
-        ...message,
-        parts: message.parts.filter((part) => !part.type.startsWith("tool-")),
-      };
-      const again = await safeValidateUIMessages({
-        messages: [stripped],
-        tools,
-      });
-      if (again.success && again.data[0]) kept.push(again.data[0]);
-    }
-    return [...kept, userMessage];
-  }
-}
-
 // The thread as the model sees it: what was said, nothing else. Earlier tool
 // calls and their output go (the list may have changed since), and so do
 // step markers and blank text. A reply left with nothing is dropped, and
@@ -234,6 +184,37 @@ function textOnly(messages: UIMessage[]) {
     else said.push({ ...message, parts });
   }
   return said;
+}
+
+// Validates the thread for the model. The new message is already shape-checked.
+// When a saved tool part no longer fits its tool (renamed, removed, or a
+// changed schema), log it and leave those tool parts out of the model's view
+// instead of refusing the turn forever. The stored thread is untouched.
+async function historyForModel(
+  earlier: UIMessage[],
+  userMessage: UIMessage,
+  tools: ReturnType<typeof coachTools>,
+  threadId: string,
+) {
+  try {
+    return await validateUIMessages({
+      messages: [...earlier, userMessage],
+      tools,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const messageHead = detail.split(": Value:")[0] ?? detail;
+    console.error(
+      JSON.stringify({
+        event: "coach.history.invalid",
+        threadId,
+        error: error instanceof Error ? error.name : "Error",
+        // validateUIMessages puts the offending value after ": Value:".
+        message: messageHead.slice(0, 300),
+      }),
+    );
+    return [...textOnly(earlier), userMessage];
+  }
 }
 
 // Calls `fail` on an error part. Reasoning counts toward maxReplyTokens, so

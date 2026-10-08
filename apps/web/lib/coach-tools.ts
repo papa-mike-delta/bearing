@@ -27,7 +27,7 @@ export function coachData(db: Db = defaultDb): CoachData {
 const userContext = z.object({ userId: z.uuid() });
 
 // A thrown database error must not reach the model (it can carry SQL and the
-// user id). Log the real error, then throw a fixed sentence.
+// user id). Log the error name and SQLSTATE, then throw a fixed sentence.
 async function runListArea(
   input: {},
   {
@@ -39,14 +39,16 @@ async function runListArea(
   try {
     return await listArea.run(input, { userId, toolCallId, data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     console.error(
       JSON.stringify({
         event: "coach.tool.error",
         tool: "listArea",
         toolCallId,
         error: error instanceof Error ? error.name : "Error",
-        message: message.slice(0, 300),
+        code:
+          error instanceof Error
+            ? (error.cause as { code?: string } | undefined)?.code
+            : undefined,
       }),
     );
     throw new Error("The list couldn't be read.");
@@ -69,18 +71,15 @@ export function coachTools(data: CoachData) {
   };
 }
 
-// The context for every Coach tool, from the session user. Derived from the
-// tool names so a new tool can't be forgotten here.
+// The Coach's tools. coachToolsContext is built from this list; the test
+// checks it matches the keys coachTools registers.
+export const coachToolNames = ["listArea"] as const;
+
+// The context for every Coach tool, from the session user.
 export function coachToolsContext(userId: string) {
-  const tools = coachTools({
-    listOpenTasks: async () => [],
-  });
   return Object.fromEntries(
-    (Object.keys(tools) as (keyof typeof tools)[]).map((name) => [
-      name,
-      { userId },
-    ]),
-  ) as { [Name in keyof typeof tools]: { userId: string } };
+    coachToolNames.map((name) => [name, { userId }]),
+  ) as { [Name in (typeof coachToolNames)[number]]: { userId: string } };
 }
 
 // The person's open Tasks, read by Bearing at the start of a turn instead of
