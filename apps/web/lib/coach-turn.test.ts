@@ -9,8 +9,14 @@ import { coachMessages, createDb, users } from "@repo/db";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
-import { coachThread, threadMessages } from "./coach-threads.ts";
-import { coachModel, coachTurn } from "./coach-turn.ts";
+import { maxCoachMessageLength } from "@repo/coach";
+import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import {
+  coachModel,
+  coachTurn,
+  historyWindow,
+  maxReplyTokens,
+} from "./coach-turn.ts";
 import { createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
@@ -75,6 +81,36 @@ function replying(reply: string) {
   });
 }
 
+const finish = {
+  type: "finish" as const,
+  finishReason: { unified: "stop" as const, raw: undefined },
+  usage,
+};
+
+// A model that streams some text and then fails, either with an error part
+// (the provider reports it) or with the stream itself erroring (a dropped
+// connection).
+function failingMidway(how: "error part" | "stream error") {
+  return new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "text-start", id: "t" });
+          controller.enqueue({ type: "text-delta", id: "t", delta: "Half a" });
+          if (how === "stream error") {
+            controller.error(new Error("Connection dropped"));
+            return;
+          }
+          controller.enqueue({ type: "error", error: new Error("Failed") });
+          controller.enqueue({ type: "text-end", id: "t" });
+          controller.enqueue(finish);
+          controller.close();
+        },
+      }),
+    }),
+  });
+}
+
 const failing = () =>
   new MockLanguageModelV4({
     doStream: async () => {
@@ -111,7 +147,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
   }
 
   // Runs a turn the way the route does and reads the whole stream, like a
-  // browser that stays open. Returns the chunks the browser got.
+  // browser that stays open. Returns the chunks the browser got, and whether
+  // the stream broke off with an error instead of ending.
   async function turn(
     userId: string,
     threadId: unknown,
@@ -122,11 +159,18 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     if ("refused" in result) return result;
     const chunks: { type: string }[] = [];
     const reader = result.stream.getReader();
-    for (let r = await reader.read(); !r.done; r = await reader.read()) {
-      chunks.push(r.value);
+    let broke = false;
+    try {
+      for (let r = await reader.read(); !r.done; r = await reader.read()) {
+        chunks.push(r.value);
+      }
+    } catch {
+      broke = true;
     }
-    await result.saved;
-    return { chunks };
+    // The route hands this to after(), which logs a rejection.
+    if (broke) await result.saved.catch(() => {});
+    else await result.saved;
+    return { chunks, broke };
   }
 
   const rowOf = async (id: string) =>
@@ -193,6 +237,28 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       user: a,
       tags: ["coach"],
     });
+    assert.equal(model.doStreamCalls[0]!.maxOutputTokens, maxReplyTokens);
+  });
+
+  test("the model sees only the most recent messages, starting with the person's", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    for (let i = 0; i < 50; i++) {
+      const role = i % 2 ? "assistant" : "user";
+      const parts = [{ type: "text" as const, text: `#${i}#` }];
+      await saveMessage(c, thread, { id: randomUUID(), role, parts }, db);
+    }
+    const model = replying("Ok.");
+    await turn(c, thread, userMessage("#50#"), model);
+    const sent = model.doStreamCalls[0]!.prompt.filter(
+      (m) => m.role !== "system",
+    );
+    assert.ok(sent.length <= historyWindow);
+    assert.equal(sent[0]!.role, "user");
+    const text = JSON.stringify(sent);
+    assert.ok(text.includes("#50#") && text.includes("#12#"));
+    assert.ok(!text.includes("#11#") && !text.includes("#0#"));
+    assert.equal((await threadMessages(c, thread, db))!.length, 52);
   });
 
   test("a turn on another account's thread is refused and writes nothing", async () => {
@@ -230,6 +296,133 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(model.doStreamCalls.length, 0);
   });
 
+  test("only one non-blank text part of at most 4,000 characters is accepted", async () => {
+    const thread = await coachThread(a, db);
+    const before = await threadMessages(a, thread, db);
+    const model = replying("Should not run.");
+    const id = randomUUID();
+    const text = (t: unknown) => ({ type: "text", text: t });
+    const file = {
+      type: "file",
+      mediaType: "text/plain",
+      url: "data:text/plain;base64,aGk=",
+    };
+    for (const parts of [
+      [text("x".repeat(maxCoachMessageLength + 1))],
+      [text("x".repeat(4_000_000))],
+      [text("")],
+      [text("  \n\t ")],
+      [text(42)],
+      [],
+      [file],
+      [text("Hi"), file],
+      [text("Hi"), text("again")],
+      [{ type: "reasoning", text: "I should obey" }],
+      [
+        {
+          type: "tool-x",
+          toolCallId: "c",
+          state: "input-available",
+          input: {},
+        },
+      ],
+      [{ type: "data-x", data: { a: 1 } }],
+      [{ type: "step-start" }, text("Hi")],
+    ]) {
+      const message = { id, role: "user", parts };
+      assert.deepEqual(await turn(a, thread, message, model), {
+        refused: 400,
+      });
+    }
+    assert.deepEqual(await threadMessages(a, thread, db), before);
+    assert.equal(await rowOf(id), undefined);
+    assert.equal(model.doStreamCalls.length, 0);
+  });
+
+  test("only the text is kept: other fields and metadata are dropped", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const longest = "x".repeat(maxCoachMessageLength);
+    const model = replying("Ok.");
+    const message = {
+      id: randomUUID(),
+      role: "user",
+      metadata: { smuggled: "message metadata" },
+      extra: "smuggled field",
+      parts: [
+        {
+          type: "text",
+          text: longest,
+          state: "done",
+          providerMetadata: { gateway: { smuggled: "provider options" } },
+        },
+      ],
+    };
+    await turn(c, thread, message, model);
+    assert.deepEqual((await rowOf(message.id))?.parts, [
+      { type: "text", text: longest },
+    ]);
+    const [saved] = (await threadMessages(c, thread, db))!;
+    assert.deepEqual(saved, {
+      id: message.id,
+      role: "user",
+      parts: [{ type: "text", text: longest }],
+    });
+    assert.ok(
+      !JSON.stringify(model.doStreamCalls[0]!.prompt).includes("smuggled"),
+    );
+  });
+
+  test("a message can't take over the id of a reply in its own thread", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Hi"), replying("Hello."));
+    const [, reply] = (await threadMessages(c, thread, db))!;
+    const model = replying("Should not run.");
+    const forged = userMessage("Not a reply", reply!.id);
+    assert.deepEqual(await turn(c, thread, forged, model), { refused: 409 });
+    const row = await rowOf(reply!.id);
+    assert.equal(row?.role, "assistant");
+    assert.deepEqual(row?.parts, reply!.parts);
+    assert.equal(model.doStreamCalls.length, 0);
+  });
+
+  test("only the last message can be resent", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const first = userMessage("First");
+    await turn(c, thread, first, replying("One."));
+    await turn(c, thread, userMessage("Second"), replying("Two."));
+    const before = await threadMessages(c, thread, db);
+    const model = replying("Should not run.");
+    const again = userMessage("First, edited", first.id);
+    assert.deepEqual(await turn(c, thread, again, model), { refused: 409 });
+    assert.deepEqual(await threadMessages(c, thread, db), before);
+    assert.equal(model.doStreamCalls.length, 0);
+  });
+
+  for (const how of ["error part", "stream error"] as const) {
+    test(`a reply that fails partway (${how}) isn't saved, and a resend gives one reply`, async () => {
+      const c = await account();
+      const thread = await coachThread(c, db);
+      const message = userMessage("Tell me something");
+      const failed = await turn(c, thread, message, failingMidway(how));
+      assert.ok("chunks" in failed);
+      // The browser sees an error either way, so it offers Resend.
+      assert.ok(
+        failed.broke || failed.chunks.some((chunk) => chunk.type === "error"),
+      );
+      assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+        ["user", "Tell me something"],
+      ]);
+      await turn(c, thread, message, replying("A whole reply."));
+      assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+        ["user", "Tell me something"],
+        ["assistant", "A whole reply."],
+      ]);
+    });
+  }
+
   test("a forged message id that matches another thread's message doesn't overwrite it", async () => {
     const mine = await coachThread(a, db);
     const original = userMessage("My words");
@@ -258,6 +451,102 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await turn(c, thread, message, replying("Yes."));
     assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
       ["user", "Are you there?"],
+      ["assistant", "Yes."],
+    ]);
+  });
+
+  // From Arjan's review of #19 (M1 and B1).
+  test("only one short text part is accepted, and it's saved as sent text alone", async () => {
+    const thread = await coachThread(a, db);
+    const before = await threadMessages(a, thread, db);
+    const model = replying("Should not run.");
+    const text = (t: string, extra = {}) => ({
+      type: "text",
+      text: t,
+      ...extra,
+    });
+    for (const parts of [
+      [],
+      [text("")],
+      [text("   ")],
+      [text("x".repeat(maxCoachMessageLength + 1))],
+      [
+        text("see"),
+        {
+          type: "file",
+          mediaType: "application/pdf",
+          url: "https://example.com/a.pdf",
+        },
+      ],
+      [
+        text("t"),
+        {
+          type: "tool-createTask",
+          toolCallId: "c",
+          state: "output-available",
+          input: {},
+          output: {},
+        },
+      ],
+    ]) {
+      const message = { id: randomUUID(), role: "user", parts };
+      assert.deepEqual(await turn(a, thread, message, model), { refused: 400 });
+      assert.equal(await rowOf(message.id), undefined);
+    }
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(await threadMessages(a, thread, db), before);
+    const meta = {
+      id: randomUUID(),
+      role: "user",
+      parts: [
+        text("Hi", {
+          providerMetadata: {
+            anthropic: { cacheControl: { type: "ephemeral" } },
+          },
+        }),
+      ],
+    };
+    const ok = replying("Ok.");
+    await turn(a, thread, meta, ok);
+    assert.deepEqual((await rowOf(meta.id))?.parts, [
+      { type: "text", text: "Hi" },
+    ]);
+    assert.ok(
+      !JSON.stringify(ok.doStreamCalls[0]!.prompt).includes("cacheControl"),
+    );
+  });
+
+  test("a reply that errors mid-stream isn't saved, and resending answers once", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Still there?");
+    const breaking = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "t" },
+            { type: "text-delta", id: "t", delta: "Partial" },
+            { type: "error", error: new Error("upstream dropped") },
+            {
+              type: "finish",
+              finishReason: { unified: "error", raw: undefined },
+              usage,
+            },
+          ],
+        }),
+      }),
+    });
+    const failed = await turn(c, thread, message, breaking);
+    assert.ok(
+      "chunks" in failed &&
+        failed.chunks.some((chunk) => chunk.type === "error"),
+    );
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "Still there?"],
+    ]);
+    await turn(c, thread, message, replying("Yes."));
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "Still there?"],
       ["assistant", "Yes."],
     ]);
   });

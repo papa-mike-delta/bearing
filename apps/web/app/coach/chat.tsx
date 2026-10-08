@@ -1,6 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import { maxCoachMessageLength } from "@repo/coach";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useState } from "react";
 
@@ -65,6 +66,7 @@ export function Chat({
           aria-label="Message the Coach"
           placeholder="Message the Coach"
           value={input}
+          maxLength={maxCoachMessageLength}
           onChange={(event) => setInput(event.target.value)}
           disabled={replying}
         />

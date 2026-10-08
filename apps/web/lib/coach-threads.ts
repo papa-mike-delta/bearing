@@ -1,7 +1,7 @@
 import { coachMessages, coachThreads, db as defaultDb } from "@repo/db";
 import type { UIMessage } from "ai";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { isUuid, type Db } from "./tasks.ts";
+import { isUuid, type Db } from "./db.ts";
 
 // Every query here takes the session user, like lib/tasks.ts.
 

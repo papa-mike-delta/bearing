@@ -7,23 +7,11 @@ import {
   type Workflow,
 } from "@repo/domain";
 import { and, eq, inArray, isNull } from "drizzle-orm";
+import { isUuid, type Db } from "./db.ts";
 
 // Every query here takes the session user. Tasks are reached through the
 // user's Area, so another account's rows never match. The trailing `db` lets
 // tests and transactions pass their own handle.
-
-export type Db = Pick<
-  typeof defaultDb,
-  "select" | "insert" | "update" | "transaction"
->;
-
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Ids come from forms. Anything that isn't a uuid can't match a row.
-export function isUuid(id: unknown): id is string {
-  return typeof id === "string" && uuidPattern.test(id);
-}
 
 export async function createArea(userId: string, db: Db = defaultDb) {
   const workflow: Workflow = "priority-list";
