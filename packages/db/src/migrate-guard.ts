@@ -11,7 +11,8 @@ export type Decision =
 // PRODUCTION_DB_HOST must be a bare hostname, optionally with a port: two or
 // more dot-separated labels, no scheme, userinfo, path, quotes, spaces or
 // trailing dot. Anything else could never match, so the check would pass.
-const bareHost = /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$/i;
+// The terminal password reset (apps/web) uses the same rule and dbHost.
+export const bareHost = /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$/i;
 
 // Neon's pooled and direct hosts differ only by "-pooler" on the endpoint,
 // so either form of PRODUCTION_DB_HOST matches.

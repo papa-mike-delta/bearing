@@ -4,9 +4,11 @@ import { db, users } from "@repo/db";
 import { maxDraftLength } from "@repo/domain";
 import { CredentialsSignin } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
 import { hashPassword, parseCredentials } from "../lib/credentials";
+import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
 import {
   addTask,
@@ -90,4 +92,37 @@ export async function fileDraft(formData: FormData) {
   revalidatePath("/inbox");
   revalidatePath("/");
   redirect(filed ? "/inbox" : "/inbox?error=cannot-file");
+}
+
+export async function changeAccountPassword(formData: FormData) {
+  const user = await requireUser();
+  const jar = await cookies();
+  const keepSession =
+    jar.get("__Secure-authjs.session-token")?.value ??
+    jar.get("authjs.session-token")?.value ??
+    null;
+  let result: Awaited<ReturnType<typeof changePassword>>;
+  try {
+    result = await changePassword(
+      user.id,
+      {
+        current: formData.get("current"),
+        next: formData.get("next"),
+        confirm: formData.get("confirm"),
+      },
+      { keepSession },
+    );
+  } catch (error) {
+    // A database failure stays on the server, logged by error name only so no
+    // query or value lands in the logs. The page only gets a reason.
+    console.error(
+      JSON.stringify({
+        event: "account.password.error",
+        error: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+    redirect("/account?error=unavailable");
+  }
+  if (!result.ok) redirect(`/account?error=${result.error}`);
+  redirect("/account?changed=1");
 }

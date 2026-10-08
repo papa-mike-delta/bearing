@@ -8,6 +8,7 @@ export function Header({ email }: { email?: string | null }) {
         <Link href="/">Tasks</Link>
         <Link href="/inbox">Inbox</Link>
         <Link href="/coach">Coach</Link>
+        <Link href="/account">Password</Link>
       </nav>
       <span>{email}</span>
       <form action={signOutOfBearing}>

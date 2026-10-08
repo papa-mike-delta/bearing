@@ -69,6 +69,26 @@ npm test
 
 `next start` outside Vercel also needs `AUTH_TRUST_HOST=true`.
 
+### Password
+
+Signed in, **Password** in the header opens Change password. It checks the current password, stores a new hash with the same rules as sign-up (at least 8 characters), and signs out every other session for that account.
+
+Locked out, reset from a terminal. The usual case is a production account:
+
+```sh
+PRODUCTION_DB_HOST=ep-xxxx-xxxx.us-east-2.aws.neon.tech \
+POSTGRES_URL_NON_POOLING='<production direct URL from Vercel>' \
+npm run reset-password -w web -- --production you@example.com
+```
+
+For a local or dev database, pass `--no-prod-check` (or set `PRODUCTION_DB_HOST`):
+
+```sh
+POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- --no-prod-check you@example.com
+```
+
+It reads `POSTGRES_URL_NON_POOLING`, falling back to `POSTGRES_URL`, and never prints the connection string. It must run in a terminal; it refuses when stdin isn't a TTY. `PRODUCTION_DB_HOST` is required (the script refuses without it) unless `--no-prod-check` is passed for a database that is definitely not production, in which case it warns and runs. It refuses when the database host matches `PRODUCTION_DB_HOST` (compared like the migrate guard: case, port, and Neon's `-pooler` suffix ignored) unless `--production` is passed. A `PRODUCTION_DB_HOST` that isn't a bare hostname is refused. It prints the target as host/db (no credentials, `(production)` when it's the production host), asks you to type the email again (a mismatch aborts), then asks for the new password twice without echoing it (a mismatch aborts; nothing is written). Leave it blank to generate one, which is printed once. Ctrl-C cancels without changing anything. Every session for that account is signed out.
+
 Node 24 is what the starter declares. Remote cache: `npx turbo login` then `npx turbo link`.
 
 ## Agent skills
