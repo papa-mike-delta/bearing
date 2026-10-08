@@ -8,7 +8,9 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "db:push": "drizzle-kit push"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node src/migrate.ts",
+    "db:migrate:vercel": "node src/migrate.ts --vercel"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",

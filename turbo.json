@@ -4,9 +4,13 @@
   "globalEnv": ["POSTGRES_URL", "POSTGRES_URL_NON_POOLING", "AUTH_SECRET"],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "@repo/db#db:migrate:vercel"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
+    },
+    "@repo/db#db:migrate:vercel": {
+      "cache": false,
+      "env": ["VERCEL", "VERCEL_ENV"]
     },
     "lint": {
       "dependsOn": ["^lint"]
