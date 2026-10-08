@@ -13,7 +13,7 @@
     },
     "test": {
       "dependsOn": ["^test"],
-      "env": ["TEST_POSTGRES_URL"]
+      "env": ["TEST_POSTGRES_URL", "CI"]
     },
     "check-types": {
       "dependsOn": ["^check-types"]

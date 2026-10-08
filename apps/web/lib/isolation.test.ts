@@ -1,6 +1,7 @@
 // Two accounts against a real Postgres, through the same functions the
-// server actions call with the session user. Skipped unless TEST_POSTGRES_URL
-// points at a database with the current schema (see README).
+// server actions call with the session user. Needs TEST_POSTGRES_URL pointing
+// at a database with the current schema (see README). Without it the suite
+// fails in CI and is skipped, with a warning, everywhere else.
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -17,6 +18,18 @@ import {
 } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
+
+if (!url && process.env.CI) {
+  test("account isolation runs in CI", () => {
+    assert.fail(
+      "TEST_POSTGRES_URL is not set, so the isolation suite can't run",
+    );
+  });
+} else if (!url) {
+  console.warn(
+    "\n!!! WARNING: account isolation tests SKIPPED. Set TEST_POSTGRES_URL to run them (see README). !!!\n",
+  );
+}
 
 describe(
   "account isolation",
