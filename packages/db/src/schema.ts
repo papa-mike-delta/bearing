@@ -60,7 +60,9 @@ export const areas = pgTable(
   (t) => [uniqueIndex("areas_user_id_unique").on(t.userId)],
 );
 
-// A task is open until completedAt is set.
+// A task is open until completedAt is set. source and sourceId record where it
+// came from (e.g. the Coach and its tool-call id); both are null for Tasks
+// added on the list or filed from a Draft.
 export const tasks = pgTable(
   "tasks",
   {
@@ -75,6 +77,8 @@ export const tasks = pgTable(
       mode: "date",
       withTimezone: true,
     }),
+    source: text("source"),
+    sourceId: text("source_id"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -83,8 +87,16 @@ export const tasks = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  // Same scale as minPriority..maxPriority in @repo/domain.
-  (t) => [check("tasks_priority_range", sql`${t.priority} between -2 and 2`)],
+  (t) => [
+    // Same scale as minPriority..maxPriority in @repo/domain.
+    check("tasks_priority_range", sql`${t.priority} between -2 and 2`),
+    check(
+      "tasks_source_pair",
+      sql`(${t.source} is null) = (${t.sourceId} is null)`,
+    ),
+    // One Task per source and source id in an Area. Nulls never collide.
+    uniqueIndex("tasks_area_source_unique").on(t.areaId, t.source, t.sourceId),
+  ],
 );
 
 // Captured text. It stays in the inbox until filed, then moves to archive.

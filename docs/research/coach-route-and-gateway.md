@@ -34,7 +34,7 @@ Constraints are taken from the spec, issue #1 and the code.
 | C9 | Phase 2 scope: "Coach, read-only plus `createTask` and `completeTask`. `useChat`, three tools, one knowledge article, Gateway model id in an env var. Writes already go through domain." | spec §11.6.2 |
 | C10 | Vocabulary: Area, Priority List, Task, Draft, Inbox, Coach. "Next" means the highlighted Task, not the Kanban status. | issue #1 "Further Notes"; spec §3 |
 | C11 | Stack in the repo: npm workspaces with `devEngines` npm `10.9.9` and `engines.node >=24`; `next` 16.3.4, `react` 19.2.8, `typescript` 7.0.2, `drizzle-orm` 0.45.3, `next-auth` 5.0.0-beta.32. Exact pins are the convention. Zod is not installed anywhere yet. No lockfile is committed. | root and `apps/web` `package.json` at `8ac802c` |
-| C12 | The one way to create a Task is `addTask(userId, input, db)` in `apps/web/lib/tasks.ts`. In PR #11 it applies the domain `newTask` rule and returns a boolean. `completeTask(userId, taskId, db)` returns nothing. Both live in `apps/web`, not in a package. | `apps/web/lib/tasks.ts` at `main` and `7efe598` |
+| C12 | The one way to create a Task is `addTask(userId, input, db)` in `apps/web/lib/tasks.ts`. In PR #11 it applies the domain `newTask` rule and returns a boolean. `completeTask(userId, taskId, db)` returns nothing. Both live in `apps/web`, not in a package. Superseded by #13: both now return `{ id, name }` or null. | `apps/web/lib/tasks.ts` at `main` and `7efe598` |
 
 ## Candidates
 
