@@ -46,7 +46,7 @@ export function coachToolsContext(userId: string) {
 // The person's open Tasks, read by Bearing at the start of a turn instead of
 // waiting for the model to ask: so every answer is about the list as it is
 // now, and a turn reads it once. `messages` hands the read to the model as a
-// listArea call and its result. `receipt` adds the same call to the streamed
+// listArea call and its result, noted as the list right now. `receipt` adds the same call to the streamed
 // reply, so it shows, saves and reloads as a listArea receipt.
 export async function freshRead(userId: string, data: CoachData) {
   // At most 40 characters: OpenAI refuses longer tool-call ids.
@@ -61,7 +61,10 @@ export async function freshRead(userId: string, data: CoachData) {
         {
           type: "tool-result",
           ...call,
-          output: { type: "json", value: output },
+          output: {
+            type: "json",
+            value: { note: "The person's list right now.", ...output },
+          },
         },
       ],
     },

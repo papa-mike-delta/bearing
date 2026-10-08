@@ -884,6 +884,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(call!.role, "assistant");
     assert.equal(result!.role, "tool");
     const tail = JSON.stringify([call, result]);
+    // The model is told what the read is; the saved receipt isn't (see "an
+    // empty list is read as empty").
+    assert.ok(tail.includes(`"note":"The person's list right now."`), tail);
     assert.ok(
       tail.includes('"toolCallId":"read_') && tail.includes('"open":0'),
     );
