@@ -35,9 +35,6 @@ if (decision.action === "refuse") {
   console.error(`db migrate: refused: ${decision.reason}`);
   process.exit(1);
 }
-for (const warning of decision.warnings) {
-  console.warn(`\n!!! db migrate WARNING: ${warning} !!!\n`);
-}
 const { url, host } = decision;
 console.log(
   `db migrate: ${process.env.VERCEL_ENV ?? "local"} → ${host}${new URL(url).pathname}`,

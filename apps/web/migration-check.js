@@ -13,6 +13,11 @@ export const markerUrl = new URL(
  * @param {() => string} readMarker
  */
 export function assertMigrated(env, readMarker) {
+  if (env.BEARING_VERCEL_BUILD === "1" && env.VERCEL !== "1") {
+    throw new Error(
+      "VERCEL is not set on a Vercel build. Turn on Automatically expose System Environment Variables.",
+    );
+  }
   if (env.VERCEL !== "1" || env.VERCEL_ENV === "development") return;
   let marker = null;
   try {

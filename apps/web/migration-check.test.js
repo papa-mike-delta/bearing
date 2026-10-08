@@ -18,6 +18,10 @@ test("local, CI and development builds aren't checked", () => {
   assertMigrated({ VERCEL: "1", VERCEL_ENV: "development" }, missing);
 });
 
+test("a Vercel build without the system env vars fails", () => {
+  assert.throws(() => assertMigrated({ BEARING_VERCEL_BUILD: "1" }, missing));
+});
+
 test("a production or preview build without the marker fails", () => {
   assert.throws(() => assertMigrated(preview, missing), /did not apply/);
   assert.throws(

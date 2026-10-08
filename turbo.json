@@ -9,7 +9,8 @@
         "VERCEL",
         "VERCEL_ENV",
         "VERCEL_DEPLOYMENT_ID",
-        "VERCEL_GIT_COMMIT_SHA"
+        "VERCEL_GIT_COMMIT_SHA",
+        "BEARING_VERCEL_BUILD"
       ],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
@@ -21,6 +22,7 @@
         "VERCEL_ENV",
         "VERCEL_DEPLOYMENT_ID",
         "VERCEL_GIT_COMMIT_SHA",
+        "BEARING_VERCEL_BUILD",
         "PRODUCTION_DB_HOST"
       ]
     },
