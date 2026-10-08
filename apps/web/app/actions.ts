@@ -112,8 +112,15 @@ export async function changeAccountPassword(formData: FormData) {
       },
       { keepSession },
     );
-  } catch {
-    // A database failure stays on the server. The page only gets a reason.
+  } catch (error) {
+    // A database failure stays on the server, logged by error name only so no
+    // query or value lands in the logs. The page only gets a reason.
+    console.error(
+      JSON.stringify({
+        event: "account.password.error",
+        error: error instanceof Error ? error.name : typeof error,
+      }),
+    );
     redirect("/account?error=unavailable");
   }
   if (!result.ok) redirect(`/account?error=${result.error}`);

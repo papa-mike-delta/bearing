@@ -2,60 +2,114 @@
 //
 //   POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- you@example.com
 //
-// Prompts for the new password when a terminal is attached. Leave it blank
-// and one is generated and printed once. Never prints the connection string.
+// Refuses the production database (the host in PRODUCTION_DB_HOST) unless
+// --production is passed. Shows the target host/db, asks for the email again,
+// then asks for the new password twice without echoing it. Leave it blank and
+// one is generated and printed once. Never prints the connection string.
 
 import { createDb, db } from "@repo/db";
 import { randomBytes } from "node:crypto";
-import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import {
-  chooseResetPassword,
-  databaseUrl,
-  resetPassword,
-} from "../lib/password.ts";
+import { createInterface } from "node:readline/promises";
+import { parseArgs } from "node:util";
+import { minPasswordLength } from "../lib/credentials.ts";
+import { readHidden } from "../lib/hidden-input.ts";
+import { chooseResetPassword, resetPassword } from "../lib/password.ts";
+import { resetTarget } from "../lib/reset-guard.ts";
 
-const email = process.argv[2];
-if (!email) {
-  console.error("Usage: npm run reset-password -w web -- <email>");
+const usage = "Usage: npm run reset-password -w web -- [--production] <email>";
+
+let args;
+try {
+  args = parseArgs({
+    options: { production: { type: "boolean", default: false } },
+    allowPositionals: true,
+  });
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  console.error(usage);
+  process.exit(1);
+}
+const email = args.positionals[0]?.trim().toLowerCase();
+if (!email || args.positionals.length > 1) {
+  console.error(usage);
   process.exit(1);
 }
 
-const url = databaseUrl(process.env);
-if (!url) {
-  console.error("Set POSTGRES_URL_NON_POOLING, or POSTGRES_URL.");
+const target = resetTarget(process.env, {
+  production: args.values.production,
+});
+if (target.action === "refuse") {
+  console.error(`Refused: ${target.reason}`);
+  process.exit(1);
+}
+if (target.warning) console.warn(`Warning: ${target.warning}`);
+
+if (!input.isTTY) {
+  console.error(
+    "Run this from a terminal. It asks you to confirm the email and the password.",
+  );
   process.exit(1);
 }
 
-let entered = "";
-if (input.isTTY) {
-  const rl = createInterface({ input, output });
-  entered = await rl.question("New password (leave empty to generate one): ");
-  rl.close();
-}
-
-const chosen = chooseResetPassword(
-  entered,
-  randomBytes(18).toString("base64url"),
+const { url, host } = target;
+console.log(
+  `Target: ${host}${new URL(url).pathname}${target.production ? " (production)" : ""}`,
 );
-if ("error" in chosen) {
-  console.error("Password must be at least 8 characters.");
-  process.exit(1);
+
+let password: string;
+let generated: boolean;
+try {
+  const rl = createInterface({ input, output });
+  const again = await rl.question(`Type ${email} again to confirm: `);
+  rl.close();
+  if (again.trim().toLowerCase() !== email) {
+    console.error("That email doesn't match. Nothing was changed.");
+    process.exit(1);
+  }
+
+  const entered = await readHidden(
+    "New password (leave empty to generate one): ",
+    { input, output },
+  );
+  const confirm = entered.trim()
+    ? await readHidden("Type the new password again: ", { input, output })
+    : "";
+  const chosen = chooseResetPassword(
+    entered,
+    confirm,
+    randomBytes(18).toString("base64url"),
+  );
+  if ("error" in chosen) {
+    console.error(
+      chosen.error === "mismatch"
+        ? "The passwords don't match. Nothing was changed."
+        : `Password must be at least ${minPasswordLength} characters. Nothing was changed.`,
+    );
+    process.exit(1);
+  }
+  ({ password, generated } = chosen);
+} catch (error) {
+  if (error instanceof Error && error.name === "AbortError") {
+    console.error("Cancelled. Nothing was changed.");
+    process.exit(130);
+  }
+  throw error;
 }
 
 const handle = createDb(url);
 let failed = false;
 try {
-  const result = await resetPassword(email, chosen.password, handle);
+  const result = await resetPassword(email, password, handle);
   if (!result.ok) {
     failed = true;
     console.error(
       result.error === "unknown"
-        ? `No account for ${email.trim().toLowerCase()}.`
-        : "Password must be at least 8 characters.",
+        ? `No account for ${email}.`
+        : `That isn't a valid email, or the password is shorter than ${minPasswordLength} characters.`,
     );
-  } else if (chosen.generated) {
-    console.log(`Password reset. New password: ${chosen.password}`);
+  } else if (generated) {
+    console.log(`Password reset. New password: ${password}`);
     console.log("Every session for that account was signed out.");
   } else {
     console.log(

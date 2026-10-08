@@ -1,14 +1,9 @@
 import { requireUser } from "../../auth";
+import { accountError } from "../../lib/account-errors";
 import { minPasswordLength } from "../../lib/credentials";
 import { changeAccountPassword } from "../actions";
 import { Header } from "../header";
-
-const errors: Record<string, string> = {
-  "wrong-password": "That current password isn't right.",
-  invalid: `Use a new password of at least ${minPasswordLength} characters.`,
-  mismatch: "The new password and the confirmation don't match.",
-  unavailable: "The password couldn't be changed. Try again.",
-};
+import { ChangePasswordButton } from "./submit-button";
 
 export default async function Account({
   searchParams,
@@ -17,6 +12,7 @@ export default async function Account({
 }) {
   const user = await requireUser();
   const { error, changed } = await searchParams;
+  const message = accountError(error);
 
   return (
     <main>
@@ -55,8 +51,8 @@ export default async function Account({
         {changed === "1" ? (
           <p role="status">Password changed. Other sessions were signed out.</p>
         ) : null}
-        {error && errors[error] ? <p role="alert">{errors[error]}</p> : null}
-        <button type="submit">Change password</button>
+        {message ? <p role="alert">{message}</p> : null}
+        <ChangePasswordButton />
       </form>
     </main>
   );

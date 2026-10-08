@@ -7,9 +7,9 @@ import { hashPassword, verifyPassword } from "./credentials.ts";
 import {
   changePassword,
   chooseResetPassword,
-  databaseUrl,
   resetPassword,
 } from "./password.ts";
+import { databaseUrl } from "./reset-guard.ts";
 
 test("a new password shorter than sign-up allows is refused", async () => {
   const result = await changePassword("not-a-user", {
@@ -21,17 +21,27 @@ test("a new password shorter than sign-up allows is refused", async () => {
 });
 
 test("a typed reset password has to meet the sign-up length, and a blank one is generated", () => {
-  assert.deepEqual(chooseResetPassword("short", "generated-long"), {
+  assert.deepEqual(chooseResetPassword("short", "short", "generated-long"), {
     error: "invalid",
   });
-  assert.deepEqual(chooseResetPassword("  longenough  ", "generated-long"), {
-    password: "longenough",
-    generated: false,
-  });
-  assert.deepEqual(chooseResetPassword("   ", "generated-long"), {
+  assert.deepEqual(
+    chooseResetPassword("  longenough  ", "longenough", "generated-long"),
+    { password: "longenough", generated: false },
+  );
+  assert.deepEqual(chooseResetPassword("   ", "", "generated-long"), {
     password: "generated-long",
     generated: true,
   });
+});
+
+test("a typed reset password has to be typed the same twice", () => {
+  for (const confirm of ["", "longenougH", "longenough2"]) {
+    assert.deepEqual(
+      chooseResetPassword("longenough", confirm, "generated-long"),
+      { error: "mismatch" },
+      confirm,
+    );
+  }
 });
 
 test("the reset reads the direct database url and falls back to the pooled one", () => {
@@ -83,6 +93,14 @@ describe(
       if (ids.length) await db.delete(users).where(inArray(users.id, ids));
       await db.$client.end();
     });
+
+    async function hashOf(userId: string) {
+      const [row] = await db
+        .select({ passwordHash: users.passwordHash })
+        .from(users)
+        .where(eq(users.id, userId));
+      return row!.passwordHash;
+    }
 
     async function account(password: string) {
       const [user] = await db
@@ -152,6 +170,10 @@ describe(
       )[0]!.passwordHash;
       assert.equal(await verifyPassword("a new passphrase", stored), true);
       assert.equal(await verifyPassword("correct horse", stored), false);
+      assert.equal(
+        await verifyPassword("someone else", await hashOf(other)),
+        true,
+      );
 
       const left = await db
         .select({ sessionToken: sessions.sessionToken })
@@ -165,6 +187,7 @@ describe(
 
     test("a reset sets a new password and signs every session out", async () => {
       const userId = await account("correct horse");
+      const other = await account("someone else");
       const email = (
         await db
           .select({ email: users.email })
@@ -172,9 +195,10 @@ describe(
           .where(eq(users.id, userId))
       )[0]!.email;
       const expires = new Date(Date.now() + 60_000);
-      await db
-        .insert(sessions)
-        .values({ sessionToken: `reset-${userId}`, userId, expires });
+      await db.insert(sessions).values([
+        { sessionToken: `reset-${userId}`, userId, expires },
+        { sessionToken: `other-${other}`, userId: other, expires },
+      ]);
 
       assert.deepEqual(
         await resetPassword("nobody@test.invalid", "longenough", db),
@@ -201,8 +225,12 @@ describe(
       const left = await db
         .select({ sessionToken: sessions.sessionToken })
         .from(sessions)
-        .where(eq(sessions.userId, userId));
-      assert.deepEqual(left, []);
+        .where(inArray(sessions.userId, [userId, other]));
+      assert.deepEqual(left, [{ sessionToken: `other-${other}` }]);
+      assert.equal(
+        await verifyPassword("someone else", await hashOf(other)),
+        true,
+      );
     });
   },
 );

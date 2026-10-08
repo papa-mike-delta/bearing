@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import {
   hashPassword,
   minPasswordLength,
+  parseCredentials,
   verifyPassword,
 } from "./credentials.ts";
 
@@ -64,9 +65,14 @@ export async function changePassword(
 export type PasswordReset =
   { ok: true } | { ok: false; error: "unknown" | "invalid" };
 
-// What the terminal reset does with a typed line. Blank means use the
-// generated password; a short one is refused, same as sign-up.
-export function chooseResetPassword(entered: string, generated: string) {
+// What the terminal reset does with the typed lines. Blank means use the
+// generated password; a short one is refused, same as sign-up, and a typed one
+// has to be typed the same way twice.
+export function chooseResetPassword(
+  entered: string,
+  confirm: string,
+  generated: string,
+) {
   const typed = entered.trim();
   if (!typed) {
     return generated.length < minPasswordLength
@@ -74,33 +80,23 @@ export function chooseResetPassword(entered: string, generated: string) {
       : ({ password: generated, generated: true } as const);
   }
   if (typed.length < minPasswordLength) return { error: "invalid" } as const;
+  if (confirm.trim() !== typed) return { error: "mismatch" } as const;
   return { password: typed, generated: false } as const;
 }
 
-// Direct connection first. The pooled URL is only a fallback, and this never
-// logs what it returns.
-export function databaseUrl(env: Record<string, string | undefined>) {
-  const direct = env.POSTGRES_URL_NON_POOLING?.trim();
-  if (direct) return direct;
-  const pooled = env.POSTGRES_URL?.trim();
-  return pooled || null;
-}
-
-// Sets a new password for an email and signs every session out. Email is
-// matched the same way sign-in matches it.
+// Sets a new password for an email and signs every session out. Email and
+// length are checked the way sign-in checks them (parseCredentials).
 export async function resetPassword(
   email: string,
   password: string,
   db: PasswordDb,
 ): Promise<PasswordReset> {
-  const normalized = email.trim().toLowerCase();
-  if (!normalized.includes("@") || password.length < minPasswordLength) {
-    return { ok: false, error: "invalid" };
-  }
+  const credentials = parseCredentials({ email, password });
+  if (!credentials) return { ok: false, error: "invalid" };
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, normalized));
+    .where(eq(users.email, credentials.email));
   if (!user) return { ok: false, error: "unknown" };
   const passwordHash = await hashPassword(password);
   await db.transaction(async (tx) => {
