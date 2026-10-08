@@ -15,6 +15,7 @@ import {
   completeTask,
   createArea,
   openTasks,
+  type Provenance,
 } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
@@ -53,6 +54,10 @@ describe(
       (await openTasks(userId, db)).find((t) => t.name === name)!;
     const rowOf = async (id: string) =>
       (await db.select().from(tasks).where(eq(tasks.id, id)))[0]!;
+    const coach = (): Provenance => ({
+      source: "coach",
+      sourceId: `call_${randomUUID()}`,
+    });
 
     before(async () => {
       a = await account();
@@ -160,7 +165,7 @@ describe(
     });
 
     test("provenance is stored, and repeating it in the same Area adds nothing", async () => {
-      const from = { source: "coach", sourceId: `call_${randomUUID()}` };
+      const from = coach();
       const first = (await addTask(a, { name: "From the Coach", from }, db))!;
       const row = await rowOf(first.id);
       assert.equal(row.source, "coach");
@@ -174,12 +179,35 @@ describe(
       assert.equal((await openTasks(a, db)).length, before);
     });
 
+    test("concurrent first adds with the same provenance make one task", async () => {
+      const c = await account();
+      const from = coach();
+      const added = await Promise.all(
+        [1, 2, 3, 4, 5].map(() => addTask(c, { name: "Raced add", from }, db)),
+      );
+      const open = await openTasks(c, db);
+      assert.equal(open.length, 1);
+      for (const task of added) assert.equal(task?.id, open[0]!.id);
+    });
+
+    test("a blank source id adds nothing", async () => {
+      const before = (await openTasks(a, db)).length;
+      for (const sourceId of ["", "  "]) {
+        const from: Provenance = { source: "coach", sourceId };
+        assert.equal(await addTask(a, { name: "No id", from }, db), null);
+      }
+      assert.equal((await openTasks(a, db)).length, before);
+    });
+
     test("the same provenance in another account's Area adds a task there", async () => {
-      const from = { source: "coach", sourceId: `call_${randomUUID()}` };
+      const from = coach();
       const mine = (await addTask(a, { name: "Shared id", from }, db))!;
       const theirs = (await addTask(b, { name: "Shared id", from }, db))!;
       assert.notEqual(theirs.id, mine.id);
       assert.equal((await taskOf(b, "Shared id")).id, theirs.id);
+      // A repeat returns each account's own Task, never the other's.
+      assert.deepEqual(await addTask(a, { name: "Again", from }, db), mine);
+      assert.deepEqual(await addTask(b, { name: "Again", from }, db), theirs);
     });
 
     test("tasks added on the list or from the Inbox have no provenance and coexist", async () => {
@@ -204,10 +232,16 @@ describe(
         .from(areas)
         .where(eq(areas.userId, a));
       const half = { areaId: area!.id, name: "Half", priority: 0 };
+      const refused = (e: { cause?: { constraint?: string } }) =>
+        e.cause?.constraint === "tasks_source_pair";
       await assert.rejects(
         db.insert(tasks).values({ ...half, source: "coach" }),
+        refused,
       );
-      await assert.rejects(db.insert(tasks).values({ ...half, sourceId: "x" }));
+      await assert.rejects(
+        db.insert(tasks).values({ ...half, sourceId: "x" }),
+        refused,
+      );
     });
 
     test("concurrent raises are not lost and stop at the top", async () => {

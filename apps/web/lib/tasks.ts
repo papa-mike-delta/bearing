@@ -68,23 +68,24 @@ export async function openTasks(userId: string, db: Db = defaultDb) {
   return priorityList(rows);
 }
 
-// Where a Task came from, e.g. the Coach and its tool-call id.
-export type Provenance = { source: string; sourceId: string };
+// Where a Task came from: the Coach and its tool-call id.
+export type Provenance = { source: "coach"; sourceId: string };
 
 type TaskRef = { id: string; name: string };
 
 // The one way a task is created, whether added on the list, filed from a
 // Draft, or added with provenance. Returns the Task, or null when the domain
-// rule refuses the name or note. With provenance already used in the Area it
-// adds nothing and returns that Task. Accounts made before Areas existed get
-// theirs here.
+// rule refuses the name or note or the source id is blank. With provenance
+// already used in the Area it adds nothing and returns that Task. Accounts
+// made before Areas existed get theirs here.
 export async function addTask(
   userId: string,
   input: { name: string; note?: string; from?: Provenance },
   db: Db = defaultDb,
 ): Promise<TaskRef | null> {
   const task = newTask(input);
-  if (!task) return null;
+  const { from } = input;
+  if (!task || (from && !from.sourceId.trim())) return null;
   let [area] = await userAreaIds(userId, db);
   if (!area) {
     await createArea(userId, db);
@@ -99,26 +100,28 @@ export async function addTask(
       note: task.note,
       areaId: area.id,
       priority: normalPriority,
-      source: input.from?.source,
-      sourceId: input.from?.sourceId,
+      source: from?.source,
+      sourceId: from?.sourceId,
     })
     .onConflictDoNothing({
       target: [tasks.areaId, tasks.source, tasks.sourceId],
     })
     .returning(ref);
+  if (added) return added;
   // Only provenance can conflict. Return the Task that already has it.
-  if (added || !input.from) return added ?? null;
+  if (!from) throw new Error("Task insert returned no row");
   const [existing] = await db
     .select(ref)
     .from(tasks)
     .where(
       and(
         eq(tasks.areaId, area.id),
-        eq(tasks.source, input.from.source),
-        eq(tasks.sourceId, input.from.sourceId),
+        eq(tasks.source, from.source),
+        eq(tasks.sourceId, from.sourceId),
       ),
     );
-  return existing ?? null;
+  if (!existing) throw new Error("Task provenance conflict with no row");
+  return existing;
 }
 
 // Returns the completed Task, or null when the id matched no open Task of
