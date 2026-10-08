@@ -1,6 +1,7 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db, sessions, users } from "@repo/db";
 import NextAuth from "next-auth";
+import { redirect } from "next/navigation";
 import Credentials from "next-auth/providers/credentials";
 import { parseCredentials, verifyPassword } from "./lib/credentials";
 
@@ -17,6 +18,12 @@ export const { auth, signIn, signOut } = NextAuth({
   // With an adapter the session strategy defaults to "database". Auth.js
   // rejects an explicit "database" with credentials only, so it is left unset.
   session: { maxAge },
+  callbacks: {
+    session: ({ session, user }) => ({
+      expires: session.expires,
+      user: { id: user.id, email: user.email },
+    }),
+  },
   providers: [
     Credentials({
       credentials: { email: {}, password: {} },
@@ -49,3 +56,10 @@ export const { auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+// The signed-in user, or a redirect to sign in.
+export async function requireUser() {
+  const user = (await auth())?.user;
+  if (!user?.id) redirect("/sign-in");
+  return { id: user.id, email: user.email };
+}

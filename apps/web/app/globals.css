@@ -97,3 +97,28 @@ main > form button:first-of-type {
 main > p {
   color: var(--muted);
 }
+
+ul {
+  list-style: none;
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+li button {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border-radius: 50%;
+}
+
+li button:hover {
+  border-color: var(--accent);
+}
