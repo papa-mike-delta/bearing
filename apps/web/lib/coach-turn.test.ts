@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, mock, test } from "node:test";
 import { coachMessages, createDb, users } from "@repo/db";
-import { simulateReadableStream, type UIMessage } from "ai";
+import { APICallError, simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
 import { maxCoachMessageLength, receipt } from "@repo/coach";
@@ -139,6 +139,13 @@ function cutOff(text?: string) {
   });
 }
 
+// Everything the model was sent on its first step, as text: the
+// instructions as they are, every other message as JSON.
+const promptText = (model: MockLanguageModelV4) =>
+  model.doStreamCalls[0]!.prompt.map((m) =>
+    typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+  ).join("\n");
+
 // How many times the prompt holds the person's messages.
 const userTurnsIn = (model: MockLanguageModelV4) =>
   model.doStreamCalls[0]!.prompt.filter((m) => m.role === "user").length;
@@ -185,15 +192,15 @@ function scripted(...steps: Step[]) {
 const receiptsOf = (messages: UIMessage[] | null) =>
   messages?.flatMap((m) => m.parts.flatMap((p) => receipt(p) ?? []));
 
-// The listArea output saved on a reloaded thread's last tool part.
-const listedIn = (messages: UIMessage[] | null) => {
-  const part = messages
-    ?.flatMap((m) => m.parts)
-    .find((p) => p.type === "tool-listArea") as
-    | { output?: { open: number; tasks: { name: string; isNext: boolean }[] } }
+// The first listArea part saved on a reloaded thread: its turn's read.
+const readIn = (messages: UIMessage[] | null) =>
+  messages?.flatMap((m) => m.parts).find((p) => p.type === "tool-listArea") as
+    | {
+        toolCallId: string;
+        output?: { open: number; tasks: { name: string; isNext: boolean }[] };
+      }
     | undefined;
-  return part?.output;
-};
+const listedIn = (messages: UIMessage[] | null) => readIn(messages)?.output;
 
 const failing = () =>
   new MockLanguageModelV4({
@@ -352,12 +359,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const sent = model.doStreamCalls[0]!.prompt.filter(
       (m) => m.role !== "system",
     );
-    // The thread's messages, then this turn's read of the list.
-    assert.deepEqual(
-      sent.slice(-2).map((m) => m.role),
-      ["assistant", "tool"],
-    );
-    assert.ok(sent.length - 2 <= historyWindow);
+    assert.ok(sent.length <= historyWindow);
+    assert.equal(sent.at(-1)!.role, "user");
     assert.equal(sent[0]!.role, "user");
     const text = JSON.stringify(sent);
     assert.ok(text.includes("#50#") && text.includes("#12#"));
@@ -767,15 +770,98 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       ],
     );
     assert.deepEqual(receiptsOf(reloaded), ["Read your list (4 open)"]);
+    // OpenAI (the fallback) refuses tool-call ids over 40 characters.
+    const { toolCallId } = readIn(reloaded)!;
+    assert.ok(toolCallId.length <= 40, toolCallId);
     assert.deepEqual(textOf(reloaded), [
       ["user", "What should I do next?"],
       ["assistant", "Do High first."],
     ]);
     // The model's one step already had the list, and nothing of d's.
     assert.equal(model.doStreamCalls.length, 1);
-    const prompt = JSON.stringify(model.doStreamCalls[0]!.prompt);
+    const prompt = promptText(model);
     assert.ok(prompt.includes('"open":4') && prompt.includes("High"));
     assert.ok(!prompt.includes("Someone else"));
+  });
+
+  test("the model gets this turn's read in its instructions, not as a tool call it didn't make", async () => {
+    const c = await account();
+    await addTasks(c, [["Write the plan", 1]]);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("What's on my list?"), replying("One."));
+    const model = replying("Still one.");
+    await turn(c, thread, userMessage("And now?"), model);
+    const { prompt, toolChoice } = model.doStreamCalls[0]!;
+    const [system, ...thread_] = prompt;
+    assert.equal(system!.role, "system");
+    const instructions = String(system!.content);
+    assert.ok(instructions.includes('"open":1'), instructions);
+    assert.ok(instructions.includes("Write the plan"));
+    // No tool call or result at all: with thinking on, Anthropic refuses an
+    // assistant tool call that doesn't start with the model's own thinking.
+    assert.deepEqual(
+      thread_.map((m) => m.role),
+      ["user", "assistant", "user"],
+    );
+    assert.ok(!/"tool-(call|result)"/.test(JSON.stringify(thread_)));
+    assert.deepEqual(toolChoice, { type: "none" });
+  });
+
+  test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        throw new APICallError({
+          message: "messages.1.content.0.type: Expected `thinking`",
+          url: "https://ai-gateway.vercel.sh/v3/ai/language-model",
+          requestBodyValues: { secret: "What's on my list?" },
+          statusCode: 400,
+          isRetryable: false,
+        });
+      },
+    });
+    const error = mock.method(console, "error", () => {});
+    try {
+      await turn(c, thread, userMessage("What's on my list?"), model);
+    } finally {
+      error.mock.restore();
+    }
+    const lines = error.mock.calls.map((call) =>
+      call.arguments.map(String).join(" "),
+    );
+    assert.deepEqual(
+      lines.map((line) => JSON.parse(line)),
+      [
+        {
+          event: "coach.turn.error",
+          threadId: thread,
+          model: "mock-model-id",
+          error: "AI_APICallError",
+          message: "messages.1.content.0.type: Expected `thinking`",
+          status: 400,
+        },
+      ],
+    );
+    for (const secret of [c, "What's on my list?"]) {
+      assert.ok(!lines[0]!.includes(secret), secret);
+    }
+  });
+
+  test("a failed read writes nothing and doesn't run the model", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = replying("Should not run.");
+    const message = userMessage("What's on my list?");
+    const data = {
+      listOpenTasks: () => Promise.reject(new Error("database down")),
+    };
+    await assert.rejects(
+      coachTurn({ userId: c, threadId: thread, message, model, db, data }),
+      /database down/,
+    );
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(await rowOf(message.id), undefined);
   });
 
   test("an empty list is read as empty", async () => {
@@ -810,7 +896,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     for (let i = 0; i < 3; i++) {
       const model = replying("It's empty.");
       await turn(c, thread, userMessage("What's on my list?"), model);
-      const prompt = JSON.stringify(model.doStreamCalls[0]!.prompt);
+      const prompt = promptText(model);
       assert.ok(prompt.includes('"open":0'), "the fresh read");
       assert.ok(!prompt.includes('"open":3'), "no earlier read");
       assert.ok(!prompt.includes("Alpha"), "no completed Task");

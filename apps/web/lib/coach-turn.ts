@@ -1,7 +1,6 @@
 import {
   type CoachData,
-  coachSystemPrompt,
-  listArea,
+  coachInstructions,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -14,13 +13,17 @@ import {
   toUIMessageStream,
   validateUIMessages,
   type LanguageModel,
-  type ModelMessage,
   type TextStreamPart,
   type ToolSet,
   type UIMessage,
 } from "ai";
 import { saveMessage, threadMessages } from "./coach-threads.ts";
-import { coachData, coachTools, coachToolsContext } from "./coach-tools.ts";
+import {
+  coachData,
+  coachTools,
+  coachToolsContext,
+  freshRead,
+} from "./coach-tools.ts";
 import { isUuid, type Db } from "./db.ts";
 
 // The Gateway model id. Swap models by changing COACH_MODEL.
@@ -77,12 +80,15 @@ export async function coachTurn({
   message,
   model,
   db = defaultDb,
+  data = coachData(db),
 }: {
   userId: string;
   threadId: unknown;
   message: unknown;
   model: LanguageModel;
   db?: Db;
+  // What the Coach reads, from `db` unless given.
+  data?: CoachData;
 }) {
   const incoming = newMessageText(message);
   if (!incoming) return { refused: 400 } as const;
@@ -98,7 +104,6 @@ export async function coachTurn({
     role: "user",
     parts: [{ type: "text", text: incoming.text }],
   };
-  const data = coachData(db);
   const tools = coachTools(data);
   let messages: UIMessage[];
   try {
@@ -128,12 +133,11 @@ export async function coachTurn({
   });
   const result = streamText({
     model,
-    system: coachSystemPrompt,
-    messages: [...history, ...read.messages],
+    system: coachInstructions(read.listed),
+    messages: history,
     tools,
     toolsContext: coachToolsContext(userId),
-    // The list was just read for the model. listArea stays defined, because
-    // the prompt holds its call, but the model isn't offered it.
+    // The list was just read for the model, so it isn't offered listArea.
     toolChoice: "none",
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
@@ -143,6 +147,8 @@ export async function coachTurn({
     providerOptions: {
       gateway: { models: [fallbackModel], user: userId, tags: ["coach"] },
     },
+    // failOnErrors logs it instead, without the request body (the thread).
+    onError: () => {},
   });
   // A model or Gateway error, even after some text, means the reply isn't
   // saved; the person resends instead. (The stream can still report
@@ -153,9 +159,12 @@ export async function coachTurn({
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream
-      .pipeThrough(read.receipt)
-      .pipeThrough(failOnErrors(() => (failed = true))),
+    stream: result.stream.pipeThrough(read.receipt).pipeThrough(
+      failOnErrors((error) => {
+        if (!failed) logTurnError(thread, model, error);
+        failed = true;
+      }),
+    ),
     tools,
     sendReasoning: false,
     originalMessages: messages,
@@ -170,47 +179,11 @@ export async function coachTurn({
   return { stream, saved: readToEnd(ownCopy) };
 }
 
-// The person's open Tasks, read by Bearing at the start of a turn instead of
-// waiting for the model to ask: so every answer is about the list as it is
-// now, and a turn reads it once. `messages` hands the read to the model as a
-// listArea call and its result. `receipt` adds the same call to the streamed
-// reply, so it shows, saves and reloads as a listArea receipt.
-async function freshRead(userId: string, data: CoachData) {
-  const toolCallId = `read-${crypto.randomUUID()}`;
-  const call = { toolCallId, toolName: "listArea" } as const;
-  const output = await listArea.run({}, { userId, toolCallId, data });
-  const messages: ModelMessage[] = [
-    { role: "assistant", content: [{ type: "tool-call", ...call, input: {} }] },
-    {
-      role: "tool",
-      content: [
-        {
-          type: "tool-result",
-          ...call,
-          output: { type: "json", value: output },
-        },
-      ],
-    },
-  ];
-  const receipt = new TransformStream<
-    TextStreamPart<ToolSet>,
-    TextStreamPart<ToolSet>
-  >({
-    transform(part, controller) {
-      controller.enqueue(part);
-      if (part.type !== "start") return;
-      controller.enqueue({ type: "tool-call", ...call, input: {} });
-      controller.enqueue({ type: "tool-result", ...call, input: {}, output });
-    },
-  });
-  return { messages, receipt };
-}
-
 // Calls `fail` on an error part. Reasoning counts toward maxReplyTokens, so
 // a reply can hit the cap before writing any text. That's a failed turn too
 // (an error part is added, so it isn't saved and the browser offers Resend),
 // not an empty reply the browser would hide.
-function failOnErrors(fail: () => void) {
+function failOnErrors(fail: (error: unknown) => void) {
   let wroteText = false;
   return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
     transform(part, controller) {
@@ -220,13 +193,11 @@ function failOnErrors(fail: () => void) {
         part.finishReason === "length" &&
         !wroteText
       ) {
-        fail();
-        controller.enqueue({
-          type: "error",
-          error: new Error("The reply hit the token cap before any text"),
-        });
+        const error = new Error("The reply hit the token cap before any text");
+        fail(error);
+        controller.enqueue({ type: "error", error });
       }
-      if (part.type === "error") fail();
+      if (part.type === "error") fail(part.error);
       controller.enqueue(part);
     },
   });
@@ -251,6 +222,26 @@ function logTurn(
       steps: count("step-start"),
       toolCalls: { listArea: count("tool-listArea") },
       finishReason,
+    }),
+  );
+}
+
+// One line when a turn fails, for the runtime logs: the error's name, its
+// message and HTTP status (a provider or Gateway refusal carries both). No
+// user id, no request body, nothing the person wrote.
+function logTurnError(threadId: string, model: LanguageModel, error: unknown) {
+  const { name, message, statusCode } =
+    error instanceof Error
+      ? (error as Error & { statusCode?: number })
+      : { name: "Error", message: String(error), statusCode: undefined };
+  console.error(
+    JSON.stringify({
+      event: "coach.turn.error",
+      threadId,
+      model: typeof model === "string" ? model : model.modelId,
+      error: name,
+      message,
+      status: statusCode,
     }),
   );
 }
