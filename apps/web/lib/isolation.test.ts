@@ -51,7 +51,7 @@ describe(
     }
     const taskOf = async (userId: string, name: string) =>
       (await openTasks(userId, db)).find((t) => t.name === name)!;
-    const priorityOf = async (id: string) =>
+    const rowOf = async (id: string) =>
       (await db.select().from(tasks).where(eq(tasks.id, id)))[0]!;
 
     before(async () => {
@@ -67,9 +67,9 @@ describe(
       await addTask(a, { name: "A's task" }, db);
       const task = await taskOf(a, "A's task");
       assert.deepEqual(await openTasks(b, db), []);
-      await completeTask(b, task.id, db);
+      assert.equal(await completeTask(b, task.id, db), null);
       await changePriority(b, task.id, 1, db);
-      const row = await priorityOf(task.id);
+      const row = await rowOf(task.id);
       assert.equal(row.completedAt, null);
       assert.equal(row.priority, 0);
     });
@@ -110,7 +110,7 @@ describe(
 
     test("ids that aren't uuids are ignored, not errors", async () => {
       for (const id of ["not-a-uuid", "", "1; drop table tasks"]) {
-        await completeTask(a, id, db);
+        assert.equal(await completeTask(a, id, db), null);
         await changePriority(a, id, 1, db);
         assert.equal(await fileDraftAsTask(a, id, db), true);
       }
@@ -118,27 +118,96 @@ describe(
 
     test("an account made before Areas existed gets one on its first task", async () => {
       const old = await account({ area: false });
-      assert.equal(await addTask(old, { name: "First" }, db), true);
-      assert.equal((await openTasks(old, db))[0]?.name, "First");
+      const added = await addTask(old, { name: "First" }, db);
+      assert.deepEqual(added, { id: added?.id, name: "First" });
+      assert.equal((await openTasks(old, db))[0]?.id, added?.id);
       await captureDraft(old, "Filed", db);
       const [draft] = await inboxDrafts(old, db);
       assert.equal(await fileDraftAsTask(old, draft!.id, db), true);
       assert.equal((await openTasks(old, db)).length, 2);
     });
 
-    test("a blank or overlong name adds nothing", async () => {
+    test("adding returns the new task's id and trimmed name", async () => {
+      const added = await addTask(a, { name: "  Returned  " }, db);
+      const task = await taskOf(a, "Returned");
+      assert.deepEqual(added, { id: task.id, name: "Returned" });
+    });
+
+    test("a blank or overlong name, or an overlong note, adds nothing", async () => {
       const before = (await openTasks(a, db)).length;
-      assert.equal(await addTask(a, { name: "  " }, db), false);
-      assert.equal(await addTask(a, { name: "x".repeat(501) }, db), false);
+      assert.equal(await addTask(a, { name: "  " }, db), null);
+      assert.equal(await addTask(a, { name: "x".repeat(501) }, db), null);
+      const note = "x".repeat(10_001);
+      assert.equal(await addTask(a, { name: "Long note", note }, db), null);
       assert.equal((await openTasks(a, db)).length, before);
     });
 
+    test("completing returns the task, and a completed or missing id returns null", async () => {
+      const added = (await addTask(a, { name: "Done" }, db))!;
+      assert.deepEqual(await completeTask(a, added.id, db), added);
+      const completedAt = (await rowOf(added.id)).completedAt;
+      assert.ok(completedAt);
+      assert.equal(await completeTask(a, added.id, db), null);
+      assert.deepEqual((await rowOf(added.id)).completedAt, completedAt);
+      assert.equal(await completeTask(a, randomUUID(), db), null);
+    });
+
     test("a completed task's priority can't change", async () => {
-      await addTask(a, { name: "Done" }, db);
-      const task = await taskOf(a, "Done");
+      const task = (await addTask(a, { name: "Done again" }, db))!;
       await completeTask(a, task.id, db);
       await changePriority(a, task.id, 1, db);
-      assert.equal((await priorityOf(task.id)).priority, 0);
+      assert.equal((await rowOf(task.id)).priority, 0);
+    });
+
+    test("provenance is stored, and repeating it in the same Area adds nothing", async () => {
+      const from = { source: "coach", sourceId: `call_${randomUUID()}` };
+      const first = (await addTask(a, { name: "From the Coach", from }, db))!;
+      const row = await rowOf(first.id);
+      assert.equal(row.source, "coach");
+      assert.equal(row.sourceId, from.sourceId);
+      const before = (await openTasks(a, db)).length;
+      const again = await Promise.all([
+        addTask(a, { name: "Retried", from }, db),
+        addTask(a, { name: "Retried", from }, db),
+      ]);
+      assert.deepEqual(again, [first, first]);
+      assert.equal((await openTasks(a, db)).length, before);
+    });
+
+    test("the same provenance in another account's Area adds a task there", async () => {
+      const from = { source: "coach", sourceId: `call_${randomUUID()}` };
+      const mine = (await addTask(a, { name: "Shared id", from }, db))!;
+      const theirs = (await addTask(b, { name: "Shared id", from }, db))!;
+      assert.notEqual(theirs.id, mine.id);
+      assert.equal((await taskOf(b, "Shared id")).id, theirs.id);
+    });
+
+    test("tasks added on the list or from the Inbox have no provenance and coexist", async () => {
+      const c = await account();
+      await addTask(c, { name: "Same" }, db);
+      await addTask(c, { name: "Same" }, db);
+      await captureDraft(c, "Same", db);
+      const [draft] = await inboxDrafts(c, db);
+      assert.equal(await fileDraftAsTask(c, draft!.id, db), true);
+      const open = await openTasks(c, db);
+      assert.equal(open.length, 3);
+      for (const t of open) {
+        const row = await rowOf(t.id);
+        assert.equal(row.source, null);
+        assert.equal(row.sourceId, null);
+      }
+    });
+
+    test("the database refuses a task with only one of source or source id", async () => {
+      const [area] = await db
+        .select({ id: areas.id })
+        .from(areas)
+        .where(eq(areas.userId, a));
+      const half = { areaId: area!.id, name: "Half", priority: 0 };
+      await assert.rejects(
+        db.insert(tasks).values({ ...half, source: "coach" }),
+      );
+      await assert.rejects(db.insert(tasks).values({ ...half, sourceId: "x" }));
     });
 
     test("concurrent raises are not lost and stop at the top", async () => {
@@ -146,9 +215,9 @@ describe(
       const task = await taskOf(a, "Raced");
       await db.update(tasks).set({ priority: -2 }).where(eq(tasks.id, task.id));
       await Promise.all([1, 2, 3].map(() => changePriority(a, task.id, 1, db)));
-      assert.equal((await priorityOf(task.id)).priority, 1);
+      assert.equal((await rowOf(task.id)).priority, 1);
       await Promise.all([1, 2, 3].map(() => changePriority(a, task.id, 1, db)));
-      assert.equal((await priorityOf(task.id)).priority, 2);
+      assert.equal((await rowOf(task.id)).priority, 2);
     });
 
     test("the database refuses a priority outside -2..2", async () => {
