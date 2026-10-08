@@ -36,3 +36,6 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Written by @repo/db migrate --vercel, checked by apps/web/next.config.js
+.migrate-marker.json

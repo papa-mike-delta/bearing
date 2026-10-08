@@ -3,42 +3,44 @@
 // told to by a reviewed migration file.
 //
 //   node src/migrate.ts           local dev and CI: always runs
-//   node src/migrate.ts --vercel  the build hook: runs only inside a Vercel
-//                                 build (VERCEL=1), a no-op everywhere else
+//   node src/migrate.ts --vercel  the build hook: Vercel production and
+//                                 preview builds only (rules and guards in
+//                                 migrate-guard.ts), a no-op elsewhere
 //
-// Uses POSTGRES_URL_NON_POOLING, the direct connection: the advisory lock
+// Requires POSTGRES_URL_NON_POOLING, the direct connection: the advisory lock
 // below is held by one session, which a transaction-mode pooler doesn't keep.
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import { decide } from "./migrate-guard.ts";
 
-const onVercel = process.env.VERCEL === "1";
-const vercelOnly = process.argv.includes("--vercel");
+const vercel = process.argv.includes("--vercel");
 const lockWaitMs = 10 * 60 * 1000;
+// apps/web/next.config.js reads this marker and fails a Vercel production or
+// preview build that didn't run this script first. Keep the paths in step.
+const marker = fileURLToPath(
+  new URL("../.migrate-marker.json", import.meta.url),
+);
+if (vercel) rmSync(marker, { force: true });
 
-if (vercelOnly && !onVercel) {
-  console.log("db migrate: not a Vercel build, skipped");
+const decision = decide(process.env, { vercel });
+if (decision.action === "skip") {
+  console.log(`db migrate: skipped (${decision.reason})`);
   process.exit(0);
 }
-
-const url = vercelOnly
-  ? process.env.POSTGRES_URL_NON_POOLING
-  : process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL;
-if (!url) {
-  console.error(
-    vercelOnly
-      ? `db migrate: POSTGRES_URL_NON_POOLING is not set for this ${process.env.VERCEL_ENV} build. ` +
-          "Connect the Neon integration to this environment (Preview needs preview branching on)."
-      : "db migrate: set POSTGRES_URL_NON_POOLING or POSTGRES_URL",
-  );
+if (decision.action === "refuse") {
+  console.error(`db migrate: refused: ${decision.reason}`);
   process.exit(1);
 }
-
-const { host, pathname } = new URL(url);
+for (const warning of decision.warnings) {
+  console.warn(`\n!!! db migrate WARNING: ${warning} !!!\n`);
+}
+const { url, host } = decision;
 console.log(
-  `db migrate: ${process.env.VERCEL_ENV ?? "local"} → ${host}${pathname}`,
+  `db migrate: ${process.env.VERCEL_ENV ?? "local"} → ${host}${new URL(url).pathname}`,
 );
 
 const client = new Client({ connectionString: url });
@@ -67,6 +69,17 @@ try {
   );
   await migrate(drizzle({ client }), { migrationsFolder });
   console.log(`db migrate: done, ${await count()} migration(s) recorded`);
+  if (vercel) {
+    writeFileSync(
+      marker,
+      JSON.stringify({
+        deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+        commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+        env: process.env.VERCEL_ENV,
+        host,
+      }),
+    );
+  }
 } catch (error) {
   console.error("db migrate: failed, nothing from this run was applied");
   console.error(error);

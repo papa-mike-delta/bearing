@@ -8,6 +8,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "test": "node --test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node src/migrate.ts",
     "db:migrate:vercel": "node src/migrate.ts --vercel"

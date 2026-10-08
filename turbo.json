@@ -5,12 +5,24 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build", "@repo/db#db:migrate:vercel"],
+      "passThroughEnv": [
+        "VERCEL",
+        "VERCEL_ENV",
+        "VERCEL_DEPLOYMENT_ID",
+        "VERCEL_GIT_COMMIT_SHA"
+      ],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "@repo/db#db:migrate:vercel": {
       "cache": false,
-      "env": ["VERCEL", "VERCEL_ENV"]
+      "passThroughEnv": [
+        "VERCEL",
+        "VERCEL_ENV",
+        "VERCEL_DEPLOYMENT_ID",
+        "VERCEL_GIT_COMMIT_SHA",
+        "PRODUCTION_DB_HOST"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]
