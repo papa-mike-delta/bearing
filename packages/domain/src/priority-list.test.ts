@@ -10,6 +10,7 @@ import {
 } from "./priority-list.ts";
 
 const task = (name: string, day: number, priority = normalPriority) => ({
+  id: name,
   name,
   priority,
   createdAt: new Date(2026, 0, day),
@@ -77,4 +78,9 @@ test("completing the next task moves the mark to the new first task", () => {
     nextTask([done, { ...second, completedAt: done.completedAt }]),
     null,
   );
+});
+
+test("tasks with equal priority and age are ordered by id", () => {
+  const list = priorityList([task("b", 1), task("c", 1), task("a", 1)]);
+  assert.deepEqual(names(list), ["a", "b", "c"]);
 });

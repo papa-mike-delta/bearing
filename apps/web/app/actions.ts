@@ -1,7 +1,8 @@
 "use server";
 
 import { db, users } from "@repo/db";
-import { AuthError } from "next-auth";
+import { maxDraftLength } from "@repo/domain";
+import { CredentialsSignin } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
@@ -22,7 +23,10 @@ export async function signInWithPassword(formData: FormData) {
       redirectTo: "/",
     });
   } catch (error) {
-    if (error instanceof AuthError) redirect("/sign-in?error=wrong-password");
+    // Only a refused email/password. A database or config failure throws.
+    if (error instanceof CredentialsSignin) {
+      redirect("/sign-in?error=wrong-password");
+    }
     throw error;
   }
 }
@@ -50,8 +54,7 @@ export async function signOutOfBearing() {
 
 export async function addTaskToList(formData: FormData) {
   const { id: userId } = await requireUser();
-  const name = String(formData.get("name") ?? "").trim();
-  if (name) await addTask(userId, { name });
+  await addTask(userId, { name: String(formData.get("name") ?? "") });
   revalidatePath("/");
 }
 
@@ -63,22 +66,28 @@ export async function completeTaskOnList(formData: FormData) {
 
 export async function changeTaskPriority(formData: FormData) {
   const { id: userId } = await requireUser();
-  const step = formData.get("step") === "up" ? 1 : -1;
-  await changePriority(userId, String(formData.get("id")), step);
+  const raw = formData.get("step");
+  const step = raw === "up" ? 1 : raw === "down" ? -1 : null;
+  if (step) await changePriority(userId, String(formData.get("id")), step);
   revalidatePath("/");
 }
 
 export async function captureToInbox(formData: FormData) {
   const { id: userId } = await requireUser();
-  const body = String(formData.get("body") ?? "");
+  // Browsers submit textarea line breaks as \r\n; store \n so the length
+  // check matches what the user typed.
+  const body = String(formData.get("body") ?? "").replace(/\r\n/g, "\n");
   if (!body.trim()) redirect("/inbox?error=empty");
+  if (body.length > maxDraftLength) redirect("/inbox?error=too-long");
   await captureDraft(userId, body);
   revalidatePath("/inbox");
+  redirect("/inbox"); // clears a stale ?error
 }
 
 export async function fileDraft(formData: FormData) {
   const { id: userId } = await requireUser();
-  await fileDraftAsTask(userId, String(formData.get("id")));
+  const filed = await fileDraftAsTask(userId, String(formData.get("id")));
   revalidatePath("/inbox");
   revalidatePath("/");
+  redirect(filed ? "/inbox" : "/inbox?error=cannot-file");
 }

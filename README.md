@@ -35,10 +35,18 @@ Sign-in is Auth.js with email and password and a database session in Postgres. T
 
 On Vercel, install Neon from the Marketplace (Storage → Neon) and connect it to the project with the env prefix `POSTGRES`. That sets both `POSTGRES_URL` variables. Add `AUTH_SECRET` under Settings → Environment Variables.
 
-For local dev put the variables in `apps/web/.env.local`. `POSTGRES_URL` can point at a Neon dev branch or a local Postgres (`postgres://user:pass@localhost:5432/bearing`). Create the tables once per database:
+For local dev put the variables in `apps/web/.env.local`. `POSTGRES_URL` can point at a Neon dev branch or a local Postgres (`postgres://user:pass@localhost:5432/bearing`). Apply the schema to each database (local, and each Neon branch Vercel uses) before first use and again after pulling any schema change:
 
 ```sh
 POSTGRES_URL_NON_POOLING=... npm run db:push -w @repo/db
+```
+
+`npm test` also runs an account-isolation test against a real database when `TEST_POSTGRES_URL` is set (it is skipped otherwise). Use a throwaway database, since the test writes and deletes its own accounts. Push the schema to it first:
+
+```sh
+export TEST_POSTGRES_URL=postgres://user:pass@localhost:5432/bearing_test
+POSTGRES_URL_NON_POOLING=$TEST_POSTGRES_URL npm run db:push -w @repo/db
+npm test
 ```
 
 `next start` outside Vercel also needs `AUTH_TRUST_HOST=true`.

@@ -13,16 +13,25 @@ const adapter = DrizzleAdapter(db, {
 });
 const maxAge = 30 * 24 * 60 * 60;
 
+// Session policy: database sessions, one row per sign-in.
+// - With an adapter the strategy defaults to "database". Auth.js rejects an
+//   explicit "database" with credentials only, so it is left unset. Do not set
+//   strategy: "jwt" (see nextauthjs/next-auth#3729).
+// - Credentials sign-in always encodes a token, so jwt.encode below stores a
+//   session row and returns its id as the cookie.
+// - callbacks.session only gets `user` under the database strategy.
 export const { auth, signIn, signOut } = NextAuth({
   adapter,
-  // With an adapter the session strategy defaults to "database". Auth.js
-  // rejects an explicit "database" with credentials only, so it is left unset.
   session: { maxAge },
   callbacks: {
-    session: ({ session, user }) => ({
-      expires: session.expires,
-      user: { id: user.id, email: user.email },
-    }),
+    session: ({ session, user }) => {
+      if (!user)
+        throw new Error("Bearing expects the database session strategy");
+      return {
+        expires: session.expires,
+        user: { id: user.id, email: user.email },
+      };
+    },
   },
   providers: [
     Credentials({
@@ -42,8 +51,6 @@ export const { auth, signIn, signOut } = NextAuth({
     }),
   ],
   jwt: {
-    // Credentials sign-in always asks for a token. Store a session row
-    // instead, so the cookie holds a database session id and not a JWT.
     async encode({ token }) {
       if (!token?.sub) throw new Error("Sign-in produced no user id");
       const sessionToken = crypto.randomUUID();

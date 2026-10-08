@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes, scryptSync } from "node:crypto";
 import { test } from "node:test";
 import {
   hashPassword,
@@ -39,4 +40,23 @@ test("a missing email or a short password cannot make an account", () => {
     null,
   );
   assert.equal(parseCredentials({}), null);
+});
+
+test("the hash stores OWASP-level scrypt parameters", async () => {
+  const stored = await hashPassword("correct horse");
+  assert.match(stored, /^scrypt\$131072\$8\$1\$[0-9a-f]{32}\$[0-9a-f]{128}$/);
+});
+
+test("hashes in the earlier salt:key format still verify", async () => {
+  const salt = randomBytes(16);
+  const legacy = `${salt.toString("hex")}:${scryptSync("old pass", salt, 64).toString("hex")}`;
+  assert.equal(await verifyPassword("old pass", legacy), true);
+  assert.equal(await verifyPassword("wrong", legacy), false);
+});
+
+test("a malformed stored hash never verifies", async () => {
+  for (const stored of ["x:y", "abcd:zz", "", "scrypt$1$1$1$00$00", ":"]) {
+    assert.equal(await verifyPassword("", stored), false, stored);
+    assert.equal(await verifyPassword("anything", stored), false, stored);
+  }
 });

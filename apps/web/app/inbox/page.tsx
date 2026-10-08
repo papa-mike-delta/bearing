@@ -1,7 +1,14 @@
+import { maxDraftLength, maxTaskNameLength } from "@repo/domain";
 import { requireUser } from "../../auth";
 import { inboxDrafts } from "../../lib/drafts";
 import { captureToInbox, fileDraft } from "../actions";
 import { Header } from "../header";
+
+const errors: Record<string, string> = {
+  empty: "Nothing to capture.",
+  "too-long": `Too long. A Draft can be up to ${maxDraftLength.toLocaleString("en-US")} characters.`,
+  "cannot-file": `Couldn't file that Draft. Its first line becomes the task name, which must be ${maxTaskNameLength} characters or fewer.`,
+};
 
 export default async function Inbox({
   searchParams,
@@ -18,8 +25,14 @@ export default async function Inbox({
     <main>
       <Header email={user.email} />
       <form action={captureToInbox}>
-        <textarea name="body" aria-label="Capture" rows={4} required />
-        {error === "empty" ? <p role="alert">Nothing to capture.</p> : null}
+        <textarea
+          name="body"
+          aria-label="Capture"
+          rows={4}
+          maxLength={maxDraftLength}
+          required
+        />
+        {error && errors[error] ? <p role="alert">{errors[error]}</p> : null}
         <button type="submit">Capture</button>
       </form>
       {drafts.length === 0 ? (

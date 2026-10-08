@@ -1,4 +1,13 @@
-import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import {
+  check,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 // The user row is the account. Auth.js reads name, emailVerified, and image;
 // they stay empty because sign-in is email and password only.
@@ -31,40 +40,52 @@ export const sessions = pgTable("sessions", {
 });
 
 // One Area per account in phase 1, created at sign-up.
-export const areas = pgTable("areas", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  workflow: text("workflow").notNull(),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const areas = pgTable(
+  "areas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    workflow: text("workflow").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex("areas_user_id_unique").on(t.userId)],
+);
 
 // A task is open until completedAt is set.
-export const tasks = pgTable("tasks", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  areaId: uuid("area_id")
-    .notNull()
-    .references(() => areas.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  note: text("note").notNull().default(""),
-  priority: integer("priority").notNull(),
-  completedAt: timestamp("completed_at", { mode: "date", withTimezone: true }),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    areaId: uuid("area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    note: text("note").notNull().default(""),
+    priority: integer("priority").notNull(),
+    completedAt: timestamp("completed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  // Same scale as minPriority..maxPriority in @repo/domain.
+  (t) => [check("tasks_priority_range", sql`${t.priority} between -2 and 2`)],
+);
 
 // Captured text. It stays in the inbox until filed, then moves to archive.
 export const drafts = pgTable("drafts", {

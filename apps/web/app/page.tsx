@@ -1,4 +1,9 @@
-import { maxPriority, minPriority, nextTask } from "@repo/domain";
+import {
+  maxPriority,
+  maxTaskNameLength,
+  minPriority,
+  nextTask,
+} from "@repo/domain";
 import { requireUser } from "../auth";
 import { Header } from "./header";
 import { openTasks } from "../lib/tasks";
@@ -21,6 +26,7 @@ export default async function Home() {
           name="name"
           aria-label="Task name"
           placeholder="New task"
+          maxLength={maxTaskNameLength}
           required
         />
         <button type="submit">Add</button>

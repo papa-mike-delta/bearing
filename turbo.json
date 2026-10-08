@@ -12,7 +12,8 @@
       "dependsOn": ["^lint"]
     },
     "test": {
-      "dependsOn": ["^test"]
+      "dependsOn": ["^test"],
+      "env": ["TEST_POSTGRES_URL"]
     },
     "check-types": {
       "dependsOn": ["^check-types"]
