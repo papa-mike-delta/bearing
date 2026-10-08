@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nextTask, normalPriority, priorityList } from "./priority-list.ts";
+import {
+  maxPriority,
+  minPriority,
+  nextTask,
+  normalPriority,
+  priorityList,
+  stepPriority,
+} from "./priority-list.ts";
 
 const task = (name: string, day: number, priority = normalPriority) => ({
   name,
@@ -37,4 +44,37 @@ test("next is the first open task, or nothing when the list is empty", () => {
   );
   assert.equal(nextTask([done]), null);
   assert.equal(nextTask([]), null);
+});
+
+test("priority steps one at a time between lowest and highest", () => {
+  assert.equal(stepPriority(normalPriority, 1), 1);
+  assert.equal(stepPriority(normalPriority, -1), -1);
+  assert.equal(stepPriority(1, 1), maxPriority);
+  assert.equal(stepPriority(-1, -1), minPriority);
+});
+
+test("priority stops at the top and bottom of the scale", () => {
+  assert.equal(stepPriority(maxPriority, 1), maxPriority);
+  assert.equal(stepPriority(minPriority, -1), minPriority);
+});
+
+test("raising a task moves it up, lowering it moves it down", () => {
+  const older = task("older", 1);
+  const newer = task("newer", 2);
+  const raised = { ...newer, priority: stepPriority(newer.priority, 1) };
+  assert.deepEqual(names(priorityList([older, raised])), ["newer", "older"]);
+  const lowered = { ...older, priority: stepPriority(older.priority, -1) };
+  assert.deepEqual(names(priorityList([lowered, newer])), ["newer", "older"]);
+});
+
+test("completing the next task moves the mark to the new first task", () => {
+  const first = task("first", 1, 1);
+  const second = task("second", 2);
+  assert.equal(nextTask([first, second])?.name, "first");
+  const done = { ...first, completedAt: new Date(2026, 0, 3) };
+  assert.equal(nextTask([done, second])?.name, "second");
+  assert.equal(
+    nextTask([done, { ...second, completedAt: done.completedAt }]),
+    null,
+  );
 });

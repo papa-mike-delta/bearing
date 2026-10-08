@@ -1,6 +1,13 @@
 // Priority List: one list, no sections, open or completed.
 
+export const minPriority = -2;
 export const normalPriority = 0;
+export const maxPriority = 2;
+
+// One step up (1) or down (-1), stopping at the ends of the scale.
+export function stepPriority(priority: number, step: 1 | -1): number {
+  return Math.min(maxPriority, Math.max(minPriority, priority + step));
+}
 
 export type ListTask = {
   priority: number;

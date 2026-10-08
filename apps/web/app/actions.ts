@@ -6,7 +6,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
 import { hashPassword, parseCredentials } from "../lib/credentials";
-import { addTask, completeTask, createArea } from "../lib/tasks";
+import {
+  addTask,
+  changePriority,
+  completeTask,
+  createArea,
+} from "../lib/tasks";
 
 export async function signInWithPassword(formData: FormData) {
   try {
@@ -52,5 +57,12 @@ export async function addTaskToList(formData: FormData) {
 export async function completeTaskOnList(formData: FormData) {
   const { id: userId } = await requireUser();
   await completeTask(userId, String(formData.get("id")));
+  revalidatePath("/");
+}
+
+export async function changeTaskPriority(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const step = formData.get("step") === "up" ? 1 : -1;
+  await changePriority(userId, String(formData.get("id")), step);
   revalidatePath("/");
 }

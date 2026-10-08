@@ -63,8 +63,10 @@ form {
   max-width: 20rem;
 }
 
-header form {
+header form,
+li form {
   flex-direction: row;
+  gap: 0.25rem;
 }
 
 label {
@@ -112,13 +114,34 @@ li {
   border-bottom: 1px solid var(--line);
 }
 
+li > span {
+  flex: 1;
+}
+
 li button {
+  padding: 0 0.4rem;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+li button:hover:enabled {
+  border-color: var(--accent);
+}
+
+li button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+li button.complete {
   width: 1rem;
   height: 1rem;
   padding: 0;
+  border-color: var(--line);
   border-radius: 50%;
 }
 
-li button:hover {
-  border-color: var(--accent);
+li strong {
+  color: var(--accent);
+  font-weight: 500;
 }

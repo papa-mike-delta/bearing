@@ -1,5 +1,10 @@
 import { areas, db, tasks } from "@repo/db";
-import { normalPriority, priorityList, type Workflow } from "@repo/domain";
+import {
+  normalPriority,
+  priorityList,
+  stepPriority,
+  type Workflow,
+} from "@repo/domain";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 // Every query here takes the session user. Tasks are reached through the
@@ -57,4 +62,24 @@ export async function completeTask(userId: string, taskId: string) {
         isNull(tasks.completedAt),
       ),
     );
+}
+
+export async function changePriority(
+  userId: string,
+  taskId: string,
+  step: 1 | -1,
+) {
+  const mine = and(
+    eq(tasks.id, taskId),
+    inArray(tasks.areaId, userAreaIds(userId)),
+  );
+  const [task] = await db
+    .select({ priority: tasks.priority })
+    .from(tasks)
+    .where(mine);
+  if (!task) return;
+  await db
+    .update(tasks)
+    .set({ priority: stepPriority(task.priority, step) })
+    .where(mine);
 }
