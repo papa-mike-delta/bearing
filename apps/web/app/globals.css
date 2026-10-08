@@ -184,10 +184,19 @@ li strong {
 
 .thread small {
   color: var(--muted);
+  font-size: 12px;
 }
 
+/* A receipt is metadata, sized like the label: 4px under it, 8px above the
+   reply text that follows. */
 .thread p.receipt {
+  margin-top: 4px;
   color: var(--muted);
+  font-size: 12px;
+}
+
+.thread p.receipt + p:not(.receipt) {
+  margin-top: 8px;
 }
 
 form.composer {

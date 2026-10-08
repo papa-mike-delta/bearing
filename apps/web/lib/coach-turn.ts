@@ -139,7 +139,8 @@ export async function coachTurn({
     sendReasoning: false,
     originalMessages: messages,
     generateMessageId: () => crypto.randomUUID(),
-    onEnd: async ({ responseMessage, outcome }) => {
+    onEnd: async ({ responseMessage, outcome, finishReason }) => {
+      logTurn(thread, model, responseMessage, finishReason);
       if (!failed && outcome.status === "completed") {
         await saveMessage(userId, thread, responseMessage, db, userMessage.id);
       }
@@ -172,6 +173,29 @@ function failOnErrors(fail: () => void) {
       controller.enqueue(part);
     },
   });
+}
+
+// One line per finished turn for the runtime logs: which model, how many
+// steps and listArea calls, and how it ended. Nothing the person wrote, no
+// tool output and no user id.
+function logTurn(
+  threadId: string,
+  model: LanguageModel,
+  reply: UIMessage,
+  finishReason: string | undefined,
+) {
+  const count = (type: string) =>
+    reply.parts.filter((part) => part.type === type).length;
+  console.info(
+    JSON.stringify({
+      event: "coach.turn",
+      threadId,
+      model: typeof model === "string" ? model : model.modelId,
+      steps: count("step-start"),
+      toolCalls: { listArea: count("tool-listArea") },
+      finishReason,
+    }),
+  );
 }
 
 async function readToEnd(stream: ReadableStream) {

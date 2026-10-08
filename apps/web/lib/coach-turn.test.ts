@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, mock, test } from "node:test";
 import { coachMessages, createDb, users } from "@repo/db";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -847,5 +847,39 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.deepEqual(await turn(c, thread, message, model), { refused: 400 });
     assert.equal(model.doStreamCalls.length, 0);
     assert.equal(await rowOf(message.id), undefined);
+  });
+  test("a finished turn logs one coach.turn line with its tool calls, and nothing private", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const info = mock.method(console, "info", () => {});
+    try {
+      await turn(
+        c,
+        thread,
+        userMessage("Is my list empty?"),
+        scripted(
+          { listArea: "{}" },
+          { listArea: "{}" },
+          { text: "It's empty." },
+        ),
+      );
+    } finally {
+      info.mock.restore();
+    }
+    const lines = info.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((line) => line.includes("coach.turn"));
+    assert.equal(lines.length, 1);
+    assert.deepEqual(JSON.parse(lines[0]!), {
+      event: "coach.turn",
+      threadId: thread,
+      model: "mock-model-id",
+      steps: 3,
+      toolCalls: { listArea: 2 },
+      finishReason: "stop",
+    });
+    for (const secret of [c, "Is my list empty?", "It's empty.", '"open"']) {
+      assert.ok(!lines[0]!.includes(secret), secret);
+    }
   });
 });

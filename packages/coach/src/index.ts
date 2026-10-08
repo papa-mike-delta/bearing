@@ -3,7 +3,7 @@
 
 export type { CoachData, ListedTask, ToolRunContext } from "./data.ts";
 export { coachSystemPrompt, maxCoachSteps } from "./prompt.ts";
-export { receipt } from "./receipts.ts";
+export { receipt, shownParts, type ShownPart } from "./receipts.ts";
 export { listArea, maxListedTasks } from "./tools/list-area.ts";
 
 // The longest message a person can send the Coach, in UTF-16 code units (what
