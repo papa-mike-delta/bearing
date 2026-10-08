@@ -403,7 +403,7 @@ Official starter is two Next.js apps plus `@repo/ui`, `@repo/eslint-config`, `@r
 ```
 apps/web                 Next.js App Router. The product, including POST /api/coach. Deploy this.
 packages/domain          pure TS. No React, no DB. Workflows, sort, recurrence, reconnect.
-packages/db              Drizzle schema + client. Postgres (Neon or Vercel Postgres).
+packages/db              Drizzle schema + client. Postgres on Neon.
 packages/ui              sober components. No product logic.
 packages/capture         draft parse + action runners. Calls domain.
 packages/coach           tool definitions, skill files, knowledge markdown. No model calls. The route in apps/web owns the SDK.

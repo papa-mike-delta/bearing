@@ -8,7 +8,7 @@ Turborepo, one Next.js app. Created from `npx create-turbo@latest`, then reshape
 
 - `apps/web` — the product. Deploy this.
 - `packages/domain` — pure task, habit, and reconnect rules. No React, no database.
-- `packages/db` — Drizzle schema and client. Postgres on Vercel.
+- `packages/db` — Drizzle schema and client. Postgres on Neon.
 - `packages/ui` — components. No product logic.
 - `packages/capture` — draft parse and action runners.
 - `packages/coach` — tool names, skills, knowledge. No model calls.
@@ -27,15 +27,15 @@ npm test
 
 ## Environment
 
-Sign-in is Auth.js with email and password and a database session in Postgres.
+Sign-in is Auth.js with email and password and a database session in Postgres. The database is Neon.
 
-- `POSTGRES_URL` — Postgres connection string. Vercel sets this when a Postgres database is connected to the project.
+- `DATABASE_URL` — Neon connection string. Install Neon from the Vercel Marketplace (Storage → Neon) and connect it to the project; the integration sets `DATABASE_URL` for Production, Preview, and Development.
 - `AUTH_SECRET` — random secret for Auth.js. Generate with `openssl rand -base64 32`.
 
-For local dev put both in `apps/web/.env.local`. Create the tables once per database:
+For local dev put both in `apps/web/.env.local` (`vercel env pull` fetches them). `DATABASE_URL` can point at a Neon dev branch or a local Postgres (`postgres://user:pass@localhost:5432/bearing`). Create the tables once per database:
 
 ```sh
-POSTGRES_URL=... npm run db:push -w @repo/db
+DATABASE_URL=... npm run db:push -w @repo/db
 ```
 
 `next start` outside Vercel also needs `AUTH_TRUST_HOST=true`.

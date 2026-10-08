@@ -1,13 +1,16 @@
-// Drizzle schema and client. Postgres on Vercel, read from POSTGRES_URL.
+// Drizzle schema and client. Postgres on Neon, read from DATABASE_URL.
 // Product rules live in @repo/domain and do not import this package.
 
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { attachDatabasePool } from "@vercel/functions";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema.ts";
 
 export * from "./schema.ts";
 
-// The connection opens on the first query, so builds do not need a database.
-export const db = drizzle(postgres(process.env.POSTGRES_URL ?? ""), {
-  schema,
-});
+// Neon's setup for Vercel Fluid compute: a TCP pool that Vercel closes when
+// idle. Connections open on the first query, so builds need no database.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+attachDatabasePool(pool);
+
+export const db = drizzle({ client: pool, schema });
