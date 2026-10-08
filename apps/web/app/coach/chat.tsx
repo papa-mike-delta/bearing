@@ -1,10 +1,10 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { maxCoachMessageLength } from "@repo/coach";
+import { maxCoachMessageLength, shownParts } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function Chat({
   threadId,
@@ -37,8 +37,44 @@ export function Chat({
     }),
   });
   const replying = status === "submitted" || status === "streaming";
-  // A reply that failed before any text has nothing to show.
-  const shown = messages.filter((m) => m.parts.some((p) => p.type === "text"));
+
+  // Keep the newest message and the composer in view: on load, on send, and
+  // as a reply streams in, unless the person has scrolled up to read.
+  const end = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  useEffect(() => {
+    const onScroll = () => {
+      const { scrollHeight } = document.documentElement;
+      following.current =
+        window.innerHeight + window.scrollY >= scrollHeight - 80;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    if (following.current) end.current?.scrollIntoView({ block: "end" });
+  }, [messages, status]);
+  // Open at the newest message. The browser restores the old scroll position
+  // on a reload, and Next scrolls to the top after a link, both after the
+  // effect above; so restoration is off while the Coach is open, and the
+  // first scroll waits a frame.
+  useEffect(() => {
+    const restoration = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    const frame = requestAnimationFrame(() =>
+      end.current?.scrollIntoView({ block: "end" }),
+    );
+    return () => {
+      cancelAnimationFrame(frame);
+      history.scrollRestoration = restoration;
+    };
+  }, []);
+
+  // A reply that failed before any text or tool call has nothing to show.
+  const shown = messages.flatMap((message) => {
+    const parts = shownParts(message.parts);
+    return parts.length ? [{ ...message, parts }] : [];
+  });
 
   return (
     <>
@@ -49,8 +85,14 @@ export function Chat({
           {shown.map((message) => (
             <li key={message.id}>
               <small>{message.role === "user" ? "You" : "Coach"}</small>
-              {message.parts.map((part, i) =>
-                part.type === "text" ? <p key={i}>{part.text}</p> : null,
+              {message.parts.map((part) =>
+                "receipt" in part ? (
+                  <p key={part.key} className="receipt" data-calls={part.calls}>
+                    {part.receipt}
+                  </p>
+                ) : (
+                  <p key={part.key}>{part.text}</p>
+                ),
               )}
             </li>
           ))}
@@ -69,6 +111,7 @@ export function Chat({
         onSubmit={(event) => {
           event.preventDefault();
           if (!input.trim() || replying) return;
+          following.current = true;
           sendMessage({ text: input });
           setInput("");
         }}
@@ -89,6 +132,7 @@ export function Chat({
           <button type="submit">Send</button>
         )}
       </form>
+      <div ref={end} />
     </>
   );
 }

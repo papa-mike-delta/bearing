@@ -4,12 +4,12 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, mock, test } from "node:test";
 import { coachMessages, createDb, users } from "@repo/db";
-import { simulateReadableStream, type UIMessage } from "ai";
+import { APICallError, simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
-import { maxCoachMessageLength } from "@repo/coach";
+import { maxCoachMessageLength, receipt } from "@repo/coach";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import {
   coachModel,
@@ -17,17 +17,17 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
-import { createArea } from "./tasks.ts";
+import { addTask, changePriority, completeTask, createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 
-test("the model comes from COACH_MODEL, defaulting to spacexai/grok-4.7", () => {
+test("the model comes from COACH_MODEL, defaulting to anthropic/claude-haiku-5.5", () => {
   const before = process.env.COACH_MODEL;
   try {
     delete process.env.COACH_MODEL;
-    assert.equal(coachModel(), "spacexai/grok-4.7");
-    process.env.COACH_MODEL = "openai/gpt-6-astra";
-    assert.equal(coachModel(), "openai/gpt-6-astra");
+    assert.equal(coachModel(), "anthropic/claude-haiku-5.5");
+    process.env.COACH_MODEL = "openai/gpt-6-luna";
+    assert.equal(coachModel(), "openai/gpt-6-luna");
   } finally {
     if (before === undefined) delete process.env.COACH_MODEL;
     else process.env.COACH_MODEL = before;
@@ -139,9 +139,68 @@ function cutOff(text?: string) {
   });
 }
 
+// Everything the model was sent on its first step, as text: the
+// instructions as they are, every other message as JSON.
+const promptText = (model: MockLanguageModelV4) =>
+  model.doStreamCalls[0]!.prompt.map((m) =>
+    typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+  ).join("\n");
+
 // How many times the prompt holds the person's messages.
 const userTurnsIn = (model: MockLanguageModelV4) =>
   model.doStreamCalls[0]!.prompt.filter((m) => m.role === "user").length;
+
+// A model that runs one scripted step per call: a listArea call with `input`,
+// or a text reply. Past the end of the script it repeats the last step.
+type Step = { listArea: string } | { text: string };
+function scripted(...steps: Step[]) {
+  let calls = 0;
+  return new MockLanguageModelV4({
+    doStream: async () => {
+      const step = steps[Math.min(calls++, steps.length - 1)]!;
+      const chunks = [
+        ...("listArea" in step
+          ? [
+              {
+                type: "tool-call" as const,
+                toolCallId: `call_${calls}`,
+                toolName: "listArea",
+                input: step.listArea,
+              },
+            ]
+          : [
+              { type: "text-start" as const, id: "t" },
+              { type: "text-delta" as const, id: "t", delta: step.text },
+              { type: "text-end" as const, id: "t" },
+            ]),
+        {
+          type: "finish" as const,
+          finishReason: {
+            unified: ("listArea" in step ? "tool-calls" : "stop") as
+              "tool-calls" | "stop",
+            raw: undefined,
+          },
+          usage,
+        },
+      ];
+      return { stream: simulateReadableStream({ chunks }) };
+    },
+  });
+}
+
+// The receipts a reloaded thread shows, in order.
+const receiptsOf = (messages: UIMessage[] | null) =>
+  messages?.flatMap((m) => m.parts.flatMap((p) => receipt(p) ?? []));
+
+// The first listArea part saved on a reloaded thread: its turn's read.
+const readIn = (messages: UIMessage[] | null) =>
+  messages?.flatMap((m) => m.parts).find((p) => p.type === "tool-listArea") as
+    | {
+        toolCallId: string;
+        output?: { open: number; tasks: { name: string; isNext: boolean }[] };
+      }
+    | undefined;
+const listedIn = (messages: UIMessage[] | null) => readIn(messages)?.output;
 
 const failing = () =>
   new MockLanguageModelV4({
@@ -205,6 +264,20 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     return { chunks, broke };
   }
 
+  // Adds Tasks as [name, priority] pairs, oldest first, the way the list
+  // does, and returns their ids by name.
+  async function addTasks(userId: string, list: [string, number][]) {
+    const ids: Record<string, string> = {};
+    for (const [name, priority] of list) {
+      const { id } = (await addTask(userId, { name }, db))!;
+      for (let i = 0; i < Math.abs(priority); i++) {
+        await changePriority(userId, id, priority > 0 ? 1 : -1, db);
+      }
+      ids[name] = id;
+    }
+    return ids;
+  }
+
   const rowOf = async (id: string) =>
     (await db.select().from(coachMessages).where(eq(coachMessages.id, id)))[0];
 
@@ -265,11 +338,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const model = replying("Ok.");
     await turn(a, await coachThread(a, db), userMessage("Tagged"), model);
     assert.deepEqual(model.doStreamCalls[0]!.providerOptions?.gateway, {
-      models: ["openai/gpt-6-astra"],
+      models: ["openai/gpt-6-luna"],
       user: a,
       tags: ["coach"],
     });
     assert.equal(model.doStreamCalls[0]!.maxOutputTokens, maxReplyTokens);
+    assert.equal(model.doStreamCalls[0]!.reasoning, "low");
   });
 
   test("the model sees only the most recent messages, starting with the person's", async () => {
@@ -285,7 +359,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const sent = model.doStreamCalls[0]!.prompt.filter(
       (m) => m.role !== "system",
     );
-    assert.ok(sent.length <= historyWindow);
+    // The thread's messages, then this turn's read of the list.
+    assert.deepEqual(
+      sent.slice(-2).map((m) => m.role),
+      ["assistant", "tool"],
+    );
+    assert.ok(sent.length - 2 <= historyWindow);
     assert.equal(sent[0]!.role, "user");
     const text = JSON.stringify(sent);
     assert.ok(text.includes("#50#") && text.includes("#12#"));
@@ -667,5 +746,363 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       ["user", "Still there?"],
       ["assistant", "Yes."],
     ]);
+  });
+  test("every turn reads the list once before the model answers, in Priority List order with Next marked", async () => {
+    const c = await account();
+    const d = await account();
+    const ids = await addTasks(c, [
+      ["Old normal", 0],
+      ["Low", -1],
+      ["Done", 2],
+      ["High", 1],
+      ["New normal", 0],
+    ]);
+    await completeTask(c, ids.Done!, db);
+    await addTasks(d, [["Someone else's", 2]]);
+    const thread = await coachThread(c, db);
+    // The model never calls the tool itself.
+    const model = replying("Do High first.");
+    await turn(c, thread, userMessage("What should I do next?"), model);
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(
+      listedIn(reloaded)?.tasks.map((t) => [t.name, t.isNext]),
+      [
+        ["High", true],
+        ["Old normal", false],
+        ["New normal", false],
+        ["Low", false],
+      ],
+    );
+    assert.deepEqual(receiptsOf(reloaded), ["Read your list (4 open)"]);
+    // OpenAI (the fallback) refuses tool-call ids over 40 characters.
+    const { toolCallId } = readIn(reloaded)!;
+    assert.ok(toolCallId.length <= 40, toolCallId);
+    assert.deepEqual(textOf(reloaded), [
+      ["user", "What should I do next?"],
+      ["assistant", "Do High first."],
+    ]);
+    // The model's one step already had the list, and nothing of d's.
+    assert.equal(model.doStreamCalls.length, 1);
+    const prompt = promptText(model);
+    assert.ok(prompt.includes('"open":4') && prompt.includes("High"));
+    assert.ok(!prompt.includes("Someone else"));
+  });
+
+  test("an old thread reaches the model as alternating text, then this turn's read", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const listed = (open: number) => ({
+      open,
+      tasks: open
+        ? [{ id: randomUUID(), name: "Alpha", priority: 0, isNext: true }]
+        : [],
+    });
+    const read = (toolCallId: string, open: number) => ({
+      type: "tool-listArea" as const,
+      toolCallId,
+      state: "output-available" as const,
+      input: {},
+      output: listed(open),
+    });
+    const step = { type: "step-start" as const };
+    const text = (t: string) => ({
+      type: "text" as const,
+      text: t,
+      state: "done" as const,
+    });
+    // Saved as earlier heads saved them.
+    const old: UIMessage["parts"][] = [
+      // Before #20: text only.
+      [text("Hi")],
+      [step, text("Hello. What's on your mind?")],
+      // 80210aa: the model read the list, then answered.
+      [text("What should I do next?")],
+      [step, read("toolu_a", 1), step, text("Do Alpha first.")],
+      // 7caee41: two reads in one reply, and an empty text part.
+      [text("What's on my list?")],
+      [step, read("toolu_b", 1), step, read("toolu_c", 1), step, text("")],
+      // Receipts only: a refused read.
+      [text("Again?")],
+      [
+        step,
+        {
+          type: "tool-listArea",
+          toolCallId: "toolu_d",
+          state: "output-error",
+          input: ["not", "an", "object"],
+          errorText: "Invalid input",
+        },
+      ],
+      // Text around a read in one reply.
+      [text("And then?")],
+      [step, text("Let me look."), read("toolu_e", 1), step, text("Alpha.")],
+      // A message whose reply failed, so the next one follows it.
+      [text("Lost reply")],
+    ];
+    for (const [i, parts] of old.entries()) {
+      const role = parts.some((p) => p.type === "step-start")
+        ? "assistant"
+        : "user";
+      await saveMessage(c, thread, { id: randomUUID(), role, parts }, db);
+      assert.equal(role, i % 2 && i < 10 ? "assistant" : "user");
+    }
+    const model = replying("Your list is empty.");
+    const done = await turn(
+      c,
+      thread,
+      userMessage("What's on my list now?"),
+      model,
+    );
+    assert.ok("chunks" in done && !done.broke);
+
+    const sent = model.doStreamCalls[0]!.prompt.filter(
+      (m) => m.role !== "system",
+    );
+    const history = sent.slice(0, -2);
+    // Alternating, from the person, ending with the person.
+    assert.deepEqual(
+      history.map((m) => m.role),
+      ["user", "assistant", "user", "assistant", "user", "assistant", "user"],
+    );
+    for (const m of history) {
+      assert.ok(
+        Array.isArray(m.content) && m.content.length,
+        JSON.stringify(m),
+      );
+      for (const part of m.content as { type: string; text?: string }[]) {
+        assert.equal(part.type, "text", JSON.stringify(m));
+        assert.ok(part.text?.trim(), JSON.stringify(m));
+      }
+    }
+    // The failed reply's message and the new one are one turn of the person's.
+    assert.deepEqual(
+      (history.at(-1)!.content as { text: string }[]).map((p) => p.text),
+      ["Lost reply", "What's on my list now?"],
+    );
+    // Then this turn's read: one listArea call and its result, nothing older.
+    const [call, result] = sent.slice(-2);
+    assert.equal(call!.role, "assistant");
+    assert.equal(result!.role, "tool");
+    const tail = JSON.stringify([call, result]);
+    // The model is told what the read is; the saved receipt isn't (see "an
+    // empty list is read as empty").
+    assert.ok(tail.includes(`"note":"The person's list right now."`), tail);
+    assert.ok(
+      tail.includes('"toolCallId":"read_') && tail.includes('"open":0'),
+    );
+    assert.ok(!JSON.stringify(history).includes("toolu_"));
+    assert.deepEqual(model.doStreamCalls[0]!.toolChoice, { type: "none" });
+  });
+
+  test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        throw new APICallError({
+          message: "messages.1.content.0.type: Expected `thinking`",
+          url: "https://ai-gateway.vercel.sh/v3/ai/language-model",
+          requestBodyValues: { secret: "What's on my list?" },
+          statusCode: 400,
+          isRetryable: false,
+        });
+      },
+    });
+    const error = mock.method(console, "error", () => {});
+    try {
+      await turn(c, thread, userMessage("What's on my list?"), model);
+    } finally {
+      error.mock.restore();
+    }
+    const lines = error.mock.calls.map((call) =>
+      call.arguments.map(String).join(" "),
+    );
+    assert.deepEqual(
+      lines.map((line) => JSON.parse(line)),
+      [
+        {
+          event: "coach.turn.error",
+          threadId: thread,
+          model: "mock-model-id",
+          error: "AI_APICallError",
+          message: "messages.1.content.0.type: Expected `thinking`",
+          status: 400,
+        },
+      ],
+    );
+    for (const secret of [c, "What's on my list?"]) {
+      assert.ok(!lines[0]!.includes(secret), secret);
+    }
+  });
+
+  test("a failed read writes nothing and doesn't run the model", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = replying("Should not run.");
+    const message = userMessage("What's on my list?");
+    const data = {
+      listOpenTasks: () => Promise.reject(new Error("database down")),
+    };
+    await assert.rejects(
+      coachTurn({ userId: c, threadId: thread, message, model, db, data }),
+      /database down/,
+    );
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(await rowOf(message.id), undefined);
+  });
+
+  test("an empty list is read as empty", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(
+      c,
+      thread,
+      userMessage("What's on my list?"),
+      replying("Your list is empty."),
+    );
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(listedIn(reloaded), { open: 0, tasks: [] });
+    assert.deepEqual(receiptsOf(reloaded), ["Read your list (0 open)"]);
+  });
+
+  test("after the list is emptied, the next turn answers from a fresh read, not the earlier one", async () => {
+    const c = await account();
+    const ids = await addTasks(c, [
+      ["Alpha", 0],
+      ["Beta", 0],
+      ["Gamma", 0],
+    ]);
+    const thread = await coachThread(c, db);
+    await turn(
+      c,
+      thread,
+      userMessage("What's on my list?"),
+      replying("Three."),
+    );
+    for (const id of Object.values(ids)) await completeTask(c, id, db);
+    for (let i = 0; i < 3; i++) {
+      const model = replying("It's empty.");
+      await turn(c, thread, userMessage("What's on my list?"), model);
+      const prompt = promptText(model);
+      assert.ok(prompt.includes('"open":0'), "the fresh read");
+      assert.ok(!prompt.includes('"open":3'), "no earlier read");
+      assert.ok(!prompt.includes("Alpha"), "no completed Task");
+    }
+    assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
+      "Read your list (3 open)",
+      "Read your list (0 open)",
+      "Read your list (0 open)",
+      "Read your list (0 open)",
+    ]);
+  });
+
+  test("the model isn't offered listArea, and the loop still stops after 8 model steps", async () => {
+    const c = await account();
+    await addTasks(c, [["One", 0]]);
+    const thread = await coachThread(c, db);
+    // A model that calls the tool anyway, every step.
+    const model = scripted({ listArea: "{}" });
+    await turn(c, thread, userMessage("Keep reading my list"), model);
+    assert.deepEqual(model.doStreamCalls[0]!.toolChoice, { type: "none" });
+    assert.equal(model.doStreamCalls.length, 8);
+    assert.deepEqual(
+      receiptsOf(await threadMessages(c, thread, db)),
+      Array(9).fill("Read your list (1 open)"),
+    );
+  });
+
+  test("a tool call the model gets wrong is saved as a refused receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted(
+      { listArea: JSON.stringify(["not", "an", "object"]) },
+      { text: "I couldn't read that." },
+    );
+    const done = await turn(c, thread, userMessage("What's next?"), model);
+    assert.ok("chunks" in done && !done.broke);
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(receiptsOf(reloaded), [
+      "Read your list (0 open)",
+      "Couldn't read your list",
+    ]);
+    assert.deepEqual(textOf(reloaded)?.at(-1), [
+      "assistant",
+      "I couldn't read that.",
+    ]);
+    // The thread still takes the next turn.
+    await turn(c, thread, userMessage("Try again"), replying("Ok."));
+    assert.equal((await threadMessages(c, thread, db))!.length, 4);
+  });
+
+  test("a saved tool part that doesn't fit its tool is refused before the model runs", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await saveMessage(c, thread, userMessage("Earlier"), db);
+    await saveMessage(
+      c,
+      thread,
+      {
+        id: randomUUID(),
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-listArea",
+            toolCallId: "call_x",
+            state: "output-available",
+            input: "everyone's tasks",
+            output: { open: 0, tasks: [] },
+          },
+        ],
+      },
+      db,
+    );
+    const model = replying("Should not run.");
+    const message = userMessage("Next?");
+    assert.deepEqual(await turn(c, thread, message, model), { refused: 400 });
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(await rowOf(message.id), undefined);
+  });
+  test("a finished turn logs one coach.turn line with its listArea reads, and nothing private", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const info = mock.method(console, "info", () => {});
+    try {
+      await turn(c, thread, userMessage("Is my list empty?"), replying("Yes."));
+      // A model that reads the list again anyway shows up as a second read.
+      await turn(
+        c,
+        thread,
+        userMessage("Sure?"),
+        scripted({ listArea: "{}" }, { text: "It's empty." }),
+      );
+    } finally {
+      info.mock.restore();
+    }
+    const lines = info.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((line) => line.includes("coach.turn"));
+    assert.deepEqual(
+      lines.map((line) => JSON.parse(line)),
+      [
+        { listArea: 1, steps: 1 },
+        { listArea: 2, steps: 2 },
+      ].map(({ listArea, steps }) => ({
+        event: "coach.turn",
+        threadId: thread,
+        model: "mock-model-id",
+        steps,
+        toolCalls: { listArea },
+        finishReason: "stop",
+      })),
+    );
+    for (const secret of [
+      c,
+      "Is my list empty?",
+      "Yes.",
+      "It's empty.",
+      '"open"',
+    ]) {
+      assert.ok(!lines.join("\n").includes(secret), secret);
+    }
   });
 });
