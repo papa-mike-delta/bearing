@@ -5,7 +5,7 @@ import type { ToolRunContext } from "../data.ts";
 export const maxListedTasks = 50;
 
 export const listArea = {
-  description: `Read the person's open Tasks in Priority List order, highest priority first. The Task with isNext true is the one marked Next on their list. \`open\` is how many open Tasks they have; only the first ${maxListedTasks} are listed.`,
+  description: `Read the person's open Tasks in Priority List order, highest priority first. The Task with isNext true is the one marked Next on their list. \`open\` is how many open Tasks they have; only the first ${maxListedTasks} are listed. Call it at most once per reply: the list doesn't change while you answer.`,
   inputSchema: z.object({}),
   async run(_input: object, { userId, data }: ToolRunContext) {
     const tasks = await data.listOpenTasks(userId);

@@ -21,13 +21,13 @@ import { addTask, changePriority, completeTask, createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 
-test("the model comes from COACH_MODEL, defaulting to spacexai/grok-4.7", () => {
+test("the model comes from COACH_MODEL, defaulting to anthropic/claude-haiku-5.5", () => {
   const before = process.env.COACH_MODEL;
   try {
     delete process.env.COACH_MODEL;
-    assert.equal(coachModel(), "spacexai/grok-4.7");
-    process.env.COACH_MODEL = "openai/gpt-6-astra";
-    assert.equal(coachModel(), "openai/gpt-6-astra");
+    assert.equal(coachModel(), "anthropic/claude-haiku-5.5");
+    process.env.COACH_MODEL = "openai/gpt-6-luna";
+    assert.equal(coachModel(), "openai/gpt-6-luna");
   } finally {
     if (before === undefined) delete process.env.COACH_MODEL;
     else process.env.COACH_MODEL = before;
@@ -331,7 +331,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const model = replying("Ok.");
     await turn(a, await coachThread(a, db), userMessage("Tagged"), model);
     assert.deepEqual(model.doStreamCalls[0]!.providerOptions?.gateway, {
-      models: ["openai/gpt-6-astra"],
+      models: ["openai/gpt-6-luna"],
       user: a,
       tags: ["coach"],
     });

@@ -21,11 +21,11 @@ import { isUuid, type Db } from "./db.ts";
 
 // The Gateway model id. Swap models by changing COACH_MODEL.
 export function coachModel() {
-  return process.env.COACH_MODEL || "spacexai/grok-4.7";
+  return process.env.COACH_MODEL || "anthropic/claude-haiku-5.5";
 }
 
 // The Gateway tries this when the main model fails. Bearing has no retry code.
-export const fallbackModel = "openai/gpt-6-astra";
+export const fallbackModel = "openai/gpt-6-luna";
 
 // The model sees only the most recent messages of the thread (20 exchanges),
 // and each model step of a reply is capped. At 4,000 characters a message,
