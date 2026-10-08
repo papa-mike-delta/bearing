@@ -1,6 +1,8 @@
 // Product rules live here. No React, no database.
 // Workflow sort, scheduling, recurrence, and reconnect are pure functions.
 
+export * from "./priority-list.ts";
+
 export const workflows = [
   "priority-list",
   "now-later",
