@@ -14,6 +14,7 @@ export type ResetTarget =
       host: string;
       // The host is PRODUCTION_DB_HOST, and --production allowed it.
       production: boolean;
+      // Set when --no-prod-check ran without PRODUCTION_DB_HOST.
       warning?: string;
     };
 
@@ -28,7 +29,10 @@ export function databaseUrl(env: Env) {
 
 export function resetTarget(
   env: Env,
-  { production }: { production: boolean },
+  {
+    production,
+    noProdCheck = false,
+  }: { production: boolean; noProdCheck?: boolean },
 ): ResetTarget {
   const url = databaseUrl(env);
   if (!url) {
@@ -51,15 +55,20 @@ export function resetTarget(
     };
   }
 
+  // A pulled Production env has no PRODUCTION_DB_HOST (it's set on Preview
+  // only), so an unset host must not mean "go ahead". --no-prod-check is the
+  // explicit override for a database that is definitely not production, and it
+  // does not skip the check when the host is set.
   const productionHost = env.PRODUCTION_DB_HOST?.trim();
   if (!productionHost) {
+    const warning =
+      "PRODUCTION_DB_HOST is not set, so this can't check whether it's the production database.";
+    if (noProdCheck) {
+      return { action: "reset", url, host, production: false, warning };
+    }
     return {
-      action: "reset",
-      url,
-      host,
-      production: false,
-      warning:
-        "PRODUCTION_DB_HOST is not set, so this can't check whether it's the production database.",
+      action: "refuse",
+      reason: `${warning} Set PRODUCTION_DB_HOST to the production host (a bare hostname), or pass --no-prod-check if this database is definitely not production.`,
     };
   }
   if (!bareHost.test(productionHost)) {

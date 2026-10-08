@@ -20,6 +20,15 @@ test("a new password shorter than sign-up allows is refused", async () => {
   assert.deepEqual(result, { ok: false, error: "invalid" });
 });
 
+test("a new password of 7 characters is refused", async () => {
+  const result = await changePassword("not-a-user", {
+    current: "correct horse",
+    next: "1234567",
+    confirm: "1234567",
+  });
+  assert.deepEqual(result, { ok: false, error: "invalid" });
+});
+
 test("a typed reset password has to meet the sign-up length, and a blank one is generated", () => {
   assert.deepEqual(chooseResetPassword("short", "short", "generated-long"), {
     error: "invalid",

@@ -69,18 +69,46 @@ test("the direct url is checked before the pooled one", () => {
   assert.equal(d.action, "refuse");
 });
 
-test("without PRODUCTION_DB_HOST the reset runs, with a warning that nothing was checked", () => {
+test("without PRODUCTION_DB_HOST the reset is refused, and the reason says how to fix it", () => {
   for (const value of [undefined, "", "  "]) {
     const d = resetTarget(
       { POSTGRES_URL_NON_POOLING: prodUrl, PRODUCTION_DB_HOST: value },
       { production: false },
     );
-    assert.equal(d.action, "reset", JSON.stringify(value));
+    assert.equal(d.action, "refuse", JSON.stringify(value));
+    assert.match(reason(d), /Set PRODUCTION_DB_HOST to the production host/);
+    assert.match(reason(d), /bare hostname/);
     assert.match(
-      d.action === "reset" ? (d.warning ?? "") : "",
-      /PRODUCTION_DB_HOST is not set/,
+      reason(d),
+      /--no-prod-check if this database is definitely not production/,
     );
+    assert.doesNotMatch(reason(d), /secret/);
   }
+});
+
+test("--no-prod-check lets a reset run when PRODUCTION_DB_HOST is unset, with a warning", () => {
+  for (const value of [undefined, "", "  "]) {
+    const d = resetTarget(
+      { POSTGRES_URL_NON_POOLING: prodUrl, PRODUCTION_DB_HOST: value },
+      { production: false, noProdCheck: true },
+    );
+    assert.equal(d.action, "reset", JSON.stringify(value));
+    if (d.action !== "reset") continue;
+    assert.equal(d.production, false);
+    assert.match(d.warning ?? "", /PRODUCTION_DB_HOST is not set/);
+  }
+});
+
+test("a set PRODUCTION_DB_HOST is still checked when --no-prod-check is passed without --production", () => {
+  const d = resetTarget(
+    { POSTGRES_URL_NON_POOLING: prodUrl, PRODUCTION_DB_HOST },
+    { production: false, noProdCheck: true },
+  );
+  assert.equal(d.action, "refuse");
+  assert.match(reason(d), /production database/);
+  assert.match(reason(d), /--production/);
+  assert.doesNotMatch(reason(d), /--no-prod-check/);
+  assert.doesNotMatch(reason(d), /secret/);
 });
 
 test("a PRODUCTION_DB_HOST that isn't a bare hostname is refused, since it could never match", () => {

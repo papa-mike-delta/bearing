@@ -1,11 +1,13 @@
 // Sets a new password for an account and signs every session out.
 //
-//   POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- you@example.com
+//   POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- --no-prod-check you@example.com
 //
-// Refuses the production database (the host in PRODUCTION_DB_HOST) unless
-// --production is passed. Shows the target host/db, asks for the email again,
-// then asks for the new password twice without echoing it. Leave it blank and
-// one is generated and printed once. Never prints the connection string.
+// PRODUCTION_DB_HOST is required unless --no-prod-check is passed for a
+// database that is definitely not production. Refuses the production database
+// (the host in PRODUCTION_DB_HOST) unless --production is passed. Shows the
+// target host/db, asks for the email again, then asks for the new password
+// twice without echoing it. Leave it blank and one is generated and printed
+// once. Never prints the connection string.
 
 import { createDb, db } from "@repo/db";
 import { randomBytes } from "node:crypto";
@@ -17,12 +19,16 @@ import { readHidden } from "../lib/hidden-input.ts";
 import { chooseResetPassword, resetPassword } from "../lib/password.ts";
 import { resetTarget } from "../lib/reset-guard.ts";
 
-const usage = "Usage: npm run reset-password -w web -- [--production] <email>";
+const usage =
+  "Usage: npm run reset-password -w web -- [--production] [--no-prod-check] <email>";
 
 let args;
 try {
   args = parseArgs({
-    options: { production: { type: "boolean", default: false } },
+    options: {
+      production: { type: "boolean", default: false },
+      "no-prod-check": { type: "boolean", default: false },
+    },
     allowPositionals: true,
   });
 } catch (error) {
@@ -38,6 +44,7 @@ if (!email || args.positionals.length > 1) {
 
 const target = resetTarget(process.env, {
   production: args.values.production,
+  noProdCheck: args.values["no-prod-check"],
 });
 if (target.action === "refuse") {
   console.error(`Refused: ${target.reason}`);

@@ -3,6 +3,7 @@ import { accountError } from "../../lib/account-errors";
 import { minPasswordLength } from "../../lib/credentials";
 import { changeAccountPassword } from "../actions";
 import { Header } from "../header";
+import { FormMessage } from "./form-message";
 import { ChangePasswordButton } from "./submit-button";
 
 export default async function Account({
@@ -49,9 +50,12 @@ export default async function Account({
           />
         </label>
         {changed === "1" ? (
-          <p role="status">Password changed. Other sessions were signed out.</p>
+          <FormMessage
+            role="status"
+            message="Password changed. Other sessions were signed out."
+          />
         ) : null}
-        {message ? <p role="alert">{message}</p> : null}
+        {message ? <FormMessage role="alert" message={message} /> : null}
         <ChangePasswordButton />
       </form>
     </main>

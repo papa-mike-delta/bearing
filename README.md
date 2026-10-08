@@ -81,13 +81,13 @@ POSTGRES_URL_NON_POOLING='<production direct URL from Vercel>' \
 npm run reset-password -w web -- --production you@example.com
 ```
 
-For a local or dev database:
+For a local or dev database, pass `--no-prod-check` (or set `PRODUCTION_DB_HOST`):
 
 ```sh
-POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- you@example.com
+POSTGRES_URL_NON_POOLING=... npm run reset-password -w web -- --no-prod-check you@example.com
 ```
 
-It reads `POSTGRES_URL_NON_POOLING`, falling back to `POSTGRES_URL`, and never prints the connection string. It must run in a terminal; it refuses when stdin isn't a TTY. It refuses when the database host matches `PRODUCTION_DB_HOST` (compared like the migrate guard: case, port, and Neon's `-pooler` suffix ignored) unless `--production` is passed. `PRODUCTION_DB_HOST` must be set in your local shell for the guard to work (Vercel's value isn't visible locally); without it the script warns that it can't tell, and runs. A `PRODUCTION_DB_HOST` that isn't a bare hostname is refused. It prints the target as host/db (no credentials, `(production)` when it's the production host), asks you to type the email again (a mismatch aborts), then asks for the new password twice without echoing it (a mismatch aborts; nothing is written). Leave it blank to generate one, which is printed once. Ctrl-C cancels without changing anything. Every session for that account is signed out.
+It reads `POSTGRES_URL_NON_POOLING`, falling back to `POSTGRES_URL`, and never prints the connection string. It must run in a terminal; it refuses when stdin isn't a TTY. `PRODUCTION_DB_HOST` is required (the script refuses without it) unless `--no-prod-check` is passed for a database that is definitely not production, in which case it warns and runs. It refuses when the database host matches `PRODUCTION_DB_HOST` (compared like the migrate guard: case, port, and Neon's `-pooler` suffix ignored) unless `--production` is passed. A `PRODUCTION_DB_HOST` that isn't a bare hostname is refused. It prints the target as host/db (no credentials, `(production)` when it's the production host), asks you to type the email again (a mismatch aborts), then asks for the new password twice without echoing it (a mismatch aborts; nothing is written). Leave it blank to generate one, which is printed once. Ctrl-C cancels without changing anything. Every session for that account is signed out.
 
 Node 24 is what the starter declares. Remote cache: `npx turbo login` then `npx turbo link`.
 
