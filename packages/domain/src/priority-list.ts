@@ -10,19 +10,22 @@ export function stepPriority(priority: number, step: 1 | -1): number {
 }
 
 export type ListTask = {
+  id: string;
   priority: number;
   createdAt: Date;
   completedAt: Date | null;
 };
 
-// Open tasks, highest priority first, then oldest first.
+// Open tasks, highest priority first, then oldest first, then by id so
+// ties always come out in the same order.
 export function priorityList<T extends ListTask>(tasks: readonly T[]): T[] {
   return tasks
     .filter((task) => task.completedAt === null)
     .sort(
       (a, b) =>
         b.priority - a.priority ||
-        a.createdAt.getTime() - b.createdAt.getTime(),
+        a.createdAt.getTime() - b.createdAt.getTime() ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
 }
 

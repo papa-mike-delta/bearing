@@ -14,3 +14,8 @@ const pool = new Pool({ connectionString: process.env.POSTGRES_URL });
 attachDatabasePool(pool);
 
 export const db = drizzle({ client: pool, schema });
+
+// A separate client for another database, such as the isolation test's.
+export function createDb(connectionString: string) {
+  return drizzle({ client: new Pool({ connectionString }), schema });
+}

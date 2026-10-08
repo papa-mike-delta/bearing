@@ -3,6 +3,7 @@
 
 export * from "./draft.ts";
 export * from "./priority-list.ts";
+export * from "./task.ts";
 
 export const workflows = [
   "priority-list",

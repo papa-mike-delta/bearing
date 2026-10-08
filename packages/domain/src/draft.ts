@@ -1,5 +1,7 @@
 // A Draft is text in the Inbox until it is filed.
 
+export const maxDraftLength = 10_000;
+
 // Filing as a task: the first non-empty line is the name, the rest is the
 // note. Null when the text has no non-empty line.
 export function draftToTask(
