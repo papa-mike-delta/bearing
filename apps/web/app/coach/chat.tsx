@@ -54,6 +54,21 @@ export function Chat({
   useEffect(() => {
     if (following.current) end.current?.scrollIntoView({ block: "end" });
   }, [messages, status]);
+  // Open at the newest message. The browser restores the old scroll position
+  // on a reload, and Next scrolls to the top after a link, both after the
+  // effect above; so restoration is off while the Coach is open, and the
+  // first scroll waits a frame.
+  useEffect(() => {
+    const restoration = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    const frame = requestAnimationFrame(() =>
+      end.current?.scrollIntoView({ block: "end" }),
+    );
+    return () => {
+      cancelAnimationFrame(frame);
+      history.scrollRestoration = restoration;
+    };
+  }, []);
 
   // A reply that failed before any text or tool call has nothing to show.
   const shown = messages.flatMap((message) => {
