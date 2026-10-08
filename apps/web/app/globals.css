@@ -186,6 +186,10 @@ li strong {
   color: var(--muted);
 }
 
+.thread p.receipt {
+  color: var(--muted);
+}
+
 form.composer {
   flex-direction: row;
   max-width: none;

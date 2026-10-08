@@ -1,7 +1,12 @@
-import { coachSystemPrompt, maxCoachMessageLength } from "@repo/coach";
+import {
+  coachSystemPrompt,
+  maxCoachMessageLength,
+  maxCoachSteps,
+} from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import {
   convertToModelMessages,
+  isStepCount,
   streamText,
   toUIMessageStream,
   validateUIMessages,
@@ -11,6 +16,7 @@ import {
   type UIMessage,
 } from "ai";
 import { saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachData, coachTools, coachToolsContext } from "./coach-tools.ts";
 import { isUuid, type Db } from "./db.ts";
 
 // The Gateway model id. Swap models by changing COACH_MODEL.
@@ -22,7 +28,7 @@ export function coachModel() {
 export const fallbackModel = "openai/gpt-6-astra";
 
 // The model sees only the most recent messages of the thread (20 exchanges),
-// and a reply is capped. At 4,000 characters a message, that bounds a turn's
+// and each model step of a reply is capped. At 4,000 characters a message, that bounds a turn's
 // prompt at roughly 40k tokens. The whole thread is still saved and shown.
 export const historyWindow = 40;
 export const maxReplyTokens = 1_000;
@@ -50,7 +56,9 @@ function newMessageText(message: unknown) {
 // - 409: an id already used by another thread or role, or by an earlier
 //   message (only the last message can be resent).
 // The message is rebuilt from its text alone, so nothing else the client
-// sends is stored or reaches the model. It is saved before the model runs
+// sends is stored or reaches the model. The whole thread is checked against
+// the tools before the model sees it. The Coach's tools act for `userId`
+// only, and a turn stops after maxCoachSteps model steps. It is saved before the model runs
 // and the reply when it finishes, so a closed tab doesn't lose the turn:
 // `saved` settles once both are written. Stopping in the browser doesn't
 // stop the model; the reply still finishes and is saved.
@@ -81,6 +89,7 @@ export async function coachTurn({
     role: "user",
     parts: [{ type: "text", text: incoming.text }],
   };
+  const tools = coachTools(coachData(db));
   let messages: UIMessage[];
   try {
     messages = await validateUIMessages({
@@ -88,6 +97,7 @@ export async function coachTurn({
         ...(resent === -1 ? earlier : earlier.slice(0, -1)),
         userMessage,
       ],
+      tools,
     });
   } catch {
     return { refused: 400 } as const;
@@ -103,7 +113,10 @@ export async function coachTurn({
   const result = streamText({
     model,
     system: coachSystemPrompt,
-    messages: await convertToModelMessages(recent),
+    messages: await convertToModelMessages(recent, { tools }),
+    tools,
+    toolsContext: coachToolsContext(userId),
+    stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
     providerOptions: {
       gateway: { models: [fallbackModel], user: userId, tags: ["coach"] },
@@ -111,19 +124,20 @@ export async function coachTurn({
   });
   // A model or Gateway error, even after some text, means the reply isn't
   // saved; the person resends instead. (The stream can still report
-  // "completed" after an error part, so the outcome alone isn't enough.)
+  // "completed" after an error part, so the outcome alone isn't enough.) A
+  // failed tool call isn't one: the model sees the error and goes on, and the
+  // reply is saved with a refused receipt.
   let failed = false;
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream.pipeThrough(failWhenCutOffBeforeText()),
+    stream: result.stream.pipeThrough(
+      failWhenCutOffBeforeText(() => (failed = true)),
+    ),
+    tools,
     sendReasoning: false,
     originalMessages: messages,
     generateMessageId: () => crypto.randomUUID(),
-    onError: () => {
-      failed = true;
-      return "An error occurred.";
-    },
     onEnd: async ({ responseMessage, outcome }) => {
       if (!failed && outcome.status === "completed") {
         await saveMessage(userId, thread, responseMessage, db, userMessage.id);
@@ -133,10 +147,11 @@ export async function coachTurn({
   return { stream, saved: readToEnd(ownCopy) };
 }
 
-// Reasoning counts toward maxReplyTokens, so a reply can hit the cap before
-// writing any text. That's a failed turn (an error part, so it isn't saved
-// and the browser offers Resend), not an empty reply the browser would hide.
-function failWhenCutOffBeforeText() {
+// Calls `fail` on an error part, the model's or our own. Reasoning counts
+// toward maxReplyTokens, so a reply can hit the cap before writing any text.
+// That's a failed turn (an error part, so it isn't saved and the browser
+// offers Resend), not an empty reply the browser would hide.
+function failWhenCutOffBeforeText(fail: () => void) {
   let wroteText = false;
   return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
     transform(part, controller) {
@@ -146,11 +161,13 @@ function failWhenCutOffBeforeText() {
         part.finishReason === "length" &&
         !wroteText
       ) {
+        fail();
         controller.enqueue({
           type: "error",
           error: new Error("The reply hit the token cap before any text"),
         });
       }
+      if (part.type === "error") fail();
       controller.enqueue(part);
     },
   });

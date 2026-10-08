@@ -1,7 +1,10 @@
 // Tool definitions, skill files, and knowledge markdown.
-// No model calls. apps/web owns the AI SDK route.
+// No model calls and no AI SDK. apps/web wraps the tools and owns the route.
 
-export { coachSystemPrompt } from "./prompt.ts";
+export type { CoachData, ListedTask, ToolRunContext } from "./data.ts";
+export { coachSystemPrompt, maxCoachSteps } from "./prompt.ts";
+export { receipt } from "./receipts.ts";
+export { listArea, maxListedTasks } from "./tools/list-area.ts";
 
 // The longest message a person can send the Coach, in UTF-16 code units (what
 // an input's maxLength counts). Every saved message goes into later prompts.

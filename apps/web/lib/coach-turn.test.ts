@@ -5,11 +5,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { coachMessages, createDb, users } from "@repo/db";
+import { areas, coachMessages, createDb, tasks, users } from "@repo/db";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
-import { maxCoachMessageLength } from "@repo/coach";
+import { maxCoachMessageLength, receipt } from "@repo/coach";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import {
   coachModel,
@@ -17,7 +17,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
-import { createArea } from "./tasks.ts";
+import { completeTask, createArea } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 
@@ -143,6 +143,58 @@ function cutOff(text?: string) {
 const userTurnsIn = (model: MockLanguageModelV4) =>
   model.doStreamCalls[0]!.prompt.filter((m) => m.role === "user").length;
 
+// A model that runs one scripted step per call: a listArea call with `input`,
+// or a text reply. Past the end of the script it repeats the last step.
+type Step = { listArea: string } | { text: string };
+function scripted(...steps: Step[]) {
+  let calls = 0;
+  return new MockLanguageModelV4({
+    doStream: async () => {
+      const step = steps[Math.min(calls++, steps.length - 1)]!;
+      const chunks = [
+        ...("listArea" in step
+          ? [
+              {
+                type: "tool-call" as const,
+                toolCallId: `call_${calls}`,
+                toolName: "listArea",
+                input: step.listArea,
+              },
+            ]
+          : [
+              { type: "text-start" as const, id: "t" },
+              { type: "text-delta" as const, id: "t", delta: step.text },
+              { type: "text-end" as const, id: "t" },
+            ]),
+        {
+          type: "finish" as const,
+          finishReason: {
+            unified: ("listArea" in step ? "tool-calls" : "stop") as
+              "tool-calls" | "stop",
+            raw: undefined,
+          },
+          usage,
+        },
+      ];
+      return { stream: simulateReadableStream({ chunks }) };
+    },
+  });
+}
+
+// The receipts a reloaded thread shows, in order.
+const receiptsOf = (messages: UIMessage[] | null) =>
+  messages?.flatMap((m) => m.parts.flatMap((p) => receipt(p) ?? []));
+
+// The listArea output saved on a reloaded thread's last tool part.
+const listedIn = (messages: UIMessage[] | null) => {
+  const part = messages
+    ?.flatMap((m) => m.parts)
+    .find((p) => p.type === "tool-listArea") as
+    | { output?: { open: number; tasks: { name: string; isNext: boolean }[] } }
+    | undefined;
+  return part?.output;
+};
+
 const failing = () =>
   new MockLanguageModelV4({
     doStream: async () => {
@@ -203,6 +255,29 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     if (broke) await result.saved.catch(() => {});
     else await result.saved;
     return { chunks, broke };
+  }
+
+  // Adds open Tasks to the user's Area as [name, priority] pairs, oldest
+  // first, and returns their ids by name.
+  async function addTasks(userId: string, list: [string, number][]) {
+    const [area] = await db
+      .select({ id: areas.id })
+      .from(areas)
+      .where(eq(areas.userId, userId));
+    const ids: Record<string, string> = {};
+    for (const [i, [name, priority]] of list.entries()) {
+      const [row] = await db
+        .insert(tasks)
+        .values({
+          areaId: area!.id,
+          name,
+          priority,
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)),
+        })
+        .returning({ id: tasks.id });
+      ids[name] = row!.id;
+    }
+    return ids;
   }
 
   const rowOf = async (id: string) =>
@@ -667,5 +742,119 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       ["user", "Still there?"],
       ["assistant", "Yes."],
     ]);
+  });
+  test("listArea gives the person's open Tasks in Priority List order with Next marked, and the receipt reloads", async () => {
+    const c = await account();
+    const d = await account();
+    const ids = await addTasks(c, [
+      ["Old normal", 0],
+      ["Low", -1],
+      ["Done", 2],
+      ["High", 1],
+      ["New normal", 0],
+    ]);
+    await completeTask(c, ids.Done!, db);
+    await addTasks(d, [["Someone else's", 2]]);
+    const thread = await coachThread(c, db);
+    // The model tries to read another account by passing its id.
+    const model = scripted(
+      { listArea: JSON.stringify({ userId: d }) },
+      { text: "Do High first." },
+    );
+    await turn(c, thread, userMessage("What should I do next?"), model);
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(
+      listedIn(reloaded)?.tasks.map((t) => [t.name, t.isNext]),
+      [
+        ["High", true],
+        ["Old normal", false],
+        ["New normal", false],
+        ["Low", false],
+      ],
+    );
+    assert.deepEqual(receiptsOf(reloaded), ["Read your list (4 open)"]);
+    assert.deepEqual(textOf(reloaded), [
+      ["user", "What should I do next?"],
+      ["assistant", "Do High first."],
+    ]);
+    // The model got the list back before it answered.
+    const prompt = JSON.stringify(model.doStreamCalls[1]!.prompt);
+    assert.ok(prompt.includes("High") && !prompt.includes("Someone else"));
+  });
+
+  test("listArea on an empty list reads nothing", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(
+      c,
+      thread,
+      userMessage("What's on my list?"),
+      scripted({ listArea: "{}" }, { text: "Your list is empty." }),
+    );
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(listedIn(reloaded), { open: 0, tasks: [] });
+    assert.deepEqual(receiptsOf(reloaded), ["Read your list (0 open)"]);
+  });
+
+  test("the loop stops after 8 model steps, and the steps it took reload", async () => {
+    const c = await account();
+    await addTasks(c, [["One", 0]]);
+    const thread = await coachThread(c, db);
+    const model = scripted({ listArea: "{}" });
+    await turn(c, thread, userMessage("Keep reading my list"), model);
+    assert.equal(model.doStreamCalls.length, 8);
+    assert.deepEqual(
+      receiptsOf(await threadMessages(c, thread, db)),
+      Array(8).fill("Read your list (1 open)"),
+    );
+  });
+
+  test("a tool call the model gets wrong is saved as a refused receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted(
+      { listArea: JSON.stringify(["not", "an", "object"]) },
+      { text: "I couldn't read your list." },
+    );
+    const done = await turn(c, thread, userMessage("What's next?"), model);
+    assert.ok("chunks" in done && !done.broke);
+    const reloaded = await threadMessages(c, thread, db);
+    assert.deepEqual(receiptsOf(reloaded), ["Couldn't read your list"]);
+    assert.deepEqual(textOf(reloaded)?.at(-1), [
+      "assistant",
+      "I couldn't read your list.",
+    ]);
+    // The thread still takes the next turn.
+    await turn(c, thread, userMessage("Try again"), replying("Ok."));
+    assert.equal((await threadMessages(c, thread, db))!.length, 4);
+  });
+
+  test("a saved tool part that doesn't fit its tool is refused before the model runs", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await saveMessage(c, thread, userMessage("Earlier"), db);
+    await saveMessage(
+      c,
+      thread,
+      {
+        id: randomUUID(),
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-listArea",
+            toolCallId: "call_x",
+            state: "output-available",
+            input: "everyone's tasks",
+            output: { open: 0, tasks: [] },
+          },
+        ],
+      },
+      db,
+    );
+    const model = replying("Should not run.");
+    const message = userMessage("Next?");
+    assert.deepEqual(await turn(c, thread, message, model), { refused: 400 });
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(await rowOf(message.id), undefined);
   });
 });

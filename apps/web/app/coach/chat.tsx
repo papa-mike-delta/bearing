@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { maxCoachMessageLength } from "@repo/coach";
+import { maxCoachMessageLength, receipt } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -37,8 +37,10 @@ export function Chat({
     }),
   });
   const replying = status === "submitted" || status === "streaming";
-  // A reply that failed before any text has nothing to show.
-  const shown = messages.filter((m) => m.parts.some((p) => p.type === "text"));
+  // A reply that failed before any text or tool call has nothing to show.
+  const shown = messages.filter((m) =>
+    m.parts.some((p) => p.type === "text" || receipt(p)),
+  );
 
   return (
     <>
@@ -49,9 +51,15 @@ export function Chat({
           {shown.map((message) => (
             <li key={message.id}>
               <small>{message.role === "user" ? "You" : "Coach"}</small>
-              {message.parts.map((part, i) =>
-                part.type === "text" ? <p key={i}>{part.text}</p> : null,
-              )}
+              {message.parts.map((part, i) => {
+                if (part.type === "text") return <p key={i}>{part.text}</p>;
+                const line = receipt(part);
+                return line ? (
+                  <p key={i} className="receipt">
+                    {line}
+                  </p>
+                ) : null;
+              })}
             </li>
           ))}
         </ol>
