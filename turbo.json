@@ -1,7 +1,14 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["POSTGRES_URL", "POSTGRES_URL_NON_POOLING", "AUTH_SECRET"],
+  "globalEnv": [
+    "POSTGRES_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "AUTH_SECRET",
+    "COACH_MODEL",
+    "AI_GATEWAY_API_KEY"
+  ],
+  "globalPassThroughEnv": ["VERCEL_OIDC_TOKEN"],
   "tasks": {
     "build": {
       "dependsOn": ["^build", "@repo/db#db:migrate:vercel"],

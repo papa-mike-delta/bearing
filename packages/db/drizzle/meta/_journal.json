@@ -15,6 +15,13 @@
       "when": 1791480927680,
       "tag": "0001_task_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791482947804,
+      "tag": "0002_coach_threads",
+      "breakpoints": true
     }
   ]
 }

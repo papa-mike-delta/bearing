@@ -6,8 +6,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { areas, createDb, tasks, users } from "@repo/db";
+import { areas, coachThreads, createDb, tasks, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
+import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { captureDraft, fileDraftAsTask, inboxDrafts } from "./drafts.ts";
 import {
   addTask,
@@ -263,6 +264,39 @@ describe(
       await assert.rejects(
         db.update(tasks).set({ priority: 5 }).where(eq(tasks.id, task.id)),
       );
+    });
+
+    test("another account's Coach thread and messages can't be read or written", async () => {
+      const mine = await coachThread(a, db);
+      const message = {
+        id: randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "A's message" }],
+      };
+      assert.equal(await saveMessage(a, mine, message, db), true);
+      const theirs = await coachThread(b, db);
+      assert.notEqual(theirs, mine);
+      assert.equal(await threadMessages(b, mine, db), null);
+      assert.deepEqual(await threadMessages(b, theirs, db), []);
+      const other = { ...message, id: randomUUID() };
+      await assert.rejects(saveMessage(b, mine, other, db));
+      assert.deepEqual(await threadMessages(a, mine, db), [message]);
+    });
+
+    test("the first Coach visit makes one thread, even when two load at once", async () => {
+      const c = await account();
+      // Warm the pool so the visits really overlap.
+      await Promise.all(Array.from({ length: 8 }, () => openTasks(c, db)));
+      const opened = await Promise.all(
+        Array.from({ length: 8 }, () => coachThread(c, db)),
+      );
+      const rows = await db
+        .select({ id: coachThreads.id })
+        .from(coachThreads)
+        .where(eq(coachThreads.userId, c));
+      assert.equal(rows.length, 1);
+      for (const id of opened) assert.equal(id, rows[0]!.id);
+      assert.equal(await coachThread(c, db), rows[0]!.id);
     });
 
     test("one Area per account", async () => {

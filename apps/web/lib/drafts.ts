@@ -1,7 +1,8 @@
 import { db as defaultDb, drafts } from "@repo/db";
 import { draftToTask } from "@repo/domain";
 import { and, desc, eq, TransactionRollbackError } from "drizzle-orm";
-import { addTask, isUuid, type Db } from "./tasks.ts";
+import { isUuid, type Db } from "./db.ts";
+import { addTask } from "./tasks.ts";
 
 // Every query here takes the session user.
 
