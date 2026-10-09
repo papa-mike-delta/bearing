@@ -20,6 +20,7 @@ import {
   receipt,
 } from "@repo/coach";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import { createArea } from "./areas.ts";
 import {
   coachModel,
   coachTurn,
@@ -31,7 +32,6 @@ import {
   addTask,
   changePriority,
   completeTask,
-  createArea,
   openTasks,
 } from "./tasks.ts";
 
@@ -303,7 +303,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       .values({ email: `${randomUUID()}@test.invalid`, passwordHash: "-" })
       .returning({ id: users.id });
     ids.push(user!.id);
-    await createArea(user!.id, db);
+    await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
 
@@ -316,7 +316,14 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     message: unknown,
     model: MockLanguageModelV4,
   ) {
-    const result = await coachTurn({ userId, threadId, message, model, db });
+    const result = await coachTurn({
+      userId,
+      threadId,
+      message,
+      model,
+      db,
+      today: "2026-10-09",
+    });
     if ("refused" in result) return result;
     const chunks: { type: string }[] = [];
     const reader = result.stream.getReader();
@@ -339,7 +346,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
   async function addTasks(userId: string, list: [string, number][]) {
     const ids: Record<string, string> = {};
     for (const [name, priority] of list) {
-      const { id } = (await addTask(userId, { name }, db))!;
+      const { id } = (await addTask(userId, { name, today: "2026-10-09" }, db))!;
       for (let i = 0; i < Math.abs(priority); i++) {
         await changePriority(userId, id, priority > 0 ? 1 : -1, db);
       }

@@ -1,90 +1,81 @@
-import { areas, db as defaultDb, tasks } from "@repo/db";
+import { db as defaultDb, tasks } from "@repo/db";
 import {
+  changeStatus,
+  coachList,
+  moveToLater,
+  moveToNow,
   newTask,
-  normalPriority,
-  priorityList,
+  newTaskFields,
+  pickArea,
+  scheduleTask,
   stepPriority,
-  type Workflow,
+  type TaskRecord,
 } from "@repo/domain";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { loadAccount } from "./areas.ts";
 import { isUuid, type Db } from "./db.ts";
 
 // Every query here takes the session user. Tasks are reached through the
-// user's Area, so another account's rows never match. The trailing `db` lets
-// tests and transactions pass their own handle.
+// user's Areas, so another account's rows never match.
 
-export async function createArea(userId: string, db: Db = defaultDb) {
-  const workflow: Workflow = "priority-list";
-  await db
-    .insert(areas)
-    .values({ userId, name: "Tasks", workflow })
-    .onConflictDoNothing({ target: areas.userId });
-}
-
-function userAreaIds(userId: string, db: Db = defaultDb) {
-  return db
-    .select({ id: areas.id })
-    .from(areas)
-    .where(eq(areas.userId, userId));
-}
-
-function openTaskOf(userId: string, taskId: string, db: Db) {
-  return and(
-    eq(tasks.id, taskId),
-    inArray(tasks.areaId, userAreaIds(userId, db)),
-    isNull(tasks.completedAt),
+// Open Tasks in the order the Coach reads them. `today` places dates; a
+// Priority List ignores it.
+export async function openTasks(
+  userId: string,
+  db: Db = defaultDb,
+  today = "",
+) {
+  const loaded = await loadAccount(userId, db);
+  const order = new Map(
+    coachList(loaded.areas, loaded.tasks, today).map((entry, index) => [
+      entry.id,
+      index,
+    ]),
   );
+  return loaded.tasks
+    .filter((task) => order.has(task.id))
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
-export async function openTasks(userId: string, db: Db = defaultDb) {
-  const rows = await db
-    .select({
-      id: tasks.id,
-      name: tasks.name,
-      note: tasks.note,
-      priority: tasks.priority,
-      createdAt: tasks.createdAt,
-      completedAt: tasks.completedAt,
-    })
-    .from(tasks)
-    .where(
-      and(
-        inArray(tasks.areaId, userAreaIds(userId, db)),
-        isNull(tasks.completedAt),
-      ),
-    );
-  return priorityList(rows);
+export async function listForCoach(
+  userId: string,
+  today: string,
+  db: Db = defaultDb,
+) {
+  const loaded = await loadAccount(userId, db);
+  return coachList(loaded.areas, loaded.tasks, today);
 }
 
-// Where a Task came from: the Coach and its tool-call id.
 export type Provenance = { source: "coach"; sourceId: string };
 
-// Keeps the provenance index row well under Postgres's btree size limit.
 export const maxSourceIdLength = 200;
 
 type TaskRef = { id: string; name: string };
 
-// The one way a task is created, whether added on the list, filed from a
-// Draft, or added with provenance. Returns the Task, or null when the domain
-// rule refuses the name or note, or the source id is blank or too long. With
-// provenance already used in the Area it adds nothing and returns that Task.
-// Accounts made before Areas existed get theirs here.
+// The one way a task is created. Null when the name, note, day, or Area is
+// refused, or the source id is blank or too long. One Area is used without
+// a name. Several require a name. None refuses. Provenance already used in
+// that Area returns the existing Task.
 export async function addTask(
   userId: string,
-  input: { name: string; note?: string; from?: Provenance },
+  input: {
+    name: string;
+    note?: string;
+    from?: Provenance;
+    area?: string;
+    today: string;
+  },
   db: Db = defaultDb,
 ): Promise<TaskRef | null> {
   const task = newTask(input);
+  const fields = newTaskFields(input.today);
   const { from } = input;
   const badSourceId =
     from && (!from.sourceId.trim() || from.sourceId.length > maxSourceIdLength);
-  if (!task || badSourceId) return null;
-  let [area] = await userAreaIds(userId, db);
-  if (!area) {
-    await createArea(userId, db);
-    [area] = await userAreaIds(userId, db);
-  }
-  if (!area) throw new Error("Account has no Area");
+  if (!task || !fields || badSourceId) return null;
+  const loaded = await loadAccount(userId, db);
+  const area = pickArea(loaded.areas, input.area);
+  if (!area) return null;
   const ref = { id: tasks.id, name: tasks.name };
   const [added] = await db
     .insert(tasks)
@@ -92,7 +83,9 @@ export async function addTask(
       name: task.name,
       note: task.note,
       areaId: area.id,
-      priority: normalPriority,
+      priority: fields.priority,
+      status: fields.status,
+      age: fields.age,
       source: from?.source,
       sourceId: from?.sourceId,
     })
@@ -101,7 +94,6 @@ export async function addTask(
     })
     .returning(ref);
   if (added) return added;
-  // Only provenance can conflict. Return the Task that already has it.
   if (!from) throw new Error("Task insert returned no row");
   const [existing] = await db
     .select(ref)
@@ -117,24 +109,69 @@ export async function addTask(
   return existing;
 }
 
-// Returns the completed Task, or null when the id matched no open Task of
-// this user.
+async function lockedOpen(userId: string, taskId: string, db: Db) {
+  if (!isUuid(taskId)) return null;
+  const loaded = await loadAccount(userId, db);
+  const areaIds = loaded.areas.map((area) => area.id);
+  if (!areaIds.length) return null;
+  const [row] = await db
+    .select({
+      id: tasks.id,
+      name: tasks.name,
+      status: tasks.status,
+      previousStatus: tasks.previousStatus,
+      age: tasks.age,
+      date: tasks.scheduledOn,
+      completedAt: tasks.completedAt,
+      priority: tasks.priority,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        inArray(tasks.areaId, areaIds),
+        isNull(tasks.completedAt),
+        ne(tasks.status, "completed"),
+      ),
+    )
+    .for("update");
+  return row ?? null;
+}
+
+function toStatusTask(row: NonNullable<Awaited<ReturnType<typeof lockedOpen>>>) {
+  return {
+    status: row.status as TaskRecord["status"],
+    previousStatus: row.previousStatus as TaskRecord["previousStatus"],
+    completedAt: row.completedAt,
+    age: row.age,
+    date: row.date,
+  };
+}
+
 export async function completeTask(
   userId: string,
   taskId: string,
   db: Db = defaultDb,
 ): Promise<TaskRef | null> {
   if (!isUuid(taskId)) return null;
-  const [done] = await db
-    .update(tasks)
-    .set({ completedAt: new Date() })
-    .where(openTaskOf(userId, taskId, db))
-    .returning({ id: tasks.id, name: tasks.name });
-  return done ?? null;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return null;
+    const next = changeStatus(toStatusTask(row), "completed", new Date());
+    if (!next) return null;
+    const [done] = await tx
+      .update(tasks)
+      .set({
+        status: next.status,
+        previousStatus: next.previousStatus,
+        completedAt: next.completedAt,
+      })
+      .where(eq(tasks.id, taskId))
+      .returning({ id: tasks.id, name: tasks.name });
+    return done ?? null;
+  });
 }
 
-// Locks the row so concurrent steps can't overwrite each other, and keeps
-// stepPriority as the only clamp.
 export async function changePriority(
   userId: string,
   taskId: string,
@@ -143,15 +180,63 @@ export async function changePriority(
 ) {
   if (!isUuid(taskId)) return;
   await db.transaction(async (tx) => {
-    const [task] = await tx
-      .select({ priority: tasks.priority })
-      .from(tasks)
-      .where(openTaskOf(userId, taskId, tx))
-      .for("update");
-    if (!task) return;
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return;
     await tx
       .update(tasks)
-      .set({ priority: stepPriority(task.priority, step) })
+      .set({ priority: stepPriority(row.priority, step) })
       .where(eq(tasks.id, taskId));
+  });
+}
+
+export async function moveTask(
+  userId: string,
+  taskId: string,
+  to: "now" | "later",
+  db: Db = defaultDb,
+) {
+  if (!isUuid(taskId)) return false;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return false;
+    const current = toStatusTask(row);
+    const next = to === "now" ? moveToNow(current) : moveToLater(current);
+    if (!next) return false;
+    await tx
+      .update(tasks)
+      .set({
+        status: next.status,
+        previousStatus: next.previousStatus,
+        completedAt: next.completedAt,
+      })
+      .where(eq(tasks.id, taskId));
+    return true;
+  });
+}
+
+export async function scheduleOn(
+  userId: string,
+  taskId: string,
+  date: string,
+  today: string,
+  db: Db = defaultDb,
+) {
+  if (!isUuid(taskId)) return false;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return false;
+    const next = scheduleTask(toStatusTask(row), date, today);
+    if (!next) return false;
+    await tx
+      .update(tasks)
+      .set({
+        status: next.status,
+        previousStatus: next.previousStatus,
+        completedAt: next.completedAt,
+        age: next.age,
+        scheduledOn: next.date,
+      })
+      .where(eq(tasks.id, taskId));
+    return true;
   });
 }

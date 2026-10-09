@@ -4,7 +4,7 @@ import type { db } from "@repo/db";
 // app's pool; tests and transactions pass their own.
 export type Db = Pick<
   typeof db,
-  "select" | "insert" | "update" | "transaction"
+  "select" | "insert" | "update" | "delete" | "transaction"
 >;
 
 const uuidPattern =
