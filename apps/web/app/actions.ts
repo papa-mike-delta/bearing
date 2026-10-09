@@ -2,14 +2,21 @@
 
 import { db, users } from "@repo/db";
 import { maxDraftLength } from "@repo/domain";
+import { eq } from "drizzle-orm";
 import { CredentialsSignin } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
+import {
+  defaultAccountTheme,
+  readPreset,
+  takeImport,
+} from "../lib/account-theme";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
+import { expandPreset } from "../lib/expand-preset";
 import {
   addTask,
   changePriority,
@@ -52,6 +59,39 @@ export async function createAccount(formData: FormData) {
 
 export async function signOutOfBearing() {
   await signOut({ redirectTo: "/sign-in" });
+}
+
+export async function importAccountTheme(formData: FormData) {
+  const user = await requireUser();
+  const input = String(formData.get("preset") ?? "");
+  const code = readPreset(input);
+  if (!code) redirect("/account?error=theme");
+  let blocks: { light: string; dark: string } | null = null;
+  try {
+    blocks = await expandPreset(code);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "account.theme.error",
+        error: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  }
+  const result = takeImport(defaultAccountTheme, input, blocks);
+  if (result.error || result.account.choice !== "imported") {
+    redirect("/account?error=theme-failed");
+  }
+  await db
+    .update(users)
+    .set({
+      themeChoice: result.account.choice,
+      themeCode: result.account.code,
+      themeLight: result.account.light,
+      themeDark: result.account.dark,
+    })
+    .where(eq(users.id, user.id));
+  revalidatePath("/", "layout");
+  redirect("/account?imported=1");
 }
 
 export async function addTaskToList(formData: FormData) {
