@@ -35,6 +35,11 @@
     margin-bottom: 1.5rem;
   }
 
+  /* A heading after a form sits clear of the control above it. */
+  main > form + h1 {
+    margin-top: 2rem;
+  }
+
   form {
     display: flex;
     flex-direction: column;
@@ -59,6 +64,24 @@
   label :is(input, textarea) {
     color: var(--foreground);
     font-size: 14px;
+  }
+
+  /* 4px under the input. A shared stack, so the form's 0.75rem gap does
+     not separate the hint from the field. */
+  main form .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  main form p.hint {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  main form p.hint a {
+    color: inherit;
+    text-decoration: underline;
   }
 
   header nav {

@@ -3,6 +3,7 @@ import { db, sessions, users } from "@repo/db";
 import NextAuth from "next-auth";
 import { redirect } from "next/navigation";
 import Credentials from "next-auth/providers/credentials";
+import { cache } from "react";
 import { parseCredentials, verifyPassword } from "./lib/credentials";
 
 const adapter = DrizzleAdapter(db, {
@@ -64,9 +65,12 @@ export const { auth, signIn, signOut } = NextAuth({
   },
 });
 
+// One session lookup per request, shared by the layout and requireUser.
+export const currentSession = cache(() => auth());
+
 // The signed-in user, or null. API routes answer 401 on null.
 export async function getApiUser() {
-  const user = (await auth())?.user;
+  const user = (await currentSession())?.user;
   return user?.id ? { id: user.id, email: user.email } : null;
 }
 

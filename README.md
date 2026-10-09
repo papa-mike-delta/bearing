@@ -73,7 +73,7 @@ npm test
 
 ### Password
 
-Signed in, **Password** in the header opens Change password. It checks the current password, stores a new hash with the same rules as sign-up (at least 8 characters), and signs out every other session for that account.
+Signed in, **Account** in the header opens Change password. It checks the current password, stores a new hash with the same rules as sign-up (at least 8 characters), and signs out every other session for that account.
 
 Locked out, reset from a terminal. The usual case is a production account:
 

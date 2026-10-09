@@ -10,7 +10,8 @@
     "lint": "eslint --max-warnings 0",
     "check-types": "next typegen && tsc --noEmit",
     "test": "node --test",
-    "reset-password": "node scripts/reset-password.ts"
+    "reset-password": "node scripts/reset-password.ts",
+    "themes:generate": "node scripts/generate-shadcn-themes.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.136",
@@ -36,6 +37,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "eslint": "10.9.1",
+    "shadcn": "4.21.4",
     "typescript": "7.0.2"
   }
 }

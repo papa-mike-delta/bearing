@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { db } from "@repo/db";
 import "@repo/ui/globals.css";
 import "./globals.css";
+import { currentSession } from "../auth";
+import { themeCss } from "../lib/account-theme";
+import { loadAccountTheme } from "../lib/account-theme-store";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const geistSans = localFont({
@@ -17,11 +21,16 @@ export const metadata: Metadata = {
   title: "Bearing",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await currentSession();
+  const id = session?.user?.id;
+  const account = id ? await loadAccountTheme(db, id) : null;
+  const css = account ? themeCss(account) : null;
+
   return (
     <html
       lang="en"
@@ -29,6 +38,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable}`}
     >
       <body>
+        {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
