@@ -23,8 +23,8 @@ export const users = pgTable("users", {
     withTimezone: true,
   }),
   image: text("image"),
-  // One of the six built-in names, or "imported". Grayscale until a choice.
-  // Choosing a built-in does not clear an import's code and variables.
+  // One of the six built-in ids, e.g. old-gold, or imported. Grayscale until a
+  // choice. Choosing a built-in does not clear an import's code and variables.
   themeChoice: text("theme_choice").notNull().default("grayscale"),
   themeCode: text("theme_code"),
   themeLight: text("theme_light"),

@@ -8,7 +8,7 @@
 
 import { decodePreset } from "shadcn/preset";
 import table from "./shadcn-themes.json" with { type: "json" };
-import { sanitizeBlock } from "./account-theme.ts";
+import { sanitizeBlock } from "./sanitize-block.ts";
 import {
   presetInput,
   renderDeclarations,

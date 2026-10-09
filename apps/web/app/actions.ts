@@ -8,14 +8,13 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
 import {
-  chooseTheme,
   defaultAccountTheme,
   readPreset,
   takeImport,
 } from "../lib/account-theme";
 import {
-  loadAccountTheme,
   saveAccountTheme,
+  switchAccountTheme,
 } from "../lib/account-theme-store";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
@@ -92,10 +91,12 @@ export async function importAccountTheme(formData: FormData) {
 
 export async function chooseAccountTheme(formData: FormData) {
   const user = await requireUser();
-  const current = await loadAccountTheme(db, user.id);
-  const next = chooseTheme(current, String(formData.get("choice") ?? ""));
+  const next = await switchAccountTheme(
+    db,
+    user.id,
+    String(formData.get("choice") ?? ""),
+  );
   if (next.error) redirect("/account");
-  await saveAccountTheme(db, user.id, next.account);
   revalidatePath("/", "layout");
   redirect("/account");
 }

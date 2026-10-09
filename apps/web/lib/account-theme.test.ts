@@ -4,10 +4,10 @@ import { encodePreset } from "shadcn/preset";
 import { expandPreset } from "./expand-preset.ts";
 import {
   builtInThemes,
-  chooseTheme,
   defaultAccountTheme,
   importError,
   importNotice,
+  isBuiltInThemeId,
   maxPresetInputLength,
   maxStoredThemeLength,
   readPreset,
@@ -191,20 +191,27 @@ const achromatic = encodePreset({
 
 test("the account lists the six themes by the names on the spec, and no import it never had", () => {
   assert.deepEqual(
-    builtInThemes.map((theme) => [theme.name, theme.code]),
+    builtInThemes.map((theme) => [theme.id, theme.name, theme.code]),
     [
-      ["grayscale", "bxIOtxcO"],
-      ["navy", "b1ZzrZeXA"],
-      ["phthalo", "b5de5C2oi"],
-      ["old gold", "b1GdgzJaa"],
-      ["royal purple", "b4ODOqh2O"],
-      ["maroon", "b50vk1MvY"],
+      ["grayscale", "grayscale", "bxIOtxcO"],
+      ["navy", "navy", "b1ZzrZeXA"],
+      ["phthalo", "phthalo", "b5de5C2oi"],
+      ["old-gold", "old gold", "b1GdgzJaa"],
+      ["royal-purple", "royal purple", "b4ODOqh2O"],
+      ["maroon", "maroon", "b50vk1MvY"],
     ],
   );
   const choices = themeChoices(defaultAccountTheme);
   assert.deepEqual(
-    choices.map((choice) => choice.name),
-    ["grayscale", "navy", "phthalo", "old gold", "royal purple", "maroon"],
+    choices.map((choice) => [choice.id, choice.name]),
+    [
+      ["grayscale", "grayscale"],
+      ["navy", "navy"],
+      ["phthalo", "phthalo"],
+      ["old-gold", "old gold"],
+      ["royal-purple", "royal purple"],
+      ["maroon", "maroon"],
+    ],
   );
   assert.equal(choices.find((choice) => choice.id === "grayscale")?.selected, true);
   assert.equal(choices.some((choice) => choice.id === "imported"), false);
@@ -213,24 +220,22 @@ test("the account lists the six themes by the names on the spec, and no import i
 test("each built-in paints its own light and its own dark", () => {
   const seen = new Set<string>();
   for (const theme of builtInThemes) {
-    const chosen = chooseTheme(defaultAccountTheme, theme.name);
-    assert.equal(chosen.error, null);
-    assert.equal(chosen.account.choice, theme.name);
-    const light = themeDeclarations(chosen.account, "light");
-    const dark = themeDeclarations(chosen.account, "dark");
-    assert.notEqual(light, dark, theme.name);
+    const chosen = { ...defaultAccountTheme, choice: theme.id };
+    const light = themeDeclarations(chosen, "light");
+    const dark = themeDeclarations(chosen, "dark");
+    assert.notEqual(light, dark, theme.id);
     const direct = expandPreset(theme.code);
     if (direct) {
-      assert.equal(light, direct.light, theme.name);
-      assert.equal(dark, direct.dark, theme.name);
+      assert.equal(light, direct.light, theme.id);
+      assert.equal(dark, direct.dark, theme.id);
     } else {
-      assert.equal(theme.name, "grayscale");
+      assert.equal(theme.id, "grayscale");
       const paint = expandPreset(achromatic);
       assert.ok(paint, "neutral preset expands");
       assert.equal(light, paint.light);
       assert.equal(dark, paint.dark);
     }
-    assert.equal(seen.has(light), false, theme.name);
+    assert.equal(seen.has(light), false, theme.id);
     seen.add(light);
   }
 });
@@ -246,49 +251,49 @@ test("a missing choice paints grayscale", () => {
   );
 });
 
-test("choosing a built-in leaves the import, and choosing it again restores it", () => {
+test("a built-in paints over a stored import, and imported paints it again", () => {
   const imported = takeImport(
     defaultAccountTheme,
     "b1sACkXE8",
     fuchsia,
   ).account;
-  const mine = { ...imported };
-  const them = { ...imported };
-  const navy = chooseTheme(mine, "navy");
-  assert.equal(navy.error, null);
-  assert.equal(navy.account.choice, "navy");
-  assert.equal(navy.account.code, imported.code);
-  assert.equal(navy.account.light, imported.light);
-  assert.equal(navy.account.dark, imported.dark);
-  assert.equal(mine.choice, "imported");
-  assert.deepEqual(them, imported);
+  const navy = { ...imported, choice: "navy" };
   assert.equal(
-    themeDeclarations(navy.account, "light"),
+    themeDeclarations(navy, "light"),
     expandPreset("b1ZzrZeXA")?.light,
   );
   assert.notEqual(
-    themeDeclarations(navy.account, "dark"),
-    themeDeclarations(navy.account, "light"),
+    themeDeclarations(navy, "dark"),
+    themeDeclarations(navy, "light"),
   );
-  const back = chooseTheme(navy.account, "imported");
-  assert.equal(back.error, null);
-  assert.equal(back.account.choice, "imported");
-  assert.equal(themeDeclarations(back.account, "light"), imported.light);
-  assert.equal(themeDeclarations(back.account, "dark"), imported.dark);
-  const whileNavy = themeChoices(navy.account);
+  const back = { ...navy, choice: "imported" };
+  assert.equal(themeDeclarations(back, "light"), imported.light);
+  assert.equal(themeDeclarations(back, "dark"), imported.dark);
+  const whileNavy = themeChoices(navy);
   assert.equal(whileNavy.find((choice) => choice.id === "imported")?.name, "Imported");
   assert.equal(whileNavy.find((choice) => choice.id === "imported")?.selected, false);
   assert.equal(whileNavy.find((choice) => choice.id === "navy")?.selected, true);
   assert.equal(
-    themeChoices(back.account).find((choice) => choice.id === "imported")?.selected,
+    themeChoices(back).find((choice) => choice.id === "imported")?.selected,
     true,
   );
-  assert.equal(chooseTheme(defaultAccountTheme, "imported").error, "rejected");
-  assert.deepEqual(
-    chooseTheme(defaultAccountTheme, "imported").account,
-    defaultAccountTheme,
-  );
-  assert.equal(chooseTheme(imported, "not-a-theme").error, "rejected");
-  assert.deepEqual(chooseTheme(imported, "not-a-theme").account, imported);
+});
+
+test("miscased ids and display names are not built-in ids", () => {
+  const gray = themeDeclarations(defaultAccountTheme, "dark");
+  for (const id of ["Navy", "OLD-GOLD", "old gold"]) {
+    assert.equal(isBuiltInThemeId(id), false, id);
+    assert.equal(
+      themeDeclarations(
+        { choice: id, code: null, light: null, dark: null },
+        "dark",
+      ),
+      gray,
+      id,
+    );
+  }
+  assert.equal(isBuiltInThemeId("navy"), true);
+  assert.equal(isBuiltInThemeId("old-gold"), true);
+  assert.equal(isBuiltInThemeId("imported"), false);
 });
 
