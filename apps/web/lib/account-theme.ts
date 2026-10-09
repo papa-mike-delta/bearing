@@ -1,7 +1,12 @@
 import { decodePreset, isPresetCode } from "shadcn/preset";
+import { expandPreset } from "./expand-preset.ts";
+import { sanitizeBlock } from "./sanitize-block.ts";
 
-// The Account's theme. "grayscale" is the shared default. "imported" paints
-// the stored variables for that Account only.
+export { maxStoredThemeLength, sanitizeBlock } from "./sanitize-block.ts";
+
+// The Account's theme. One of the six built-in ids, or "imported".
+// "grayscale" is the default. An import's variables stay on the row when a
+// built-in is chosen, so the import can be restored.
 export type AccountTheme = {
   choice: string;
   code: string | null;
@@ -16,9 +21,44 @@ export const defaultAccountTheme: AccountTheme = {
   dark: null,
 };
 
-// The paste box, and the variable block stored on the user row.
+// Ids, names and codes from the spec. theme_choice stores the id.
+// Grayscale's code uses base color gray, which the theme service no longer
+// serves.
+export const builtInThemes = [
+  { id: "grayscale", name: "Grayscale", code: "bxIOtxcO" },
+  { id: "navy", name: "Navy", code: "b1ZzrZeXA" },
+  { id: "phthalo", name: "Phthalo", code: "b5de5C2oi" },
+  { id: "old-gold", name: "Old gold", code: "b1GdgzJaa" },
+  { id: "royal-purple", name: "Royal purple", code: "b4ODOqh2O" },
+  { id: "maroon", name: "Maroon", code: "b50vk1MvY" },
+] as const;
+
+// Same kit as the six (Mira, Geist, Lucide, small radius), neutral instead
+// of gray. Used only while bxIOtxcO does not expand. Chroma 0, so it is not
+// one of the colored five and not the old blue.
+const achromatic = "b1D0dxoG";
+
+// Light and dark blocks for each built-in, expanded once. Grayscale falls
+// back to the achromatic preset when bxIOtxcO does not expand.
+const builtInBlocks = new Map<string, { light: string; dark: string }>();
+for (const theme of builtInThemes) {
+  const direct = expandPreset(theme.code);
+  if (direct) {
+    builtInBlocks.set(theme.id, direct);
+    continue;
+  }
+  if (theme.id === "grayscale") {
+    const fallback = expandPreset(achromatic);
+    if (fallback) builtInBlocks.set(theme.id, fallback);
+  }
+}
+
+export function isBuiltInThemeId(id: string) {
+  return builtInThemes.some((theme) => theme.id === id);
+}
+
+// The paste box.
 export const maxPresetInputLength = 512;
-export const maxStoredThemeLength = 8192;
 
 const errors: Record<string, string> = {
   theme: "That isn't a theme link or a preset code.",
@@ -55,14 +95,50 @@ export function takeImport(
   };
 }
 
-// The declarations to put on this Account's document, or null to keep the
-// shared theme. Re-checks the stored text so a bad row cannot inject CSS.
+// The declarations to put on this Account's document. A built-in is painted
+// from its preset. An import is painted from the stored blocks. A missing
+// choice, or an import with no usable blocks, paints grayscale.
+export function themeDeclarations(
+  account: AccountTheme,
+  scheme: "light" | "dark",
+) {
+  return resolved(account)[scheme];
+}
+
 export function themeCss(account: AccountTheme) {
-  if (account.choice !== "imported") return null;
-  const light = sanitizeBlock(account.light);
-  const dark = sanitizeBlock(account.dark);
+  const light = themeDeclarations(account, "light");
+  const dark = themeDeclarations(account, "dark");
   if (!light || !dark) return null;
   return `:root{${light}}.dark{${dark}}`;
+}
+
+export function themeChoices(account: AccountTheme) {
+  const choices: { id: string; name: string; selected: boolean }[] =
+    builtInThemes.map((theme) => ({
+      id: theme.id,
+      name: theme.name,
+      selected: account.choice === theme.id,
+    }));
+  if (account.code) {
+    choices.push({
+      id: "imported",
+      name: "Imported",
+      selected: account.choice === "imported",
+    });
+  }
+  return choices;
+}
+
+function resolved(account: AccountTheme) {
+  if (account.choice === "imported") {
+    const light = sanitizeBlock(account.light);
+    const dark = sanitizeBlock(account.dark);
+    if (light && dark) return { light, dark };
+  }
+  return (
+    builtInBlocks.get(account.choice) ??
+    builtInBlocks.get("grayscale") ?? { light: "", dark: "" }
+  );
 }
 
 // Current-format codes start with "b". Older "a…" codes still decode, and are
@@ -96,29 +172,4 @@ export function readPreset(input: string) {
   }
   if (text.includes("/") || /\s/.test(text)) return null;
   return acceptedPreset(text);
-}
-
-const name = /^--[a-z0-9-]+$/i;
-const value = /^[a-z0-9.%()/,+\s-]+$/i;
-
-export function sanitizeBlock(body: string | null | undefined) {
-  if (!body || body.length > maxStoredThemeLength) return null;
-  if (/[{}<>]|url\s*\(|expression\s*\(|@import|<\/|["'`\\]/i.test(body)) {
-    return null;
-  }
-  const decls = body
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (decls.length === 0) return null;
-  const out: string[] = [];
-  for (const decl of decls) {
-    const splitAt = decl.indexOf(":");
-    if (splitAt === -1) return null;
-    const property = decl.slice(0, splitAt).trim();
-    const propertyValue = decl.slice(splitAt + 1).trim();
-    if (!name.test(property) || !value.test(propertyValue)) return null;
-    out.push(`${property}: ${propertyValue}`);
-  }
-  return `${out.join("; ")};`;
 }

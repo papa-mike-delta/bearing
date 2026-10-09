@@ -1,16 +1,22 @@
+import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Label } from "@repo/ui/components/label";
-import { db, users } from "@repo/db";
-import { eq } from "drizzle-orm";
+import { db } from "@repo/db";
 import { requireUser } from "../../auth";
 import {
   importError,
   importNotice,
   maxPresetInputLength,
+  themeChoices,
 } from "../../lib/account-theme";
+import { loadAccountTheme } from "../../lib/account-theme-store";
 import { accountError } from "../../lib/account-errors";
 import { minPasswordLength } from "../../lib/credentials";
-import { changeAccountPassword, importAccountTheme } from "../actions";
+import {
+  changeAccountPassword,
+  chooseAccountTheme,
+  importAccountTheme,
+} from "../actions";
 import { Header } from "../header";
 import { ClearParam } from "./clear-param";
 import { FormMessage } from "./form-message";
@@ -26,20 +32,33 @@ export default async function Account({
   const { error, changed, imported } = await searchParams;
   const message = accountError(error);
   const themeMessage = importError(error);
-  const row =
-    imported === "1"
-      ? await db.query.users.findFirst({
-          where: eq(users.id, user.id),
-          columns: { themeCode: true },
-        })
-      : null;
-  const notice = imported === "1" ? importNotice(row?.themeCode ?? null) : null;
+  const account = await loadAccountTheme(db, user.id);
+  const notice = imported === "1" ? importNotice(account.code) : null;
 
   return (
     <main>
       <Header email={user.email} />
       {imported === "1" || changed === "1" ? <ClearParam /> : null}
       <h1>Theme</h1>
+      <form action={chooseAccountTheme} className="themes">
+        <fieldset>
+          <legend>Built-in themes</legend>
+          <div className="choices">
+            {themeChoices(account).map((choice) => (
+              <Button
+                key={choice.id}
+                type="submit"
+                name="choice"
+                value={choice.id}
+                variant={choice.selected ? "default" : "outline"}
+                aria-pressed={choice.selected}
+              >
+                {choice.name}
+              </Button>
+            ))}
+          </div>
+        </fieldset>
+      </form>
       <form action={importAccountTheme}>
         <div className="field">
           <Label htmlFor="preset">Preset link or code</Label>

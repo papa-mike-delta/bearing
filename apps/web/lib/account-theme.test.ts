@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { encodePreset } from "shadcn/preset";
 import { expandPreset } from "./expand-preset.ts";
 import {
+  builtInThemes,
   defaultAccountTheme,
   importError,
   importNotice,
+  isBuiltInThemeId,
   maxPresetInputLength,
   maxStoredThemeLength,
   readPreset,
   sanitizeBlock,
   takeImport,
+  themeChoices,
   themeCss,
+  themeDeclarations,
   type AccountTheme,
 } from "./account-theme.ts";
 
@@ -91,15 +96,17 @@ test("a failed expand changes nothing", () => {
   assert.match(importError("theme-failed") ?? "", /Nothing was changed/);
 });
 
-test("an import without variables falls back to the shared theme", () => {
+test("an import without variables paints grayscale, not the old blue", () => {
   const broken: AccountTheme = {
     choice: "imported",
     code: "b1sACkXE8",
     light: null,
     dark: null,
   };
-  assert.equal(themeCss(broken), null);
-  assert.equal(themeCss(defaultAccountTheme), null);
+  const gray = themeDeclarations(defaultAccountTheme, "light");
+  assert.equal(themeDeclarations(broken, "light"), gray);
+  assert.match(themeCss(defaultAccountTheme) ?? "", /^:root\{/);
+  assert.doesNotMatch(themeCss(defaultAccountTheme) ?? "", /#2f5fd0/);
 });
 
 test("stored variables are custom properties, not injected CSS", () => {
@@ -109,15 +116,14 @@ test("stored variables are custom properties, not injected CSS", () => {
     ),
     null,
   );
-  assert.equal(
-    themeCss({
-      choice: "imported",
-      code: "b1sACkXE8",
-      light: "--background: oklch(1 0 0); --x: </style>",
-      dark: "--background: oklch(0.145 0 0);",
-    }),
-    null,
-  );
+  const dirty = themeCss({
+    choice: "imported",
+    code: "b1sACkXE8",
+    light: "--background: oklch(1 0 0); --x: </style>",
+    dark: "--background: oklch(0.145 0 0);",
+  });
+  assert.equal(dirty, themeCss(defaultAccountTheme));
+  assert.doesNotMatch(dirty ?? "", /<\/style>|url\(/);
 });
 
 test("a plain custom property is kept", () => {
@@ -167,3 +173,127 @@ test("a stored block longer than 8192 characters is rejected", () => {
   assert.ok(body.length > maxStoredThemeLength);
   assert.equal(sanitizeBlock(body), null);
 });
+
+// Neutral, not gray: the theme service rejects base color gray, so grayscale
+// paints this achromatic preset (same kit, small radius, chroma 0).
+const achromatic = encodePreset({
+  menuColor: "default",
+  menuAccent: "subtle",
+  radius: "small",
+  font: "geist",
+  iconLibrary: "lucide",
+  style: "mira",
+  fontHeading: "inherit",
+  theme: "neutral",
+  baseColor: "neutral",
+  chartColor: "neutral",
+});
+
+test("the account lists the six themes by their spec names in sentence case, and no import it never had", () => {
+  assert.deepEqual(
+    builtInThemes.map((theme) => [theme.id, theme.name, theme.code]),
+    [
+      ["grayscale", "Grayscale", "bxIOtxcO"],
+      ["navy", "Navy", "b1ZzrZeXA"],
+      ["phthalo", "Phthalo", "b5de5C2oi"],
+      ["old-gold", "Old gold", "b1GdgzJaa"],
+      ["royal-purple", "Royal purple", "b4ODOqh2O"],
+      ["maroon", "Maroon", "b50vk1MvY"],
+    ],
+  );
+  const choices = themeChoices(defaultAccountTheme);
+  assert.deepEqual(
+    choices.map((choice) => [choice.id, choice.name]),
+    [
+      ["grayscale", "Grayscale"],
+      ["navy", "Navy"],
+      ["phthalo", "Phthalo"],
+      ["old-gold", "Old gold"],
+      ["royal-purple", "Royal purple"],
+      ["maroon", "Maroon"],
+    ],
+  );
+  assert.equal(choices.find((choice) => choice.id === "grayscale")?.selected, true);
+  assert.equal(choices.some((choice) => choice.id === "imported"), false);
+});
+
+test("each built-in paints its own light and its own dark", () => {
+  const seen = new Set<string>();
+  for (const theme of builtInThemes) {
+    const chosen = { ...defaultAccountTheme, choice: theme.id };
+    const light = themeDeclarations(chosen, "light");
+    const dark = themeDeclarations(chosen, "dark");
+    assert.notEqual(light, dark, theme.id);
+    const direct = expandPreset(theme.code);
+    if (direct) {
+      assert.equal(light, direct.light, theme.id);
+      assert.equal(dark, direct.dark, theme.id);
+    } else {
+      assert.equal(theme.id, "grayscale");
+      const paint = expandPreset(achromatic);
+      assert.ok(paint, "neutral preset expands");
+      assert.equal(light, paint.light);
+      assert.equal(dark, paint.dark);
+    }
+    assert.equal(seen.has(light), false, theme.id);
+    seen.add(light);
+  }
+});
+
+test("a missing choice paints grayscale", () => {
+  const gray = themeDeclarations(defaultAccountTheme, "dark");
+  assert.equal(
+    themeDeclarations(
+      { choice: "nope", code: null, light: null, dark: null },
+      "dark",
+    ),
+    gray,
+  );
+});
+
+test("a built-in paints over a stored import, and imported paints it again", () => {
+  const imported = takeImport(
+    defaultAccountTheme,
+    "b1sACkXE8",
+    fuchsia,
+  ).account;
+  const navy = { ...imported, choice: "navy" };
+  assert.equal(
+    themeDeclarations(navy, "light"),
+    expandPreset("b1ZzrZeXA")?.light,
+  );
+  assert.notEqual(
+    themeDeclarations(navy, "dark"),
+    themeDeclarations(navy, "light"),
+  );
+  const back = { ...navy, choice: "imported" };
+  assert.equal(themeDeclarations(back, "light"), imported.light);
+  assert.equal(themeDeclarations(back, "dark"), imported.dark);
+  const whileNavy = themeChoices(navy);
+  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.name, "Imported");
+  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.selected, false);
+  assert.equal(whileNavy.find((choice) => choice.id === "navy")?.selected, true);
+  assert.equal(
+    themeChoices(back).find((choice) => choice.id === "imported")?.selected,
+    true,
+  );
+});
+
+test("miscased ids and display names are not built-in ids", () => {
+  const gray = themeDeclarations(defaultAccountTheme, "dark");
+  for (const id of ["Navy", "OLD-GOLD", "old gold", "Old gold"]) {
+    assert.equal(isBuiltInThemeId(id), false, id);
+    assert.equal(
+      themeDeclarations(
+        { choice: id, code: null, light: null, dark: null },
+        "dark",
+      ),
+      gray,
+      id,
+    );
+  }
+  assert.equal(isBuiltInThemeId("navy"), true);
+  assert.equal(isBuiltInThemeId("old-gold"), true);
+  assert.equal(isBuiltInThemeId("imported"), false);
+});
+

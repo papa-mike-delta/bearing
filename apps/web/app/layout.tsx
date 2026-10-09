@@ -4,7 +4,7 @@ import { db } from "@repo/db";
 import "@repo/ui/globals.css";
 import "./globals.css";
 import { currentSession } from "../auth";
-import { themeCss } from "../lib/account-theme";
+import { defaultAccountTheme, themeCss } from "../lib/account-theme";
 import { loadAccountTheme } from "../lib/account-theme-store";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -28,8 +28,8 @@ export default async function RootLayout({
 }>) {
   const session = await currentSession();
   const id = session?.user?.id;
-  const account = id ? await loadAccountTheme(db, id) : null;
-  const css = account ? themeCss(account) : null;
+  const account = id ? await loadAccountTheme(db, id) : defaultAccountTheme;
+  const css = themeCss(account);
 
   return (
     <html

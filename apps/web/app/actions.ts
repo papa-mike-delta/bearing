@@ -12,7 +12,10 @@ import {
   readPreset,
   takeImport,
 } from "../lib/account-theme";
-import { saveAccountTheme } from "../lib/account-theme-store";
+import {
+  saveAccountTheme,
+  switchAccountTheme,
+} from "../lib/account-theme-store";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
@@ -84,6 +87,18 @@ export async function importAccountTheme(formData: FormData) {
   await saveAccountTheme(db, user.id, result.account);
   revalidatePath("/", "layout");
   redirect("/account?imported=1");
+}
+
+export async function chooseAccountTheme(formData: FormData) {
+  const user = await requireUser();
+  const next = await switchAccountTheme(
+    db,
+    user.id,
+    String(formData.get("choice") ?? ""),
+  );
+  if (next.error) redirect("/account");
+  revalidatePath("/", "layout");
+  redirect("/account");
 }
 
 export async function addTaskToList(formData: FormData) {
