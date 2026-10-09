@@ -7,5 +7,5 @@ export default function nextConfig(phase) {
   if (phase === "phase-production-build") {
     assertMigrated(process.env, () => readFileSync(markerUrl, "utf8"));
   }
-  return {};
+  return { transpilePackages: ["@repo/ui"] };
 }
