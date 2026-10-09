@@ -188,6 +188,7 @@
 
   .thread p.receipt a {
     color: inherit;
+    text-decoration: underline;
   }
 
   .thread p.receipt + p:not(.receipt) {
