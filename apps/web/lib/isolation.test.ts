@@ -9,14 +9,24 @@ import { after, before, describe, test } from "node:test";
 import { areas, coachThreads, createDb, tasks, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
-import { createArea } from "./areas.ts";
+import {
+  createArea,
+  deleteArea,
+  loadAccount,
+  renameArea,
+  setAreaHidden,
+  setAreaWip,
+  setAreaWorkflow,
+} from "./areas.ts";
 import { captureDraft, fileDraftAsTask, inboxDrafts } from "./drafts.ts";
 import {
   addTask,
   changePriority,
   completeTask,
   maxSourceIdLength,
+  moveTask,
   openTasks,
+  scheduleOn,
   type Provenance,
 } from "./tasks.ts";
 
@@ -57,6 +67,8 @@ describe(
       (await openTasks(userId, db)).find((t) => t.name === name)!;
     const rowOf = async (id: string) =>
       (await db.select().from(tasks).where(eq(tasks.id, id)))[0]!;
+    const areaRow = async (id: string) =>
+      (await db.select().from(areas).where(eq(areas.id, id)))[0]!;
     const coach = (): Provenance => ({
       source: "coach",
       sourceId: `call_${randomUUID()}`,
@@ -314,6 +326,74 @@ describe(
       const personal = await createArea(b, "Personal", db);
       assert.ok(personal);
       assert.notEqual(personal!.id, work!.id);
+    });
+
+    test("another account's Areas and Tasks can't be changed", async () => {
+      const area = (await createArea(b, "B empty", db))!;
+      await addTask(b, { today, name: "B's listed", area: "Tasks" }, db);
+      const listed = await taskOf(b, "B's listed");
+      const areaBefore = await areaRow(area.id);
+      const taskBefore = await rowOf(listed.id);
+      assert.equal(await renameArea(a, area.id, "Stolen", db), null);
+      assert.equal(await deleteArea(a, area.id, db), "missing");
+      assert.equal(await setAreaHidden(a, area.id, true, db), false);
+      assert.equal(await setAreaWorkflow(a, area.id, "now-later", db), false);
+      assert.equal(await setAreaWip(a, area.id, 9, db), false);
+      assert.equal(await moveTask(a, listed.id, "now", db), false);
+      assert.equal(await scheduleOn(a, listed.id, "2026-12-01", today, db), false);
+      assert.deepEqual(await areaRow(area.id), areaBefore);
+      assert.deepEqual(await rowOf(listed.id), taskBefore);
+      const readA = await loadAccount(a, db);
+      const readB = await loadAccount(b, db);
+      assert.equal(readA.areas.some((row) => row.id === area.id), false);
+      assert.equal(readA.hiddenAreaIds.includes(area.id), false);
+      assert.equal(readA.tasks.some((row) => row.id === listed.id), false);
+      assert.equal(readB.hiddenAreaIds.includes(area.id), false);
+      assert.equal(await setAreaHidden(b, area.id, true, db), true);
+      assert.equal((await loadAccount(b, db)).hiddenAreaIds.includes(area.id), true);
+      assert.equal((await loadAccount(a, db)).hiddenAreaIds.includes(area.id), false);
+    });
+
+    test("deleting an Area is refused while it still has a Task, including a completed one", async () => {
+      const c = await account();
+      const added = (await addTask(c, { today, name: "Stays" }, db))!;
+      const [area] = (await loadAccount(c, db)).areas;
+      assert.equal(await deleteArea(c, area!.id, db), "has-tasks");
+      assert.equal((await areaRow(area!.id)).name, "Tasks");
+      await completeTask(c, added.id, db);
+      assert.equal(await deleteArea(c, area!.id, db), "has-tasks");
+      assert.equal((await areaRow(area!.id)).name, "Tasks");
+    });
+
+    test("deleting an Area clears it from the hidden list", async () => {
+      const c = await account();
+      const area = (await createArea(c, "Gone", db))!;
+      assert.equal(await setAreaHidden(c, area.id, true, db), true);
+      assert.equal(await deleteArea(c, area.id, db), "deleted");
+      assert.deepEqual((await loadAccount(c, db)).hiddenAreaIds, []);
+      assert.deepEqual(
+        await db.select({ id: areas.id }).from(areas).where(eq(areas.id, area.id)),
+        [],
+      );
+    });
+
+    test("renaming to another Area's name, ignoring case, is refused", async () => {
+      const c = await account();
+      const work = (await createArea(c, "Work", db))!;
+      const tasksArea = (await loadAccount(c, db)).areas.find(
+        (row) => row.name === "Tasks",
+      )!;
+      assert.equal(await renameArea(c, tasksArea.id, "work", db), null);
+      assert.equal((await areaRow(tasksArea.id)).name, "Tasks");
+      assert.equal((await areaRow(work.id)).name, "Work");
+    });
+
+    test("scheduling today or an earlier day is refused", async () => {
+      const c = await account();
+      const added = (await addTask(c, { today, name: "When" }, db))!;
+      assert.equal(await scheduleOn(c, added.id, today, today, db), false);
+      assert.equal(await scheduleOn(c, added.id, "2026-10-08", today, db), false);
+      assert.equal((await rowOf(added.id)).scheduledOn, null);
     });
   },
 );

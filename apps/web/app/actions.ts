@@ -113,15 +113,21 @@ export async function createNamedArea(formData: FormData) {
   if (!created) redirect("/?error=area-name");
 }
 
-export async function renameNamedArea(formData: FormData) {
+export async function saveArea(formData: FormData) {
   const { id: userId } = await requireUser();
+  const id = String(formData.get("id"));
   const renamed = await renameArea(
     userId,
-    String(formData.get("id")),
+    id,
     String(formData.get("name") ?? ""),
   );
+  await setAreaHidden(userId, id, formData.has("hidden"));
+  await setAreaWorkflow(userId, id, String(formData.get("workflow") ?? ""));
+  const limit = Number(formData.get("limit"));
+  const saved = await setAreaWip(userId, id, limit);
   revalidatePath("/");
   if (!renamed) redirect("/?error=area-name");
+  if (!saved) redirect("/?error=limit");
 }
 
 export async function deleteNamedArea(formData: FormData) {
@@ -129,34 +135,6 @@ export async function deleteNamedArea(formData: FormData) {
   const result = await deleteArea(userId, String(formData.get("id")));
   revalidatePath("/");
   if (result === "has-tasks") redirect("/?error=area-tasks");
-}
-
-export async function hideNamedArea(formData: FormData) {
-  const { id: userId } = await requireUser();
-  await setAreaHidden(
-    userId,
-    String(formData.get("id")),
-    formData.get("hidden") === "yes",
-  );
-  revalidatePath("/");
-}
-
-export async function chooseAreaWorkflow(formData: FormData) {
-  const { id: userId } = await requireUser();
-  await setAreaWorkflow(
-    userId,
-    String(formData.get("id")),
-    String(formData.get("workflow") ?? ""),
-  );
-  revalidatePath("/");
-}
-
-export async function chooseAreaLimit(formData: FormData) {
-  const { id: userId } = await requireUser();
-  const limit = Number(formData.get("limit"));
-  const saved = await setAreaWip(userId, String(formData.get("id")), limit);
-  revalidatePath("/");
-  if (!saved) redirect("/?error=limit");
 }
 
 export async function addTaskToList(formData: FormData) {

@@ -48,6 +48,11 @@
     color: var(--muted-foreground);
   }
 
+  h3.stack-heading {
+    margin-top: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
   /* A heading after a form sits clear of the control above it. */
   main > form + h1 {
     margin-top: 2rem;
@@ -170,8 +175,10 @@
     font-weight: 500;
   }
 
-  ul.manager > li {
+  ul.manager > li,
+  ul.manager > li form {
     flex-wrap: wrap;
+    min-width: 0;
   }
 
   section.stack {
@@ -186,6 +193,7 @@
 
   select.choice {
     height: 1.75rem;
+    font-size: 0.75rem;
     border: 1px solid var(--border);
     border-radius: 0.375rem;
     background: var(--background);
@@ -254,10 +262,33 @@
     flex: 1;
   }
 
-  /* Phones: the email gives way so the header fits on one line. */
+  /* Phones: the email gives way so the header fits on one line.
+     Task and area rows wrap their controls under the name so a 393px
+     screen does not scroll sideways. */
   @media (max-width: 480px) {
     header > span {
       display: none;
+    }
+
+    section.stack li,
+    ul.manager > li {
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    section.stack li > span,
+    ul.manager > li > span {
+      flex: 1 0 100%;
+      min-width: 0;
+      order: -1;
+      overflow-wrap: break-word;
+    }
+
+    section.stack li form,
+    ul.manager > li form {
+      flex-wrap: wrap;
+      min-width: 0;
+      max-width: 100%;
     }
   }
 }
@@ -266,7 +297,8 @@
    it beats the kit field's own text size. */
 @media (max-width: 480px) {
   [data-slot="input"],
-  [data-slot="textarea"] {
+  [data-slot="textarea"],
+  select.choice {
     font-size: 16px;
   }
 }

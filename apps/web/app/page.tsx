@@ -3,14 +3,7 @@ import { Input } from "@repo/ui/components/input";
 import { maxAreaNameLength, maxTaskNameLength } from "@repo/domain";
 import { requireUser } from "../auth";
 import { loadAccount, orderedAreas } from "../lib/areas";
-import {
-  chooseAreaLimit,
-  chooseAreaWorkflow,
-  createNamedArea,
-  deleteNamedArea,
-  hideNamedArea,
-  renameNamedArea,
-} from "./actions";
+import { createNamedArea, deleteNamedArea, saveArea } from "./actions";
 import { Header } from "./header";
 import { TaskStacks, type StackArea, type StackTask } from "./task-stacks";
 
@@ -75,102 +68,93 @@ export default async function Home({
       ) : (
         <>
           <h1>Areas</h1>
-          <ul className="manager">
-            {managed.map((area) => (
-              <li key={area.id}>
-                <span>
-                  {area.name}
-                  {area.hidden ? <small>Hidden</small> : null}
-                </span>
-                <form action={renameNamedArea}>
-                  <input type="hidden" name="id" value={area.id} />
-                  <Input
-                    name="name"
-                    aria-label={`Rename ${area.name}`}
-                    className="w-40"
-                    defaultValue={area.name}
-                    maxLength={maxAreaNameLength}
-                    required
-                  />
-                  <Button type="submit" variant="outline" size="xs">
-                    Rename
-                  </Button>
-                </form>
-                <form action={hideNamedArea}>
-                  <input type="hidden" name="id" value={area.id} />
-                  <input
-                    type="hidden"
-                    name="hidden"
-                    value={area.hidden ? "no" : "yes"}
-                  />
-                  <Button type="submit" variant="outline" size="xs">
-                    {area.hidden ? "Show" : "Hide"}
-                  </Button>
-                </form>
-                <form action={chooseAreaWorkflow}>
-                  <input type="hidden" name="id" value={area.id} />
-                  <select
-                    className="choice"
-                    name="workflow"
-                    aria-label={`Workflow for ${area.name}`}
-                    defaultValue={area.workflow}
-                  >
-                    <option value="priority-list">Priority List</option>
-                    <option value="now-later">Now/Later</option>
-                  </select>
-                  <Button type="submit" variant="outline" size="xs">
-                    Workflow
-                  </Button>
-                </form>
-                <form action={chooseAreaLimit}>
-                  <input type="hidden" name="id" value={area.id} />
-                  <Input
-                    name="limit"
-                    type="number"
-                    min={1}
-                    aria-label={`Limit for ${area.name}`}
-                    className="w-20"
-                    defaultValue={area.wipLimit}
-                    required
-                  />
-                  <Button type="submit" variant="outline" size="xs">
-                    Limit
-                  </Button>
-                </form>
-                <form action={deleteNamedArea}>
-                  <input type="hidden" name="id" value={area.id} />
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="xs"
-                    disabled={area.taskCount > 0}
-                    title={
-                      area.taskCount > 0
-                        ? "This Area still has Tasks"
-                        : undefined
-                    }
-                  >
-                    Delete
-                  </Button>
-                </form>
-              </li>
-            ))}
-          </ul>
-          <form action={createNamedArea}>
-            <Input
-              name="name"
-              aria-label="New area name"
-              placeholder="New area"
-              maxLength={maxAreaNameLength}
-              required
-            />
-            <Button type="submit">Add area</Button>
-          </form>
           <TaskStacks
             areas={areas}
             tasks={tasks}
             hiddenAreaIds={loaded.hiddenAreaIds}
           />
+          <details>
+            <summary>Manage areas</summary>
+            <ul className="manager">
+              {managed.map((area) => (
+                <li key={area.id}>
+                  <form
+                    key={`${area.id}-${area.name}-${area.hidden}-${area.workflow}-${area.wipLimit}`}
+                    action={saveArea}
+                  >
+                    <input type="hidden" name="id" value={area.id} />
+                    <Input
+                      name="name"
+                      aria-label={`Rename ${area.name}`}
+                      className="w-40"
+                      defaultValue={area.name}
+                      maxLength={maxAreaNameLength}
+                      required
+                    />
+                    <label>
+                      <input
+                        type="checkbox"
+                        name="hidden"
+                        defaultChecked={area.hidden}
+                      />{" "}
+                      Hidden
+                    </label>
+                    <select
+                      className="choice"
+                      name="workflow"
+                      aria-label={`Workflow for ${area.name}`}
+                      defaultValue={area.workflow}
+                    >
+                      <option value="priority-list">Priority List</option>
+                      <option value="now-later">Now/Later</option>
+                    </select>
+                    <Input
+                      name="limit"
+                      type="number"
+                      min={1}
+                      aria-label={`Limit for ${area.name}`}
+                      className="w-20"
+                      defaultValue={area.wipLimit}
+                      required
+                    />
+                    <Button type="submit" variant="outline" size="xs">
+                      Save
+                    </Button>
+                  </form>
+                  <form action={deleteNamedArea}>
+                    <input type="hidden" name="id" value={area.id} />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="xs"
+                      disabled={area.taskCount > 0}
+                      title={
+                        area.taskCount > 0
+                          ? "This Area still has Tasks"
+                          : undefined
+                      }
+                    >
+                      Delete
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 24 }}>
+              <form action={createNamedArea}>
+                <Input
+                  name="name"
+                  aria-label="New area name"
+                  placeholder="New area"
+                  maxLength={maxAreaNameLength}
+                  required
+                />
+                <Button type="submit" variant="outline">
+                  Add area
+                </Button>
+              </form>
+            </div>
+          </details>
         </>
       )}
     </main>
