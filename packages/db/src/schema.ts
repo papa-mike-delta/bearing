@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  date,
   check,
   index,
   integer,
@@ -29,6 +30,11 @@ export const users = pgTable("users", {
   themeCode: text("theme_code"),
   themeLight: text("theme_light"),
   themeDark: text("theme_dark"),
+  // Area ids the person has hidden. An Area not in this set is visible.
+  hiddenAreaIds: uuid("hidden_area_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::uuid[]`),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -47,7 +53,7 @@ export const sessions = pgTable("sessions", {
   expires: timestamp("expires", { mode: "date", withTimezone: true }).notNull(),
 });
 
-// One Area per account in phase 1, created at sign-up (and on demand for older accounts that predate Areas).
+// An account has many Areas. A new account has none; nothing is seeded.
 export const areas = pgTable(
   "areas",
   {
@@ -57,6 +63,7 @@ export const areas = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     workflow: text("workflow").notNull(),
+    wipLimit: integer("wip_limit").notNull().default(3),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -65,7 +72,10 @@ export const areas = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (t) => [uniqueIndex("areas_user_id_unique").on(t.userId)],
+  (t) => [
+    uniqueIndex("areas_user_name_unique").on(t.userId, sql`lower(${t.name})`),
+    check("areas_wip_limit_min", sql`${t.wipLimit} >= 1`),
+  ],
 );
 
 // A task is open until completedAt is set. source and sourceId record where it
@@ -81,6 +91,14 @@ export const tasks = pgTable(
     name: text("name").notNull(),
     note: text("note").notNull().default(""),
     priority: integer("priority").notNull(),
+    // later, next, started, waiting, or completed. Open rows from before
+    // statuses existed are later; a completion time means completed.
+    status: text("status").notNull().default("later"),
+    previousStatus: text("previous_status"),
+    // The calendar day age is counted from. New rows use the browser's day.
+    age: date("age").notNull().default(sql`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`),
+    // A reminder day, strictly after the day it was set. Null until scheduled.
+    scheduledOn: date("scheduled_on"),
     completedAt: timestamp("completed_at", {
       mode: "date",
       withTimezone: true,
@@ -98,6 +116,14 @@ export const tasks = pgTable(
   (t) => [
     // Same scale as minPriority..maxPriority in @repo/domain.
     check("tasks_priority_range", sql`${t.priority} between -2 and 2`),
+    check(
+      "tasks_status",
+      sql`${t.status} in ('later', 'next', 'started', 'waiting', 'completed')`,
+    ),
+    check(
+      "tasks_previous_status",
+      sql`${t.previousStatus} is null or ${t.previousStatus} in ('later', 'next', 'started', 'waiting', 'completed')`,
+    ),
     check(
       "tasks_source_pair",
       sql`(${t.source} is null) = (${t.sourceId} is null)`,

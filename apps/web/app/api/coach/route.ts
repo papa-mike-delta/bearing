@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     userId: user.id,
     threadId: body?.threadId,
     message: body?.message,
+    today: typeof body?.today === "string" ? body.today : "",
     model: coachModel(),
   });
   if ("refused" in turn) return new Response(null, { status: turn.refused });

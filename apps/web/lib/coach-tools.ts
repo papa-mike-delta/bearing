@@ -6,33 +6,21 @@ import {
   type CoachData,
 } from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
-import { nextTask } from "@repo/domain";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Db } from "./db.ts";
-import {
-  addTask,
-  completeTask as completeTaskRow,
-  openTasks,
-} from "./tasks.ts";
+import { addTask, completeTask as completeTaskRow, listForCoach } from "./tasks.ts";
 
 export { maxCreatesPerTurn };
 
 // The Coach's data, through the same functions the screens use.
-export function coachData(db: Db = defaultDb): CoachData {
+export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     async listOpenTasks(userId) {
-      const tasks = await openTasks(userId, db);
-      const next = nextTask(tasks);
-      return tasks.map(({ id, name, priority }) => ({
-        id,
-        name,
-        priority,
-        isNext: id === next?.id,
-      }));
+      return listForCoach(userId, today, db);
     },
     createTask(userId, input, from) {
-      return addTask(userId, { ...input, from }, db);
+      return addTask(userId, { ...input, from, today }, db);
     },
     completeTask(userId, taskId) {
       return completeTaskRow(userId, taskId, db);
@@ -76,7 +64,7 @@ async function runListArea(input: {}, ctx: ToolRun) {
 }
 
 async function runCreateTask(
-  input: { name: string; note?: string },
+  input: { name: string; note?: string; area?: string },
   ctx: ToolRun,
 ) {
   try {

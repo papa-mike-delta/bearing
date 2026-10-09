@@ -1,6 +1,7 @@
 // Product rules live here. No React, no database.
 // Workflow sort, scheduling, recurrence, and reconnect are pure functions.
 
+export * from "./areas.ts";
 export * from "./draft.ts";
 export * from "./priority-list.ts";
 export * from "./task.ts";

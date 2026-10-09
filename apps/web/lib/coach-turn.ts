@@ -78,13 +78,17 @@ export async function coachTurn({
   message,
   model,
   db = defaultDb,
-  data = coachData(db),
+  today = "",
+  data = coachData(db, today),
 }: {
   userId: string;
   threadId: unknown;
   message: unknown;
   model: LanguageModel;
   db?: Db;
+  // The browser's calendar day, sent with the turn. Creates are refused
+  // without one.
+  today?: string;
   // What the Coach reads, from `db` unless given.
   data?: CoachData;
 }) {

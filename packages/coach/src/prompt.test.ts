@@ -56,7 +56,7 @@ test("the rest of the coaching prompt stays", () => {
   );
   assert.ok(
     coachSystemPrompt.includes(
-      "the Task marked Next is the one with isNext true",
+      "A Task with isNext true is the bold Next of its own Area",
     ),
   );
   assert.ok(

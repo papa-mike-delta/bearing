@@ -9,12 +9,12 @@ import { after, before, describe, test } from "node:test";
 import { areas, coachThreads, createDb, tasks, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import { createArea } from "./areas.ts";
 import { captureDraft, fileDraftAsTask, inboxDrafts } from "./drafts.ts";
 import {
   addTask,
   changePriority,
   completeTask,
-  createArea,
   maxSourceIdLength,
   openTasks,
   type Provenance,
@@ -42,6 +42,7 @@ describe(
     const ids: string[] = [];
     let a = "";
     let b = "";
+    const today = "2026-10-09";
 
     async function account({ area = true } = {}) {
       const [user] = await db
@@ -49,7 +50,7 @@ describe(
         .values({ email: `${randomUUID()}@test.invalid`, passwordHash: "-" })
         .returning({ id: users.id });
       ids.push(user!.id);
-      if (area) await createArea(user!.id, db);
+      if (area) await createArea(user!.id, "Tasks", db);
       return user!.id;
     }
     const taskOf = async (userId: string, name: string) =>
@@ -71,7 +72,7 @@ describe(
     });
 
     test("another account's tasks can't be read, completed, or reprioritised", async () => {
-      await addTask(a, { name: "A's task" }, db);
+      await addTask(a, { today, name: "A's task" }, db);
       const task = await taskOf(a, "A's task");
       assert.deepEqual(await openTasks(b, db), []);
       assert.equal(await completeTask(b, task.id, db), null);
@@ -96,8 +97,8 @@ describe(
         d.body.startsWith("Once"),
       )!;
       await Promise.all([
-        fileDraftAsTask(a, draft.id, db),
-        fileDraftAsTask(a, draft.id, db),
+        fileDraftAsTask(a, draft.id, db, { today }),
+        fileDraftAsTask(a, draft.id, db, { today }),
       ]);
       const filed = (await openTasks(a, db)).filter((t) => t.name === "Once");
       assert.equal(filed.length, 1);
@@ -123,34 +124,38 @@ describe(
       }
     });
 
-    test("an account made before Areas existed gets one on its first task", async () => {
+    test("an account with no Area cannot add or file a task", async () => {
       const old = await account({ area: false });
-      const added = await addTask(old, { name: "First" }, db);
-      assert.deepEqual(added, { id: added?.id, name: "First" });
-      assert.equal((await openTasks(old, db))[0]?.id, added?.id);
+      assert.equal(await addTask(old, { today, name: "First" }, db), null);
+      assert.deepEqual(await openTasks(old, db), []);
       await captureDraft(old, "Filed", db);
       const [draft] = await inboxDrafts(old, db);
-      assert.equal(await fileDraftAsTask(old, draft!.id, db), true);
-      assert.equal((await openTasks(old, db)).length, 2);
+      assert.equal(await fileDraftAsTask(old, draft!.id, db, { today }), false);
+      assert.equal((await inboxDrafts(old, db)).length, 1);
+      const rows = await db
+        .select({ id: areas.id })
+        .from(areas)
+        .where(eq(areas.userId, old));
+      assert.deepEqual(rows, []);
     });
 
     test("adding returns the new task's id and trimmed name", async () => {
-      const added = await addTask(a, { name: "  Returned  " }, db);
+      const added = await addTask(a, { today, name: "  Returned  " }, db);
       const task = await taskOf(a, "Returned");
       assert.deepEqual(added, { id: task.id, name: "Returned" });
     });
 
     test("a blank or overlong name, or an overlong note, adds nothing", async () => {
       const before = (await openTasks(a, db)).length;
-      assert.equal(await addTask(a, { name: "  " }, db), null);
-      assert.equal(await addTask(a, { name: "x".repeat(501) }, db), null);
+      assert.equal(await addTask(a, { today, name: "  " }, db), null);
+      assert.equal(await addTask(a, { today, name: "x".repeat(501) }, db), null);
       const note = "x".repeat(10_001);
-      assert.equal(await addTask(a, { name: "Long note", note }, db), null);
+      assert.equal(await addTask(a, { today, name: "Long note", note }, db), null);
       assert.equal((await openTasks(a, db)).length, before);
     });
 
     test("completing returns the task, and a completed or missing id returns null", async () => {
-      const added = (await addTask(a, { name: "Done" }, db))!;
+      const added = (await addTask(a, { today, name: "Done" }, db))!;
       assert.deepEqual(await completeTask(a, added.id, db), added);
       const completedAt = (await rowOf(added.id)).completedAt;
       assert.ok(completedAt);
@@ -160,7 +165,7 @@ describe(
     });
 
     test("a completed task's priority can't change", async () => {
-      const task = (await addTask(a, { name: "Done again" }, db))!;
+      const task = (await addTask(a, { today, name: "Done again" }, db))!;
       await completeTask(a, task.id, db);
       await changePriority(a, task.id, 1, db);
       assert.equal((await rowOf(task.id)).priority, 0);
@@ -168,14 +173,14 @@ describe(
 
     test("provenance is stored, and repeating it in the same Area adds nothing", async () => {
       const from = coach();
-      const first = (await addTask(a, { name: "From the Coach", from }, db))!;
+      const first = (await addTask(a, { today, name: "From the Coach", from }, db))!;
       const row = await rowOf(first.id);
       assert.equal(row.source, "coach");
       assert.equal(row.sourceId, from.sourceId);
       const before = (await openTasks(a, db)).length;
       const again = await Promise.all([
-        addTask(a, { name: "Retried", from }, db),
-        addTask(a, { name: "Retried", from }, db),
+        addTask(a, { today, name: "Retried", from }, db),
+        addTask(a, { today, name: "Retried", from }, db),
       ]);
       assert.deepEqual(again, [first, first]);
       assert.equal((await openTasks(a, db)).length, before);
@@ -185,7 +190,7 @@ describe(
       const c = await account();
       const from = coach();
       const added = await Promise.all(
-        [1, 2, 3, 4, 5].map(() => addTask(c, { name: "Raced add", from }, db)),
+        [1, 2, 3, 4, 5].map(() => addTask(c, { today, name: "Raced add", from }, db)),
       );
       const open = await openTasks(c, db);
       assert.equal(open.length, 1);
@@ -196,32 +201,32 @@ describe(
       const before = (await openTasks(a, db)).length;
       for (const sourceId of ["", "  ", "x".repeat(maxSourceIdLength + 1)]) {
         const from: Provenance = { source: "coach", sourceId };
-        assert.equal(await addTask(a, { name: "No id", from }, db), null);
+        assert.equal(await addTask(a, { today, name: "No id", from }, db), null);
       }
       assert.equal((await openTasks(a, db)).length, before);
       const longest = "x".repeat(maxSourceIdLength);
       const from: Provenance = { source: "coach", sourceId: longest };
-      assert.ok(await addTask(a, { name: "Longest id", from }, db));
+      assert.ok(await addTask(a, { today, name: "Longest id", from }, db));
     });
 
     test("the same provenance in another account's Area adds a task there", async () => {
       const from = coach();
-      const mine = (await addTask(a, { name: "Shared id", from }, db))!;
-      const theirs = (await addTask(b, { name: "Shared id", from }, db))!;
+      const mine = (await addTask(a, { today, name: "Shared id", from }, db))!;
+      const theirs = (await addTask(b, { today, name: "Shared id", from }, db))!;
       assert.notEqual(theirs.id, mine.id);
       assert.equal((await taskOf(b, "Shared id")).id, theirs.id);
       // A repeat returns each account's own Task, never the other's.
-      assert.deepEqual(await addTask(a, { name: "Again", from }, db), mine);
-      assert.deepEqual(await addTask(b, { name: "Again", from }, db), theirs);
+      assert.deepEqual(await addTask(a, { today, name: "Again", from }, db), mine);
+      assert.deepEqual(await addTask(b, { today, name: "Again", from }, db), theirs);
     });
 
     test("tasks added on the list or from the Inbox have no provenance and coexist", async () => {
       const c = await account();
-      await addTask(c, { name: "Same" }, db);
-      await addTask(c, { name: "Same" }, db);
+      await addTask(c, { today, name: "Same" }, db);
+      await addTask(c, { today, name: "Same" }, db);
       await captureDraft(c, "Same", db);
       const [draft] = await inboxDrafts(c, db);
-      assert.equal(await fileDraftAsTask(c, draft!.id, db), true);
+      assert.equal(await fileDraftAsTask(c, draft!.id, db, { today }), true);
       const open = await openTasks(c, db);
       assert.equal(open.length, 3);
       for (const t of open) {
@@ -250,7 +255,7 @@ describe(
     });
 
     test("concurrent raises are not lost and stop at the top", async () => {
-      await addTask(a, { name: "Raced" }, db);
+      await addTask(a, { today, name: "Raced" }, db);
       const task = await taskOf(a, "Raced");
       await db.update(tasks).set({ priority: -2 }).where(eq(tasks.id, task.id));
       await Promise.all([1, 2, 3].map(() => changePriority(a, task.id, 1, db)));
@@ -299,15 +304,16 @@ describe(
       assert.equal(await coachThread(c, db), rows[0]!.id);
     });
 
-    test("one Area per account", async () => {
-      await createArea(a, db); // a no-op, not a second Area
-      await addTask(a, { name: "Still one list" }, db);
-      assert.ok(await taskOf(a, "Still one list"));
-      await assert.rejects(
-        db
-          .insert(areas)
-          .values({ userId: a, name: "Two", workflow: "priority-list" }),
-      );
+    test("an account can have many Areas, and names are unique ignoring case", async () => {
+      const work = await createArea(a, "Work", db);
+      const again = await createArea(a, " work ", db);
+      assert.equal(again, null);
+      assert.ok(work);
+      await addTask(a, { today, name: "In Work", area: "work" }, db);
+      assert.ok(await taskOf(a, "In Work"));
+      const personal = await createArea(b, "Personal", db);
+      assert.ok(personal);
+      assert.notEqual(personal!.id, work!.id);
     });
   },
 );

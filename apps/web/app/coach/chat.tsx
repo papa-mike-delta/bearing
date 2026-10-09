@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { shownThread } from "../../lib/coach-screen";
+import { localToday } from "../../lib/today";
 
 export function Chat({
   threadId,
@@ -41,7 +42,7 @@ export function Chat({
       api: "/api/coach",
       // Only the newest message; the server loads the rest of the thread.
       prepareSendMessagesRequest: ({ id, messages }) => ({
-        body: { threadId: id, message: messages.at(-1) },
+        body: { threadId: id, message: messages.at(-1), today: localToday() },
       }),
     }),
   });
