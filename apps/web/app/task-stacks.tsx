@@ -11,7 +11,7 @@ import {
   type TaskStatus,
   type Workflow,
 } from "@repo/domain";
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { localToday } from "../lib/today";
 import {
   addTaskToList,
@@ -50,6 +50,20 @@ function dayAfter(day: string) {
     .slice(0, 10);
 }
 
+function formatDay(iso: string) {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function addTask(formData: FormData) {
+  formData.set("today", localToday());
+  return addTaskToList(formData);
+}
+
 function useBrowserToday() {
   return useSyncExternalStore(
     () => () => {},
@@ -69,6 +83,7 @@ function TaskLine({
   today: string;
   moves: boolean;
 }) {
+  const [pickingDate, setPickingDate] = useState(false);
   return (
     <li>
       <form action={completeTaskOnList}>
@@ -84,7 +99,7 @@ function TaskLine({
       <span>
         {task.name}
         {task.note ? <small>{task.note}</small> : null}
-        {task.date ? <small>{task.date}</small> : null}
+        {task.date ? <small>{formatDay(task.date)}</small> : null}
         {task.status === "started" ? <small>In progress</small> : null}
         {task.status === "waiting" ? <small>Waiting</small> : null}
       </span>
@@ -137,17 +152,30 @@ function TaskLine({
       <form action={scheduleTaskOnList}>
         <input type="hidden" name="id" value={task.id} />
         <input type="hidden" name="today" value={today} />
-        <Input
-          type="date"
-          name="date"
-          className="w-36"
-          aria-label={`Date for ${task.name}`}
-          min={dayAfter(today)}
-          required
-        />
-        <Button type="submit" variant="ghost" size="xs">
-          Date
-        </Button>
+        {pickingDate ? (
+          <>
+            <Input
+              type="date"
+              name="date"
+              className="w-36"
+              aria-label={`Date for ${task.name}`}
+              min={dayAfter(today)}
+              required
+            />
+            <Button type="submit" variant="ghost" size="xs">
+              Set
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => setPickingDate(true)}
+          >
+            Date
+          </Button>
+        )}
       </form>
     </li>
   );
@@ -185,7 +213,7 @@ export function TaskStacks({
               Now has more than {view.wipLimit}.
             </p>
           ) : null}
-          <form action={addTaskToList}>
+          <form action={addTask}>
             <input type="hidden" name="area" value={view.name} />
             <input type="hidden" name="today" value={today} />
             <Input
@@ -231,7 +259,7 @@ export function TaskStacks({
           ) : (
             view.sections.map((section) => (
               <div key={section.id}>
-                <h3>{section.label}</h3>
+                <h3 className="stack-heading">{section.label}</h3>
                 {section.tasks.length === 0 ? null : (
                   <ul>
                     {section.tasks.map((task) => (
