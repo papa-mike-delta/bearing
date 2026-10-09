@@ -212,6 +212,16 @@
     flex: 1;
   }
 
+  /* Undo Tailwind preflight: keep the browser's placeholder colour (AA
+     contrast) and textarea resize, so screens match main. */
+  ::placeholder {
+    color: revert;
+  }
+
+  textarea {
+    resize: revert;
+  }
+
   /* Phones: the email gives way so the header fits on one line, and 16px
      inputs stop iOS Safari zooming in on focus. */
   @media (max-width: 480px) {
