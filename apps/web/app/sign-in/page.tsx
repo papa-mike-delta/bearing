@@ -46,7 +46,9 @@ export default async function SignIn({
           />
         </div>
         {error && Object.hasOwn(errors, error) ? (
-          <p role="alert">{errors[error]}</p>
+          <p role="alert" className="text-destructive">
+            {errors[error]}
+          </p>
         ) : null}
         <SubmitButtons
           signIn={signInWithPassword}
