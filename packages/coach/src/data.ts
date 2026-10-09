@@ -6,17 +6,20 @@ export type ListedTask = {
   id: string;
   name: string;
   priority: number;
+  area: string;
   isNext: boolean;
 };
 
 export type CoachData = {
-  // The user's open Tasks in Priority List order, the Next one marked.
+  // Open Tasks from every Area, hidden ones included, in Area order and then
+  // that Area's order. isNext is the bold Next of that Task's own Area.
   listOpenTasks(userId: string): Promise<ListedTask[]>;
-  // Null when the name or note is refused. `sourceId` is resend-safe (message
-  // id + a hash of the name), so a retry of the same add is the same Task.
+  // Null when the name, note, day, or Area is refused. `sourceId` is
+  // resend-safe (message id + a hash of the name), so a retry of the same
+  // add is the same Task. With one Area, `area` is ignored.
   createTask(
     userId: string,
-    input: { name: string; note?: string },
+    input: { name: string; note?: string; area?: string },
     from: { source: "coach"; sourceId: string },
   ): Promise<{ id: string; name: string } | null>;
   // Null when that id is not an open Task of this user.

@@ -21,10 +21,19 @@ import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
 import { expandPreset } from "../lib/expand-preset";
 import {
+  createArea,
+  deleteArea,
+  renameArea,
+  setAreaHidden,
+  setAreaWip,
+  setAreaWorkflow,
+} from "../lib/areas";
+import {
   addTask,
   changePriority,
   completeTask,
-  createArea,
+  moveTask,
+  scheduleOn,
 } from "../lib/tasks";
 
 export async function signInWithPassword(formData: FormData) {
@@ -47,16 +56,12 @@ export async function createAccount(formData: FormData) {
   const credentials = parseCredentials(Object.fromEntries(formData));
   if (!credentials) redirect("/sign-in?error=invalid");
   const passwordHash = await hashPassword(credentials.password);
-  const created = await db.transaction(async (tx) => {
-    const [user] = await tx
-      .insert(users)
-      .values({ email: credentials.email, passwordHash })
-      .onConflictDoNothing()
-      .returning({ id: users.id });
-    if (user) await createArea(user.id, tx);
-    return Boolean(user);
-  });
-  if (!created) redirect("/sign-in?error=taken");
+  const [user] = await db
+    .insert(users)
+    .values({ email: credentials.email, passwordHash })
+    .onConflictDoNothing()
+    .returning({ id: users.id });
+  if (!user) redirect("/sign-in?error=taken");
   await signInWithPassword(formData);
 }
 
@@ -101,10 +106,47 @@ export async function chooseAccountTheme(formData: FormData) {
   redirect("/account");
 }
 
+export async function createNamedArea(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const created = await createArea(userId, String(formData.get("name") ?? ""));
+  revalidatePath("/");
+  if (!created) redirect("/?error=area-name");
+}
+
+export async function saveArea(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const id = String(formData.get("id"));
+  const renamed = await renameArea(
+    userId,
+    id,
+    String(formData.get("name") ?? ""),
+  );
+  await setAreaHidden(userId, id, formData.has("hidden"));
+  await setAreaWorkflow(userId, id, String(formData.get("workflow") ?? ""));
+  const limit = Number(formData.get("limit"));
+  const saved = await setAreaWip(userId, id, limit);
+  revalidatePath("/");
+  if (!renamed) redirect("/?error=area-name");
+  if (!saved) redirect("/?error=limit");
+}
+
+export async function deleteNamedArea(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const result = await deleteArea(userId, String(formData.get("id")));
+  revalidatePath("/");
+  if (result === "has-tasks") redirect("/?error=area-tasks");
+}
+
 export async function addTaskToList(formData: FormData) {
   const { id: userId } = await requireUser();
-  await addTask(userId, { name: String(formData.get("name") ?? "") });
+  const added = await addTask(userId, {
+    name: String(formData.get("name") ?? ""),
+    note: String(formData.get("note") ?? "") || undefined,
+    area: String(formData.get("area") ?? "") || undefined,
+    today: String(formData.get("today") ?? ""),
+  });
   revalidatePath("/");
+  if (!added) redirect("/?error=task");
 }
 
 export async function completeTaskOnList(formData: FormData) {
@@ -121,6 +163,25 @@ export async function changeTaskPriority(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function moveTaskOnList(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const to = formData.get("to") === "now" ? "now" : "later";
+  await moveTask(userId, String(formData.get("id")), to);
+  revalidatePath("/");
+}
+
+export async function scheduleTaskOnList(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const saved = await scheduleOn(
+    userId,
+    String(formData.get("id")),
+    String(formData.get("date") ?? ""),
+    String(formData.get("today") ?? ""),
+  );
+  revalidatePath("/");
+  if (!saved) redirect("/?error=date");
+}
+
 export async function captureToInbox(formData: FormData) {
   const { id: userId } = await requireUser();
   // Browsers submit textarea line breaks as \r\n; store \n so the length
@@ -135,7 +196,16 @@ export async function captureToInbox(formData: FormData) {
 
 export async function fileDraft(formData: FormData) {
   const { id: userId } = await requireUser();
-  const filed = await fileDraftAsTask(userId, String(formData.get("id")));
+  const area = String(formData.get("area") ?? "");
+  const filed = await fileDraftAsTask(
+    userId,
+    String(formData.get("id")),
+    undefined,
+    {
+      today: String(formData.get("today") ?? ""),
+      ...(area ? { area } : {}),
+    },
+  );
   revalidatePath("/inbox");
   revalidatePath("/");
   redirect(filed ? "/inbox" : "/inbox?error=cannot-file");

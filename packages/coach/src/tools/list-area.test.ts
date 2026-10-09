@@ -36,6 +36,7 @@ const task = (id: string, priority: number, isNext = false) => ({
   id,
   name: `Task ${id}`,
   priority,
+  area: "Tasks",
   isNext,
 });
 

@@ -8,7 +8,13 @@ const messageId = "11111111-1111-4111-8111-111111111111";
 
 function fake(
   result: { id: string; name: string } | null,
-  open: { id: string; name: string; priority: number; isNext: boolean }[] = [],
+  open: {
+    id: string;
+    name: string;
+    priority: number;
+    area: string;
+    isNext: boolean;
+  }[] = [],
 ) {
   const calls: { userId: string; taskId: string }[] = [];
   const data: CoachData = {
@@ -34,7 +40,9 @@ const ctx = (data: CoachData) => ({
 });
 
 test("completeTask completes that Task for the session user", async () => {
-  const open = [{ id: "other", name: "Next one", priority: 0, isNext: true }];
+  const open = [
+    { id: "other", name: "Next one", priority: 0, area: "Tasks", isNext: true },
+  ];
   const { data, calls } = fake({ id: taskId, name: "Call dentist" }, open);
   const result = await completeTask.run({ taskId }, ctx(data));
   assert.deepEqual(result, {

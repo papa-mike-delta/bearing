@@ -8,11 +8,17 @@ const messageId = "11111111-1111-4111-8111-111111111111";
 
 function fake(
   result: { id: string; name: string } | null,
-  open: { id: string; name: string; priority: number; isNext: boolean }[] = [],
+  open: {
+    id: string;
+    name: string;
+    priority: number;
+    area: string;
+    isNext: boolean;
+  }[] = [],
 ) {
   const calls: {
     userId: string;
-    input: { name: string; note?: string };
+    input: { name: string; note?: string; area?: string };
     from: { source: string; sourceId: string };
   }[] = [];
   const data: CoachData = {
@@ -39,7 +45,7 @@ const ctx = (
 
 test("createTask adds a Task for the session user, tagged with a resend-safe source id", async () => {
   const open = [
-    { id: "task-9", name: "Stored name", priority: 0, isNext: true },
+    { id: "task-9", name: "Stored name", priority: 0, area: "Tasks", isNext: true },
   ];
   const { data, calls } = fake({ id: "task-9", name: "Stored name" }, open);
   const result = await createTask.run(
@@ -94,8 +100,8 @@ test("createTask refuses a blank or overlong name, and an overlong note", () => 
     maxTaskNoteLength,
   );
   assert.deepEqual(
-    createTask.inputSchema.parse({ name: "Buy milk", userId: "someone" }),
-    { name: "Buy milk" },
+    createTask.inputSchema.parse({ name: "Buy milk", area: " Work " }),
+    { name: "Buy milk", area: "Work" },
   );
   for (const name of ["", "   ", "\n", "x".repeat(maxTaskNameLength + 1)]) {
     assert.throws(() => createTask.inputSchema.parse({ name }), name);

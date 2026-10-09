@@ -29,6 +29,7 @@ export async function fileDraftAsTask(
   userId: string,
   draftId: string,
   db: Db = defaultDb,
+  input: { today: string; area?: string } = { today: "" },
 ) {
   if (!isUuid(draftId)) return true;
   try {
@@ -46,7 +47,7 @@ export async function fileDraftAsTask(
         .returning({ body: drafts.body });
       if (!draft) return;
       const task = draftToTask(draft.body);
-      if (!task || !(await addTask(userId, task, tx))) tx.rollback();
+      if (!task || !(await addTask(userId, { ...task, ...input }, tx))) tx.rollback();
     });
     return true;
   } catch (error) {
