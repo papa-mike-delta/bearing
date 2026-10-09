@@ -1,7 +1,9 @@
 import { decodePreset, isPresetCode } from "shadcn/preset";
+import { expandPreset } from "./expand-preset.ts";
 
-// The Account's theme. "grayscale" is the shared default. "imported" paints
-// the stored variables for that Account only.
+// The Account's theme. One of the six built-in names, or "imported".
+// "grayscale" is the default. An import's variables stay on the row when a
+// built-in is chosen, so the import can be restored.
 export type AccountTheme = {
   choice: string;
   code: string | null;
@@ -15,6 +17,22 @@ export const defaultAccountTheme: AccountTheme = {
   light: null,
   dark: null,
 };
+
+// Names and codes from the spec. Grayscale's code uses base color gray,
+// which the theme service no longer serves.
+export const builtInThemes = [
+  { name: "grayscale", code: "bxIOtxcO" },
+  { name: "navy", code: "b1ZzrZeXA" },
+  { name: "phthalo", code: "b5de5C2oi" },
+  { name: "old gold", code: "b1GdgzJaa" },
+  { name: "royal purple", code: "b4ODOqh2O" },
+  { name: "maroon", code: "b50vk1MvY" },
+] as const;
+
+// Same kit as the six (Mira, Geist, Lucide, small radius), neutral instead
+// of gray. Used only while bxIOtxcO does not expand. Chroma 0, so it is not
+// one of the colored five and not the old blue.
+const achromatic = "b1D0dxoG";
 
 // The paste box, and the variable block stored on the user row.
 export const maxPresetInputLength = 512;
@@ -55,14 +73,77 @@ export function takeImport(
   };
 }
 
-// The declarations to put on this Account's document, or null to keep the
-// shared theme. Re-checks the stored text so a bad row cannot inject CSS.
+// The declarations to put on this Account's document. A built-in is painted
+// from its preset. An import is painted from the stored blocks. A missing
+// choice, or an import with no usable blocks, paints grayscale.
+export function themeDeclarations(
+  account: AccountTheme,
+  scheme: "light" | "dark",
+) {
+  return resolved(account)[scheme];
+}
+
 export function themeCss(account: AccountTheme) {
-  if (account.choice !== "imported") return null;
-  const light = sanitizeBlock(account.light);
-  const dark = sanitizeBlock(account.dark);
+  const light = themeDeclarations(account, "light");
+  const dark = themeDeclarations(account, "dark");
   if (!light || !dark) return null;
   return `:root{${light}}.dark{${dark}}`;
+}
+
+export function themeChoices(account: AccountTheme) {
+  const choices: { id: string; name: string; selected: boolean }[] =
+    builtInThemes.map((theme) => ({
+      id: theme.name,
+      name: theme.name,
+      selected: account.choice === theme.name,
+    }));
+  if (account.code) {
+    choices.push({
+      id: "imported",
+      name: "Imported",
+      selected: account.choice === "imported",
+    });
+  }
+  return choices;
+}
+
+// A known built-in, or the stored import. Anything else leaves the Account
+// as it was. Choosing a built-in does not clear the import.
+export function chooseTheme(account: AccountTheme, name: string) {
+  if (name === "imported") {
+    if (!account.code) return { account, error: "rejected" as const };
+    if (account.choice === "imported") return { account, error: null };
+    return {
+      account: { ...account, choice: "imported" },
+      error: null,
+    };
+  }
+  if (!builtInThemes.some((theme) => theme.name === name)) {
+    return { account, error: "rejected" as const };
+  }
+  if (account.choice === name) return { account, error: null };
+  return { account: { ...account, choice: name }, error: null };
+}
+
+function resolved(account: AccountTheme) {
+  if (account.choice === "imported") {
+    const light = sanitizeBlock(account.light);
+    const dark = sanitizeBlock(account.dark);
+    if (light && dark) return { light, dark };
+  }
+  const name = builtInThemes.some((theme) => theme.name === account.choice)
+    ? account.choice
+    : "grayscale";
+  return blocksFor(name) ?? blocksFor("grayscale") ?? { light: "", dark: "" };
+}
+
+function blocksFor(name: string) {
+  const theme = builtInThemes.find((item) => item.name === name);
+  if (!theme) return null;
+  const direct = expandPreset(theme.code);
+  if (direct) return direct;
+  if (name !== "grayscale") return null;
+  return expandPreset(achromatic);
 }
 
 // Current-format codes start with "b". Older "a…" codes still decode, and are

@@ -47,6 +47,18 @@
     max-width: 20rem;
   }
 
+  /* The six themes sit in a row and wrap, instead of a tall stack. */
+  form.choices {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    max-width: none;
+  }
+
+  main > form + form {
+    margin-top: 0.75rem;
+  }
+
   header form,
   li form {
     flex-direction: row;

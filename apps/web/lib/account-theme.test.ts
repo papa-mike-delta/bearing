@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { encodePreset } from "shadcn/preset";
 import { expandPreset } from "./expand-preset.ts";
 import {
+  builtInThemes,
+  chooseTheme,
   defaultAccountTheme,
   importError,
   importNotice,
@@ -10,7 +13,9 @@ import {
   readPreset,
   sanitizeBlock,
   takeImport,
+  themeChoices,
   themeCss,
+  themeDeclarations,
   type AccountTheme,
 } from "./account-theme.ts";
 
@@ -91,15 +96,17 @@ test("a failed expand changes nothing", () => {
   assert.match(importError("theme-failed") ?? "", /Nothing was changed/);
 });
 
-test("an import without variables falls back to the shared theme", () => {
+test("an import without variables paints grayscale, not the old blue", () => {
   const broken: AccountTheme = {
     choice: "imported",
     code: "b1sACkXE8",
     light: null,
     dark: null,
   };
-  assert.equal(themeCss(broken), null);
-  assert.equal(themeCss(defaultAccountTheme), null);
+  const gray = themeDeclarations(defaultAccountTheme, "light");
+  assert.equal(themeDeclarations(broken, "light"), gray);
+  assert.match(themeCss(defaultAccountTheme) ?? "", /^:root\{/);
+  assert.doesNotMatch(themeCss(defaultAccountTheme) ?? "", /#2f5fd0/);
 });
 
 test("stored variables are custom properties, not injected CSS", () => {
@@ -109,15 +116,14 @@ test("stored variables are custom properties, not injected CSS", () => {
     ),
     null,
   );
-  assert.equal(
-    themeCss({
-      choice: "imported",
-      code: "b1sACkXE8",
-      light: "--background: oklch(1 0 0); --x: </style>",
-      dark: "--background: oklch(0.145 0 0);",
-    }),
-    null,
-  );
+  const dirty = themeCss({
+    choice: "imported",
+    code: "b1sACkXE8",
+    light: "--background: oklch(1 0 0); --x: </style>",
+    dark: "--background: oklch(0.145 0 0);",
+  });
+  assert.equal(dirty, themeCss(defaultAccountTheme));
+  assert.doesNotMatch(dirty ?? "", /<\/style>|url\(/);
 });
 
 test("a plain custom property is kept", () => {
@@ -167,3 +173,122 @@ test("a stored block longer than 8192 characters is rejected", () => {
   assert.ok(body.length > maxStoredThemeLength);
   assert.equal(sanitizeBlock(body), null);
 });
+
+// Neutral, not gray: the theme service rejects base color gray, so grayscale
+// paints this achromatic preset (same kit, small radius, chroma 0).
+const achromatic = encodePreset({
+  menuColor: "default",
+  menuAccent: "subtle",
+  radius: "small",
+  font: "geist",
+  iconLibrary: "lucide",
+  style: "mira",
+  fontHeading: "inherit",
+  theme: "neutral",
+  baseColor: "neutral",
+  chartColor: "neutral",
+});
+
+test("the account lists the six themes by the names on the spec, and no import it never had", () => {
+  assert.deepEqual(
+    builtInThemes.map((theme) => [theme.name, theme.code]),
+    [
+      ["grayscale", "bxIOtxcO"],
+      ["navy", "b1ZzrZeXA"],
+      ["phthalo", "b5de5C2oi"],
+      ["old gold", "b1GdgzJaa"],
+      ["royal purple", "b4ODOqh2O"],
+      ["maroon", "b50vk1MvY"],
+    ],
+  );
+  const choices = themeChoices(defaultAccountTheme);
+  assert.deepEqual(
+    choices.map((choice) => choice.name),
+    ["grayscale", "navy", "phthalo", "old gold", "royal purple", "maroon"],
+  );
+  assert.equal(choices.find((choice) => choice.id === "grayscale")?.selected, true);
+  assert.equal(choices.some((choice) => choice.id === "imported"), false);
+});
+
+test("each built-in paints its own light and its own dark", () => {
+  const seen = new Set<string>();
+  for (const theme of builtInThemes) {
+    const chosen = chooseTheme(defaultAccountTheme, theme.name);
+    assert.equal(chosen.error, null);
+    assert.equal(chosen.account.choice, theme.name);
+    const light = themeDeclarations(chosen.account, "light");
+    const dark = themeDeclarations(chosen.account, "dark");
+    assert.notEqual(light, dark, theme.name);
+    const direct = expandPreset(theme.code);
+    if (direct) {
+      assert.equal(light, direct.light, theme.name);
+      assert.equal(dark, direct.dark, theme.name);
+    } else {
+      assert.equal(theme.name, "grayscale");
+      const paint = expandPreset(achromatic);
+      assert.ok(paint, "neutral preset expands");
+      assert.equal(light, paint.light);
+      assert.equal(dark, paint.dark);
+    }
+    assert.equal(seen.has(light), false, theme.name);
+    seen.add(light);
+  }
+});
+
+test("a missing choice paints grayscale", () => {
+  const gray = themeDeclarations(defaultAccountTheme, "dark");
+  assert.equal(
+    themeDeclarations(
+      { choice: "nope", code: null, light: null, dark: null },
+      "dark",
+    ),
+    gray,
+  );
+});
+
+test("choosing a built-in leaves the import, and choosing it again restores it", () => {
+  const imported = takeImport(
+    defaultAccountTheme,
+    "b1sACkXE8",
+    fuchsia,
+  ).account;
+  const mine = { ...imported };
+  const them = { ...imported };
+  const navy = chooseTheme(mine, "navy");
+  assert.equal(navy.error, null);
+  assert.equal(navy.account.choice, "navy");
+  assert.equal(navy.account.code, imported.code);
+  assert.equal(navy.account.light, imported.light);
+  assert.equal(navy.account.dark, imported.dark);
+  assert.equal(mine.choice, "imported");
+  assert.deepEqual(them, imported);
+  assert.equal(
+    themeDeclarations(navy.account, "light"),
+    expandPreset("b1ZzrZeXA")?.light,
+  );
+  assert.notEqual(
+    themeDeclarations(navy.account, "dark"),
+    themeDeclarations(navy.account, "light"),
+  );
+  const back = chooseTheme(navy.account, "imported");
+  assert.equal(back.error, null);
+  assert.equal(back.account.choice, "imported");
+  assert.equal(themeDeclarations(back.account, "light"), imported.light);
+  assert.equal(themeDeclarations(back.account, "dark"), imported.dark);
+  const whileNavy = themeChoices(navy.account);
+  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.name, "Imported");
+  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.selected, false);
+  assert.equal(whileNavy.find((choice) => choice.id === "navy")?.selected, true);
+  assert.equal(
+    themeChoices(back.account).find((choice) => choice.id === "imported")?.selected,
+    true,
+  );
+  assert.equal(chooseTheme(defaultAccountTheme, "imported").error, "rejected");
+  assert.deepEqual(
+    chooseTheme(defaultAccountTheme, "imported").account,
+    defaultAccountTheme,
+  );
+  assert.equal(chooseTheme(imported, "not-a-theme").error, "rejected");
+  assert.deepEqual(chooseTheme(imported, "not-a-theme").account, imported);
+});
+

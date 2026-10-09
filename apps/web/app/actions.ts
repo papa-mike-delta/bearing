@@ -8,11 +8,15 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, signIn, signOut } from "../auth";
 import {
+  chooseTheme,
   defaultAccountTheme,
   readPreset,
   takeImport,
 } from "../lib/account-theme";
-import { saveAccountTheme } from "../lib/account-theme-store";
+import {
+  loadAccountTheme,
+  saveAccountTheme,
+} from "../lib/account-theme-store";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
@@ -84,6 +88,16 @@ export async function importAccountTheme(formData: FormData) {
   await saveAccountTheme(db, user.id, result.account);
   revalidatePath("/", "layout");
   redirect("/account?imported=1");
+}
+
+export async function chooseAccountTheme(formData: FormData) {
+  const user = await requireUser();
+  const current = await loadAccountTheme(db, user.id);
+  const next = chooseTheme(current, String(formData.get("choice") ?? ""));
+  if (next.error) redirect("/account");
+  await saveAccountTheme(db, user.id, next.account);
+  revalidatePath("/", "layout");
+  redirect("/account");
 }
 
 export async function addTaskToList(formData: FormData) {
