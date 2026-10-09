@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { maxCoachMessageLength, shownParts } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -88,7 +89,11 @@ export function Chat({
               {message.parts.map((part) =>
                 "receipt" in part ? (
                   <p key={part.key} className="receipt" data-calls={part.calls}>
-                    {part.receipt}
+                    {part.href ? (
+                      <Link href={part.href}>{part.receipt}</Link>
+                    ) : (
+                      part.receipt
+                    )}
                   </p>
                 ) : (
                   <p key={part.key}>{part.text}</p>

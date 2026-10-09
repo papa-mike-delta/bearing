@@ -2,8 +2,14 @@
 // No model calls and no AI SDK. apps/web wraps the tools and owns the route.
 
 export type { CoachData, ListedTask, ToolRunContext } from "./data.ts";
-export { coachSystemPrompt, maxCoachSteps } from "./prompt.ts";
+export {
+  coachSystemPrompt,
+  maxCoachSteps,
+  maxCreatesPerTurn,
+} from "./prompt.ts";
 export { receipt, shownParts, type ShownPart } from "./receipts.ts";
+export { completeTask } from "./tools/complete-task.ts";
+export { coachCreateSourceId, createTask } from "./tools/create-task.ts";
 export { listArea, maxListedTasks } from "./tools/list-area.ts";
 
 // The longest message a person can send the Coach, in UTF-16 code units (what

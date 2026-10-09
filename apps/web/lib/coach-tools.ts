@@ -1,10 +1,22 @@
-import { listArea, type CoachData } from "@repo/coach";
+import {
+  completeTask,
+  createTask,
+  listArea,
+  maxCreatesPerTurn,
+  type CoachData,
+} from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import { nextTask } from "@repo/domain";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Db } from "./db.ts";
-import { openTasks } from "./tasks.ts";
+import {
+  addTask,
+  completeTask as completeTaskRow,
+  openTasks,
+} from "./tasks.ts";
+
+export { maxCreatesPerTurn };
 
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb): CoachData {
@@ -19,80 +31,150 @@ export function coachData(db: Db = defaultDb): CoachData {
         isNext: id === next?.id,
       }));
     },
+    createTask(userId, input, from) {
+      return addTask(userId, { ...input, from }, db);
+    },
+    completeTask(userId, taskId) {
+      return completeTaskRow(userId, taskId, db);
+    },
   };
 }
 
-// The session user reaches each tool only through its typed context, checked
-// on every call. A call without it fails before the tool runs.
-const userContext = z.object({ userId: z.uuid() });
+// Session user + the person's message id (stable across resends) reach each
+// tool only through typed context, checked on every call.
+const toolContext = z.object({ userId: z.uuid(), messageId: z.uuid() });
 
-// A thrown database error must not reach the model (it can carry SQL and the
-// user id). Log the error name and SQLSTATE, then throw a fixed sentence.
-async function runListArea(
-  input: {},
-  {
-    userId,
-    toolCallId,
-    data,
-  }: { userId: string; toolCallId: string; data: CoachData },
-) {
+type ToolRun = {
+  userId: string;
+  toolCallId: string;
+  messageId: string;
+  data: CoachData;
+};
+
+function logToolError(toolName: string, toolCallId: string, error: unknown) {
+  console.error(
+    JSON.stringify({
+      event: "coach.tool.error",
+      tool: toolName,
+      toolCallId,
+      error: error instanceof Error ? error.name : "Error",
+      code:
+        error instanceof Error
+          ? (error.cause as { code?: string } | undefined)?.code
+          : undefined,
+    }),
+  );
+}
+
+async function runListArea(input: {}, ctx: ToolRun) {
   try {
-    return await listArea.run(input, { userId, toolCallId, data });
+    return await listArea.run(input, ctx);
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "coach.tool.error",
-        tool: "listArea",
-        toolCallId,
-        error: error instanceof Error ? error.name : "Error",
-        code:
-          error instanceof Error
-            ? (error.cause as { code?: string } | undefined)?.code
-            : undefined,
-      }),
-    );
+    logToolError("listArea", ctx.toolCallId, error);
     throw new Error("The list couldn't be read.");
   }
 }
 
+async function runCreateTask(
+  input: { name: string; note?: string },
+  ctx: ToolRun,
+) {
+  try {
+    return await createTask.run(input, ctx);
+  } catch (error) {
+    logToolError("createTask", ctx.toolCallId, error);
+    throw new Error("Couldn't create that task.");
+  }
+}
+
+async function runCompleteTask(input: { taskId: string }, ctx: ToolRun) {
+  try {
+    return await completeTask.run(input, ctx);
+  } catch (error) {
+    logToolError("completeTask", ctx.toolCallId, error);
+    throw new Error("Couldn't complete that task.");
+  }
+}
+
 export function coachTools(data: CoachData) {
+  let completedThisTurn = false;
+  let createdThisTurn = 0;
   return {
     listArea: tool({
       description: listArea.description,
       inputSchema: listArea.inputSchema,
-      contextSchema: userContext,
+      contextSchema: toolContext,
       execute: (input, { context, toolCallId }) =>
         runListArea(input, {
           userId: context.userId,
           toolCallId,
+          messageId: context.messageId,
           data,
         }),
+    }),
+    createTask: tool({
+      description: createTask.description,
+      inputSchema: createTask.inputSchema,
+      contextSchema: toolContext,
+      execute: (input, { context, toolCallId }) => {
+        // Count before awaiting so parallel calls in one step share the cap.
+        if (createdThisTurn >= maxCreatesPerTurn) {
+          throw new Error(
+            `You can add only ${maxCreatesPerTurn} Tasks per reply.`,
+          );
+        }
+        createdThisTurn += 1;
+        return runCreateTask(input, {
+          userId: context.userId,
+          toolCallId,
+          messageId: context.messageId,
+          data,
+        });
+      },
+    }),
+    completeTask: tool({
+      description: completeTask.description,
+      inputSchema: completeTask.inputSchema,
+      contextSchema: toolContext,
+      execute: (input, { context, toolCallId }) => {
+        if (completedThisTurn) {
+          throw new Error("You can complete only one Task per reply.");
+        }
+        completedThisTurn = true;
+        return runCompleteTask(input, {
+          userId: context.userId,
+          toolCallId,
+          messageId: context.messageId,
+          data,
+        });
+      },
     }),
   };
 }
 
-// The Coach's tools. coachToolsContext is built from this list; the test
-// checks it matches the keys coachTools registers.
-export const coachToolNames = ["listArea"] as const;
+export const coachToolNames = [
+  "listArea",
+  "createTask",
+  "completeTask",
+] as const;
 
-// The context for every Coach tool, from the session user.
-export function coachToolsContext(userId: string) {
+export function coachToolsContext(userId: string, messageId: string) {
   return Object.fromEntries(
-    coachToolNames.map((name) => [name, { userId }]),
-  ) as { [Name in (typeof coachToolNames)[number]]: { userId: string } };
+    coachToolNames.map((name) => [name, { userId, messageId }]),
+  ) as {
+    [Name in (typeof coachToolNames)[number]]: {
+      userId: string;
+      messageId: string;
+    };
+  };
 }
 
-// The person's open Tasks, read by Bearing at the start of a turn instead of
-// waiting for the model to ask: so every answer is about the list as it is
-// now, and a turn reads it once. `messages` hands the read to the model as a
-// listArea call and its result, noted as the list right now. `receipt` adds
-// the same call to the streamed reply, so it shows, saves and reloads as a
-// listArea receipt.
 export async function freshRead(userId: string, data: CoachData) {
-  // At most 40 characters: OpenAI refuses longer tool-call ids.
   const toolCallId = `read_${crypto.randomUUID().replaceAll("-", "")}`;
   const call = { toolCallId, toolName: "listArea" } as const;
-  const output = await runListArea({}, { userId, toolCallId, data });
+  // freshRead has no user message; a placeholder uuid keeps the context shape.
+  const messageId = "00000000-0000-4000-8000-000000000000";
+  const output = await runListArea({}, { userId, toolCallId, messageId, data });
   const messages: ModelMessage[] = [
     { role: "assistant", content: [{ type: "tool-call", ...call, input: {} }] },
     {
@@ -103,7 +185,6 @@ export async function freshRead(userId: string, data: CoachData) {
           ...call,
           output: {
             type: "json",
-            // note last so a field of the same name in output can't overwrite it
             value: { ...output, note: "The person's list right now." },
           },
         },

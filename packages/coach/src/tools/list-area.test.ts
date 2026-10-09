@@ -11,12 +11,26 @@ function fake(tasks: ListedTask[]) {
       asked.push(userId);
       return tasks;
     },
+    async createTask() {
+      throw new Error("createTask was not expected");
+    },
+    async completeTask() {
+      throw new Error("completeTask was not expected");
+    },
   };
   return { data, asked };
 }
 
 const run = (data: CoachData, userId = "user-1") =>
-  listArea.run({}, { userId, toolCallId: "call_1", data });
+  listArea.run(
+    {},
+    {
+      userId,
+      toolCallId: "call_1",
+      messageId: "11111111-1111-4111-8111-111111111111",
+      data,
+    },
+  );
 
 const task = (id: string, priority: number, isNext = false) => ({
   id,

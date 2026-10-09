@@ -207,6 +207,10 @@ li strong {
   font-size: 12px;
 }
 
+.thread p.receipt a {
+  color: inherit;
+}
+
 .thread p.receipt + p:not(.receipt) {
   margin-top: 8px;
 }
