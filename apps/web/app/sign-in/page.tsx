@@ -1,3 +1,5 @@
+import { Input } from "@repo/ui/components/input";
+import { Label } from "@repo/ui/components/label";
 import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { minPasswordLength } from "../../lib/credentials";
@@ -22,20 +24,27 @@ export default async function SignIn({
     <main>
       <h1>Bearing</h1>
       <form>
-        <label>
-          Email
-          <input name="email" type="email" autoComplete="email" required />
-        </label>
-        <label>
-          Password
-          <input
+        <div className="field">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+          />
+        </div>
+        <div className="field">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
             name="password"
             type="password"
             autoComplete="current-password"
             minLength={minPasswordLength}
             required
           />
-        </label>
+        </div>
         {error && Object.hasOwn(errors, error) ? (
           <p role="alert">{errors[error]}</p>
         ) : null}

@@ -1,3 +1,5 @@
+import { Button } from "@repo/ui/components/button";
+import { Input } from "@repo/ui/components/input";
 import {
   maxPriority,
   maxTaskNameLength,
@@ -22,14 +24,14 @@ export default async function Home() {
     <main>
       <Header email={user.email} />
       <form action={addTaskToList}>
-        <input
+        <Input
           name="name"
           aria-label="Task name"
           placeholder="New task"
           maxLength={maxTaskNameLength}
           required
         />
-        <button type="submit">Add</button>
+        <Button type="submit">Add</Button>
       </form>
       {tasks.length === 0 ? (
         <p>No tasks yet.</p>
@@ -39,9 +41,11 @@ export default async function Home() {
             <li key={task.id}>
               <form action={completeTaskOnList}>
                 <input type="hidden" name="id" value={task.id} />
-                <button
+                <Button
                   type="submit"
-                  className="complete"
+                  variant="outline"
+                  size="icon-xs"
+                  className="size-4 rounded-full"
                   aria-label={`Complete ${task.name}`}
                 />
               </form>
@@ -52,24 +56,30 @@ export default async function Home() {
               {task === next ? <strong>Next</strong> : null}
               <form action={changeTaskPriority}>
                 <input type="hidden" name="id" value={task.id} />
-                <button
+                <Button
                   type="submit"
                   name="step"
                   value="up"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
                   aria-label={`Raise ${task.name}`}
                   disabled={task.priority >= maxPriority}
                 >
                   ↑
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
                   name="step"
                   value="down"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
                   aria-label={`Lower ${task.name}`}
                   disabled={task.priority <= minPriority}
                 >
                   ↓
-                </button>
+                </Button>
               </form>
             </li>
           ))}

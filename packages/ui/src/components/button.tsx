@@ -1,3 +1,7 @@
+"use client"
+
+// Base UI's button is a client module. The registry file omits this
+// directive, and a server page cannot import it without one.
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"

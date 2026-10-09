@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@repo/ui/components/button";
+import { Input } from "@repo/ui/components/input";
 import { useChat } from "@ai-sdk/react";
 import { maxCoachMessageLength } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
@@ -116,9 +118,9 @@ export function Chat({
       {error ? (
         <p role="alert">
           The Coach couldn&apos;t answer.{" "}
-          <button type="button" onClick={() => regenerate()}>
+          <Button type="button" variant="outline" onClick={() => regenerate()}>
             Resend
-          </button>
+          </Button>
         </p>
       ) : null}
       <form
@@ -131,7 +133,8 @@ export function Chat({
           setInput("");
         }}
       >
-        <input
+        <Input
+          className="w-auto"
           aria-label="Message the Coach"
           placeholder="Message the Coach"
           value={input}
@@ -140,7 +143,7 @@ export function Chat({
           disabled={replying}
         />
         {replying ? (
-          <button
+          <Button
             type="button"
             onClick={() => {
               const userId = [...messages]
@@ -155,9 +158,9 @@ export function Chat({
             }}
           >
             Stop
-          </button>
+          </Button>
         ) : (
-          <button type="submit">Send</button>
+          <Button type="submit">Send</Button>
         )}
       </form>
       <div ref={end} />
