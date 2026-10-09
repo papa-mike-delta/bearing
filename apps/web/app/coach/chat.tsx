@@ -78,7 +78,8 @@ export function Chat({
   }, []);
 
   // A reply that failed before any text or tool call has nothing to show.
-  // A stopped one still does: the note that its full reply was saved.
+  // A stopped one still does: a neutral note. Stop ends the browser stream;
+  // reload to see the reply if the Coach finished and saved it.
   const shown = shownThread(messages, stoppedUserIds);
 
   return (
@@ -103,7 +104,11 @@ export function Chat({
                   <p key={part.key}>{part.text}</p>
                 ),
               )}
-              {message.marker ? <p>{message.marker}</p> : null}
+              {message.marker ? (
+                <p className="receipt" role="status">
+                  {message.marker}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>

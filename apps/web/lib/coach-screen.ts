@@ -1,8 +1,10 @@
 import { shownParts, type ShownPart } from "@repo/coach";
 
-// Plain text, the same type as a reply. Not a receipt, and not stored:
-// a reload renders the saved reply and this note is gone.
-export const stoppedReplyMarker = "Stopped. The full reply was saved.";
+// Plain text, the same type as a reply. Not a receipt, and not stored.
+// The note is neutral: Stop ends the browser stream; reload to see the
+// reply if the Coach finished and saved it. A reload drops the note.
+export const stoppedReplyMarker =
+  "Stopped. Reload to see the reply if the Coach finished it.";
 
 type ThreadMessage = {
   id: string;
@@ -18,12 +20,13 @@ export type ShownTurn = {
 };
 
 // The thread as the page shows it. `stoppedUserMessageIds` are turns the
-// person stopped in this view. Each of those replies carries a note that
-// the full reply was saved, including when Stop landed before any text
+// person stopped in this view. Each of those replies carries a neutral
+// note: Stop ends the browser stream; reload to see the reply if the
+// Coach finished and saved it, including when Stop landed before any text
 // (no Coach bubble yet, or only the list receipt). The note is not a
 // message part, so a reload — an empty list, the thread as stored — shows
-// the saved reply and its receipt and nothing else. A message sent after
-// Stop stays after that turn.
+// the reply and its receipt when the Coach finished and saved them, and
+// nothing else. A message sent after Stop stays after that turn.
 export function shownThread(
   messages: readonly ThreadMessage[],
   stoppedUserMessageIds: readonly string[],

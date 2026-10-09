@@ -29,8 +29,11 @@ const lines = (
     note: turn.marker ?? null,
   }));
 
-test("stop before the first token says the full reply was saved", () => {
-  assert.equal(stoppedReplyMarker, "Stopped. The full reply was saved.");
+test("stop before the first token shows the stopped note", () => {
+  assert.equal(
+    stoppedReplyMarker,
+    "Stopped. Reload to see the reply if the Coach finished it.",
+  );
   // Nothing from the Coach has arrived: no bubble, no receipt, no text.
   assert.deepEqual(lines([user("u1", "What's next?")], ["u1"]), [
     { who: "You", text: ["What's next?"], receipts: [], note: null },
@@ -38,7 +41,7 @@ test("stop before the first token says the full reply was saved", () => {
       who: "Coach",
       text: [],
       receipts: [],
-      note: "Stopped. The full reply was saved.",
+      note: "Stopped. Reload to see the reply if the Coach finished it.",
     },
   ]);
   // The list receipt can arrive before any text. The note still does.
@@ -56,7 +59,7 @@ test("stop before the first token says the full reply was saved", () => {
         who: "Coach",
         text: [],
         receipts: ["Read your list (3 open)"],
-        note: "Stopped. The full reply was saved.",
+        note: "Stopped. Reload to see the reply if the Coach finished it.",
       },
     ],
   );
@@ -106,9 +109,19 @@ test("a stopped turn keeps whatever text had already arrived, and the note", () 
         who: "Coach",
         text: ["As far as"],
         receipts: ["Read your list (3 open)"],
-        note: "Stopped. The full reply was saved.",
+        note: "Stopped. Reload to see the reply if the Coach finished it.",
       },
     ],
+  );
+});
+
+test("an empty unstopped reply stays hidden", () => {
+  assert.deepEqual(
+    lines(
+      [user("u1", "What's next?"), { id: "a1", role: "assistant", parts: [] }],
+      [],
+    ),
+    [{ who: "You", text: ["What's next?"], receipts: [], note: null }],
   );
 });
 
@@ -132,7 +145,7 @@ test("a message sent right after Stop stays after that turn", () => {
         who: "Coach",
         text: [],
         receipts: [],
-        note: "Stopped. The full reply was saved.",
+        note: "Stopped. Reload to see the reply if the Coach finished it.",
       },
       { who: "You", text: ["Second"], receipts: [], note: null },
       {
