@@ -25,12 +25,12 @@ export const defaultAccountTheme: AccountTheme = {
 // Grayscale's code uses base color gray, which the theme service no longer
 // serves.
 export const builtInThemes = [
-  { id: "grayscale", name: "grayscale", code: "bxIOtxcO" },
-  { id: "navy", name: "navy", code: "b1ZzrZeXA" },
-  { id: "phthalo", name: "phthalo", code: "b5de5C2oi" },
-  { id: "old-gold", name: "old gold", code: "b1GdgzJaa" },
-  { id: "royal-purple", name: "royal purple", code: "b4ODOqh2O" },
-  { id: "maroon", name: "maroon", code: "b50vk1MvY" },
+  { id: "grayscale", name: "Grayscale", code: "bxIOtxcO" },
+  { id: "navy", name: "Navy", code: "b1ZzrZeXA" },
+  { id: "phthalo", name: "Phthalo", code: "b5de5C2oi" },
+  { id: "old-gold", name: "Old gold", code: "b1GdgzJaa" },
+  { id: "royal-purple", name: "Royal purple", code: "b4ODOqh2O" },
+  { id: "maroon", name: "Maroon", code: "b50vk1MvY" },
 ] as const;
 
 // Same kit as the six (Mira, Geist, Lucide, small radius), neutral instead

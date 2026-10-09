@@ -40,19 +40,24 @@ export default async function Account({
       <Header email={user.email} />
       {imported === "1" || changed === "1" ? <ClearParam /> : null}
       <h1>Theme</h1>
-      <form action={chooseAccountTheme} className="choices">
-        {themeChoices(account).map((choice) => (
-          <Button
-            key={choice.id}
-            type="submit"
-            name="choice"
-            value={choice.id}
-            variant={choice.selected ? "default" : "outline"}
-            aria-pressed={choice.selected}
-          >
-            {choice.name}
-          </Button>
-        ))}
+      <form action={chooseAccountTheme} className="themes">
+        <fieldset>
+          <legend>Built-in themes</legend>
+          <div className="choices">
+            {themeChoices(account).map((choice) => (
+              <Button
+                key={choice.id}
+                type="submit"
+                name="choice"
+                value={choice.id}
+                variant={choice.selected ? "default" : "outline"}
+                aria-pressed={choice.selected}
+              >
+                {choice.name}
+              </Button>
+            ))}
+          </div>
+        </fieldset>
       </form>
       <form action={importAccountTheme}>
         <div className="field">

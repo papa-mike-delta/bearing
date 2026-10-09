@@ -47,16 +47,44 @@
     max-width: 20rem;
   }
 
+  /* The theme chips are one labelled group. The legend floats so it lays
+     out like a normal 12px label above the chips. */
+  form.themes {
+    max-width: none;
+  }
+
+  form.themes fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  form.themes legend {
+    float: left;
+    width: 100%;
+    padding: 0;
+    margin-bottom: 0.5rem;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
   /* The six themes sit in a row and wrap, instead of a tall stack. */
-  form.choices {
-    flex-direction: row;
+  form.themes .choices {
+    clear: both;
+    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    max-width: none;
+    gap: 0.75rem;
   }
 
   main > form + form {
     margin-top: 0.75rem;
+  }
+
+  /* 28px between the chip group and the preset field. */
+  main > form.themes + form {
+    margin-top: 1.75rem;
   }
 
   header form,
@@ -207,9 +235,13 @@
   }
 }
 
-/* The kit's fields and buttons set outline-none and rely on a faint --ring
-   (about 2.6:1 in light mode). Unlayered, so the browser's own focus ring
-   comes back for keyboard focus in light and dark. */
+/* The kit's fields and buttons set outline-none and rely on a faint --ring.
+   Keyboard focus gets a 2px ring in the text colour, offset 2px so a gap of
+   page background sits between it and the control. The ring then always
+   reads against the background (foreground on background) in every theme,
+   light and dark, even on a filled primary chip. Unlayered, so it beats the
+   kit's outline-none. */
 [data-slot]:focus-visible {
-  outline: revert;
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
 }

@@ -189,28 +189,28 @@ const achromatic = encodePreset({
   chartColor: "neutral",
 });
 
-test("the account lists the six themes by the names on the spec, and no import it never had", () => {
+test("the account lists the six themes by their spec names in sentence case, and no import it never had", () => {
   assert.deepEqual(
     builtInThemes.map((theme) => [theme.id, theme.name, theme.code]),
     [
-      ["grayscale", "grayscale", "bxIOtxcO"],
-      ["navy", "navy", "b1ZzrZeXA"],
-      ["phthalo", "phthalo", "b5de5C2oi"],
-      ["old-gold", "old gold", "b1GdgzJaa"],
-      ["royal-purple", "royal purple", "b4ODOqh2O"],
-      ["maroon", "maroon", "b50vk1MvY"],
+      ["grayscale", "Grayscale", "bxIOtxcO"],
+      ["navy", "Navy", "b1ZzrZeXA"],
+      ["phthalo", "Phthalo", "b5de5C2oi"],
+      ["old-gold", "Old gold", "b1GdgzJaa"],
+      ["royal-purple", "Royal purple", "b4ODOqh2O"],
+      ["maroon", "Maroon", "b50vk1MvY"],
     ],
   );
   const choices = themeChoices(defaultAccountTheme);
   assert.deepEqual(
     choices.map((choice) => [choice.id, choice.name]),
     [
-      ["grayscale", "grayscale"],
-      ["navy", "navy"],
-      ["phthalo", "phthalo"],
-      ["old-gold", "old gold"],
-      ["royal-purple", "royal purple"],
-      ["maroon", "maroon"],
+      ["grayscale", "Grayscale"],
+      ["navy", "Navy"],
+      ["phthalo", "Phthalo"],
+      ["old-gold", "Old gold"],
+      ["royal-purple", "Royal purple"],
+      ["maroon", "Maroon"],
     ],
   );
   assert.equal(choices.find((choice) => choice.id === "grayscale")?.selected, true);
@@ -281,7 +281,7 @@ test("a built-in paints over a stored import, and imported paints it again", () 
 
 test("miscased ids and display names are not built-in ids", () => {
   const gray = themeDeclarations(defaultAccountTheme, "dark");
-  for (const id of ["Navy", "OLD-GOLD", "old gold"]) {
+  for (const id of ["Navy", "OLD-GOLD", "old gold", "Old gold"]) {
     assert.equal(isBuiltInThemeId(id), false, id);
     assert.equal(
       themeDeclarations(

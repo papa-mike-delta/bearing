@@ -45,7 +45,11 @@ export function FormMessage({
 
   if (!visible) return null;
   return (
-    <p ref={ref} role={role}>
+    <p
+      ref={ref}
+      role={role}
+      className={role === "alert" ? "text-destructive" : undefined}
+    >
       {message}
     </p>
   );
