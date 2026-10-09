@@ -22,8 +22,12 @@ import { captureDraft, fileDraftAsTask } from "../lib/drafts";
 import { expandPreset } from "../lib/expand-preset";
 import {
   createArea,
+  createGoal,
   deleteArea,
+  deleteGoal,
+  moveGoal,
   renameArea,
+  renameGoal,
   setAreaHidden,
   setAreaWip,
   setAreaWorkflow,
@@ -34,6 +38,7 @@ import {
   completeTask,
   moveTask,
   scheduleOn,
+  setTaskGoal,
 } from "../lib/tasks";
 
 export async function signInWithPassword(formData: FormData) {
@@ -165,7 +170,10 @@ export async function changeTaskPriority(formData: FormData) {
 
 export async function moveTaskOnList(formData: FormData) {
   const { id: userId } = await requireUser();
-  const to = formData.get("to") === "now" ? "now" : "later";
+  const raw = String(formData.get("to") ?? "");
+  const allowed = ["now", "later", "started", "next", "waiting"] as const;
+  const to = allowed.find((item) => item === raw);
+  if (!to) return;
   await moveTask(userId, String(formData.get("id")), to);
   revalidatePath("/");
 }
@@ -180,6 +188,53 @@ export async function scheduleTaskOnList(formData: FormData) {
   );
   revalidatePath("/");
   if (!saved) redirect("/?error=date");
+}
+
+export async function createNamedGoal(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const created = await createGoal(
+    userId,
+    String(formData.get("area")),
+    String(formData.get("name") ?? ""),
+  );
+  revalidatePath("/");
+  if (!created) redirect("/?error=goal");
+}
+
+export async function renameNamedGoal(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const renamed = await renameGoal(
+    userId,
+    String(formData.get("id")),
+    String(formData.get("name") ?? ""),
+  );
+  revalidatePath("/");
+  if (!renamed) redirect("/?error=goal");
+}
+
+export async function moveNamedGoal(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const direction = formData.get("direction") === "up" ? "up" : "down";
+  await moveGoal(userId, String(formData.get("id")), direction);
+  revalidatePath("/");
+}
+
+export async function deleteNamedGoal(formData: FormData) {
+  const { id: userId } = await requireUser();
+  await deleteGoal(userId, String(formData.get("id")));
+  revalidatePath("/");
+}
+
+export async function assignTaskGoal(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const raw = String(formData.get("goal") ?? "");
+  const saved = await setTaskGoal(
+    userId,
+    String(formData.get("id")),
+    raw ? raw : null,
+  );
+  revalidatePath("/");
+  if (!saved) redirect("/?error=goal");
 }
 
 export async function captureToInbox(formData: FormData) {

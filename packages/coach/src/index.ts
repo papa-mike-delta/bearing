@@ -11,6 +11,8 @@ export { receipt, shownParts, type ShownPart } from "./receipts.ts";
 export { completeTask } from "./tools/complete-task.ts";
 export { coachCreateSourceId, createTask } from "./tools/create-task.ts";
 export { listArea, maxListedTasks } from "./tools/list-area.ts";
+export { scheduleTask } from "./tools/schedule-task.ts";
+export { updateTask } from "./tools/update-task.ts";
 
 // The longest message a person can send the Coach, in UTF-16 code units (what
 // an input's maxLength counts). Every saved message goes into later prompts.

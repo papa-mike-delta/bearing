@@ -51,6 +51,22 @@ function show(part: ToolPart): Line | null {
     }
     return { line: "Couldn't complete that task" };
   }
+  if (part.type === "tool-scheduleTask") {
+    if (pending(part.state)) return { line: "Scheduling…" };
+    const name = nameOf(part.output);
+    if (part.state === "output-available" && name !== undefined) {
+      return { line: `Scheduled '${name}'` };
+    }
+    return { line: "Couldn't schedule that task" };
+  }
+  if (part.type === "tool-updateTask") {
+    if (pending(part.state)) return { line: "Updating…" };
+    const name = nameOf(part.output);
+    if (part.state === "output-available" && name !== undefined) {
+      return { line: `Updated '${name}'` };
+    }
+    return { line: "Couldn't update that task" };
+  }
   return null;
 }
 

@@ -28,6 +28,12 @@ function fake(
       calls.push({ userId, taskId: id });
       return result;
     },
+    async scheduleTask() {
+      throw new Error("scheduleTask was not expected");
+    },
+    async updateTask() {
+      throw new Error("updateTask was not expected");
+    },
   };
   return { data, calls };
 }

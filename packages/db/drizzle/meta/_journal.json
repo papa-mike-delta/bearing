@@ -36,6 +36,13 @@
       "when": 1791581276612,
       "tag": "0004_areas_workflows_dates",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791587991479,
+      "tag": "0005_goals",
+      "breakpoints": true
     }
   ]
 }

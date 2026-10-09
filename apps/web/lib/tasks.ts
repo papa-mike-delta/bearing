@@ -1,7 +1,11 @@
 import { db as defaultDb, tasks } from "@repo/db";
 import {
+  applyTaskUpdate,
+  assignGoal,
   changeStatus,
   coachList,
+  goalInArea,
+  moveToColumn,
   moveToLater,
   moveToNow,
   newTask,
@@ -9,7 +13,10 @@ import {
   pickArea,
   scheduleTask,
   stepPriority,
+  type KanbanColumn,
+  type TaskPatch,
   type TaskRecord,
+  type TaskStatus,
 } from "@repo/domain";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { loadAccount } from "./areas.ts";
@@ -27,7 +34,7 @@ export async function openTasks(
 ) {
   const loaded = await loadAccount(userId, db);
   const order = new Map(
-    coachList(loaded.areas, loaded.tasks, today).map((entry, index) => [
+    coachList(loaded.areas, loaded.tasks, today, loaded.goals).map((entry, index) => [
       entry.id,
       index,
     ]),
@@ -43,7 +50,7 @@ export async function listForCoach(
   db: Db = defaultDb,
 ) {
   const loaded = await loadAccount(userId, db);
-  return coachList(loaded.areas, loaded.tasks, today);
+  return coachList(loaded.areas, loaded.tasks, today, loaded.goals);
 }
 
 export type Provenance = { source: "coach"; sourceId: string };
@@ -117,13 +124,16 @@ async function lockedOpen(userId: string, taskId: string, db: Db) {
   const [row] = await db
     .select({
       id: tasks.id,
+      areaId: tasks.areaId,
       name: tasks.name,
+      note: tasks.note,
       status: tasks.status,
       previousStatus: tasks.previousStatus,
       age: tasks.age,
       date: tasks.scheduledOn,
       completedAt: tasks.completedAt,
       priority: tasks.priority,
+      goalId: tasks.goalId,
     })
     .from(tasks)
     .where(
@@ -192,7 +202,7 @@ export async function changePriority(
 export async function moveTask(
   userId: string,
   taskId: string,
-  to: "now" | "later",
+  to: "now" | KanbanColumn,
   db: Db = defaultDb,
 ) {
   if (!isUuid(taskId)) return false;
@@ -200,7 +210,12 @@ export async function moveTask(
     const row = await lockedOpen(userId, taskId, tx);
     if (!row) return false;
     const current = toStatusTask(row);
-    const next = to === "now" ? moveToNow(current) : moveToLater(current);
+    const next =
+      to === "now"
+        ? moveToNow(current)
+        : to === "later"
+          ? moveToLater(current)
+          : moveToColumn(current, to);
     if (!next) return false;
     await tx
       .update(tasks)
@@ -220,14 +235,14 @@ export async function scheduleOn(
   date: string,
   today: string,
   db: Db = defaultDb,
-) {
-  if (!isUuid(taskId)) return false;
+): Promise<TaskRef | null> {
+  if (!isUuid(taskId)) return null;
   return db.transaction(async (tx) => {
     const row = await lockedOpen(userId, taskId, tx);
-    if (!row) return false;
+    if (!row) return null;
     const next = scheduleTask(toStatusTask(row), date, today);
-    if (!next) return false;
-    await tx
+    if (!next) return null;
+    const [saved] = await tx
       .update(tasks)
       .set({
         status: next.status,
@@ -236,7 +251,118 @@ export async function scheduleOn(
         age: next.age,
         scheduledOn: next.date,
       })
+      .where(eq(tasks.id, taskId))
+      .returning({ id: tasks.id, name: tasks.name });
+    return saved ?? null;
+  });
+}
+
+function asTaskStatus(value: string): TaskStatus {
+  if (
+    value === "later" ||
+    value === "next" ||
+    value === "started" ||
+    value === "waiting" ||
+    value === "completed"
+  ) {
+    return value;
+  }
+  return "later";
+}
+
+export async function setTaskGoal(
+  userId: string,
+  taskId: string,
+  goalId: string | null,
+  db: Db = defaultDb,
+) {
+  if (!isUuid(taskId)) return false;
+  if (goalId !== null && !isUuid(goalId)) return false;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return false;
+    const loaded = await loadAccount(userId, tx);
+    const match = goalId
+      ? (loaded.goals.find((item) => item.id === goalId) ?? null)
+      : null;
+    if (goalId && !match) return false;
+    const next = assignGoal(
+      { areaId: row.areaId, goalId: row.goalId },
+      match ? { id: match.id, areaId: match.areaId } : null,
+    );
+    if (!next) return false;
+    await tx
+      .update(tasks)
+      .set({ goalId: next.goalId })
       .where(eq(tasks.id, taskId));
     return true;
+  });
+}
+
+export type OpenTaskPatch = {
+  name?: string;
+  note?: string;
+  priority?: number;
+  status?: TaskStatus;
+  goal?: string | null;
+};
+
+// The Coach's update. Area, workflow, and the date are not in the patch.
+export async function updateOpenTask(
+  userId: string,
+  taskId: string,
+  input: OpenTaskPatch,
+  db: Db = defaultDb,
+): Promise<TaskRef | null> {
+  if (!isUuid(taskId)) return null;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return null;
+    const loaded = await loadAccount(userId, tx);
+    const patch: TaskPatch = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.note !== undefined) patch.note = input.note;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.goal !== undefined) {
+      if (input.goal === null || input.goal.trim() === "") {
+        patch.goal = null;
+      } else {
+        const match = goalInArea(input.goal, loaded.goals, row.areaId);
+        if (!match) return null;
+        patch.goal = { id: match.id, areaId: match.areaId };
+      }
+    }
+    const next = applyTaskUpdate(
+      {
+        name: row.name,
+        note: row.note,
+        priority: row.priority,
+        status: asTaskStatus(row.status),
+        previousStatus: row.previousStatus
+          ? asTaskStatus(row.previousStatus)
+          : null,
+        completedAt: row.completedAt,
+        areaId: row.areaId,
+        goalId: row.goalId,
+      },
+      patch,
+      new Date(),
+    );
+    if (!next) return null;
+    const [saved] = await tx
+      .update(tasks)
+      .set({
+        name: next.name,
+        note: next.note,
+        priority: next.priority,
+        status: next.status,
+        previousStatus: next.previousStatus,
+        completedAt: next.completedAt,
+        goalId: next.goalId,
+      })
+      .where(eq(tasks.id, taskId))
+      .returning({ id: tasks.id, name: tasks.name });
+    return saved ?? null;
   });
 }
