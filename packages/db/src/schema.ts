@@ -78,6 +78,29 @@ export const areas = pgTable(
   ],
 );
 
+// A folder inside one Area. Deleting it clears the Task's Goal and keeps the Task.
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    areaId: uuid("area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("goals_area_name_unique").on(t.areaId, sql`lower(${t.name})`),
+  ],
+);
+
 // A task is open until completedAt is set. source and sourceId record where it
 // came from (e.g. the Coach and its tool-call id); both are null for Tasks
 // added on the list or filed from a Draft.
@@ -105,6 +128,7 @@ export const tasks = pgTable(
     }),
     source: text("source"),
     sourceId: text("source_id"),
+    goalId: uuid("goal_id").references(() => goals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),

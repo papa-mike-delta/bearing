@@ -20,7 +20,16 @@ const unusedWrites = {
   async completeTask() {
     throw new Error("completeTask should not run");
   },
-} satisfies Pick<CoachData, "createTask" | "completeTask">;
+  async scheduleTask() {
+    throw new Error("scheduleTask should not run");
+  },
+  async updateTask() {
+    throw new Error("updateTask should not run");
+  },
+} satisfies Pick<
+  CoachData,
+  "createTask" | "completeTask" | "scheduleTask" | "updateTask"
+>;
 
 const messageId = "11111111-1111-4111-8111-111111111111";
 
@@ -212,6 +221,12 @@ test("createTask passes Coach provenance with a resend-safe source id", async ()
     async completeTask() {
       throw new Error("completeTask should not run");
     },
+    async scheduleTask() {
+      throw new Error("scheduleTask should not run");
+    },
+    async updateTask() {
+      throw new Error("updateTask should not run");
+    },
   };
   const model = new MockLanguageModelV4({
     doStream: async () => ({
@@ -267,6 +282,12 @@ test("a createTask database error reaches the model as a fixed sentence", async 
     },
     async completeTask() {
       throw new Error("completeTask should not run");
+    },
+    async scheduleTask() {
+      throw new Error("scheduleTask should not run");
+    },
+    async updateTask() {
+      throw new Error("updateTask should not run");
     },
   };
   let step = 0;
@@ -357,6 +378,12 @@ test("a second completeTask in one tools instance is refused before data", async
       completes += 1;
       return { id: taskId, name: "Done" };
     },
+    async scheduleTask() {
+      throw new Error("scheduleTask should not run");
+    },
+    async updateTask() {
+      throw new Error("updateTask should not run");
+    },
   };
   const tools = coachTools(data);
   const ctx = { context: { userId }, toolCallId: "c1" };
@@ -388,6 +415,12 @@ test("a completeTask database error reaches the model as a fixed sentence", asyn
       throw new Error(`Failed query: update … params: ${userId}`, {
         cause: { code: "57014" },
       });
+    },
+    async scheduleTask() {
+      throw new Error("scheduleTask should not run");
+    },
+    async updateTask() {
+      throw new Error("updateTask should not run");
     },
   };
   let step = 0;

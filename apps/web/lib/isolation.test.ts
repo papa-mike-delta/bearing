@@ -340,7 +340,7 @@ describe(
       assert.equal(await setAreaWorkflow(a, area.id, "now-later", db), false);
       assert.equal(await setAreaWip(a, area.id, 9, db), false);
       assert.equal(await moveTask(a, listed.id, "now", db), false);
-      assert.equal(await scheduleOn(a, listed.id, "2026-12-01", today, db), false);
+      assert.equal(await scheduleOn(a, listed.id, "2026-12-01", today, db), null);
       assert.deepEqual(await areaRow(area.id), areaBefore);
       assert.deepEqual(await rowOf(listed.id), taskBefore);
       const readA = await loadAccount(a, db);
@@ -391,8 +391,8 @@ describe(
     test("scheduling today or an earlier day is refused", async () => {
       const c = await account();
       const added = (await addTask(c, { today, name: "When" }, db))!;
-      assert.equal(await scheduleOn(c, added.id, today, today, db), false);
-      assert.equal(await scheduleOn(c, added.id, "2026-10-08", today, db), false);
+      assert.equal(await scheduleOn(c, added.id, today, today, db), null);
+      assert.equal(await scheduleOn(c, added.id, "2026-10-08", today, db), null);
       assert.equal((await rowOf(added.id)).scheduledOn, null);
     });
   },

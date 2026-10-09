@@ -3,13 +3,15 @@ import {
   createTask,
   listArea,
   maxCreatesPerTurn,
+  scheduleTask,
+  updateTask,
   type CoachData,
 } from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Db } from "./db.ts";
-import { addTask, completeTask as completeTaskRow, listForCoach } from "./tasks.ts";
+import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
 export { maxCreatesPerTurn };
 
@@ -24,6 +26,12 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
     },
     completeTask(userId, taskId) {
       return completeTaskRow(userId, taskId, db);
+    },
+    scheduleTask(userId, taskId, date) {
+      return scheduleOn(userId, taskId, date, today, db);
+    },
+    updateTask(userId, taskId, input) {
+      return updateOpenTask(userId, taskId, input, db);
     },
   };
 }
@@ -84,6 +92,37 @@ async function runCompleteTask(input: { taskId: string }, ctx: ToolRun) {
   }
 }
 
+async function runScheduleTask(
+  input: { taskId: string; date: string },
+  ctx: ToolRun,
+) {
+  try {
+    return await scheduleTask.run(input, ctx);
+  } catch (error) {
+    logToolError("scheduleTask", ctx.toolCallId, error);
+    throw new Error("Couldn't schedule that task.");
+  }
+}
+
+async function runUpdateTask(
+  input: {
+    taskId: string;
+    name?: string;
+    note?: string;
+    priority?: number;
+    status?: "later" | "next" | "started" | "waiting" | "completed";
+    goal?: string | null;
+  },
+  ctx: ToolRun,
+) {
+  try {
+    return await updateTask.run(input, ctx);
+  } catch (error) {
+    logToolError("updateTask", ctx.toolCallId, error);
+    throw new Error("Couldn't update that task.");
+  }
+}
+
 export function coachTools(data: CoachData) {
   let completedThisTurn = false;
   let createdThisTurn = 0;
@@ -137,6 +176,30 @@ export function coachTools(data: CoachData) {
         });
       },
     }),
+    scheduleTask: tool({
+      description: scheduleTask.description,
+      inputSchema: scheduleTask.inputSchema,
+      contextSchema: toolContext,
+      execute: (input, { context, toolCallId }) =>
+        runScheduleTask(input, {
+          userId: context.userId,
+          toolCallId,
+          messageId: context.messageId,
+          data,
+        }),
+    }),
+    updateTask: tool({
+      description: updateTask.description,
+      inputSchema: updateTask.inputSchema,
+      contextSchema: toolContext,
+      execute: (input, { context, toolCallId }) =>
+        runUpdateTask(input, {
+          userId: context.userId,
+          toolCallId,
+          messageId: context.messageId,
+          data,
+        }),
+    }),
   };
 }
 
@@ -144,6 +207,8 @@ export const coachToolNames = [
   "listArea",
   "createTask",
   "completeTask",
+  "scheduleTask",
+  "updateTask",
 ] as const;
 
 export function coachToolsContext(userId: string, messageId: string) {

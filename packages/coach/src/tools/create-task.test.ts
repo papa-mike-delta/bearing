@@ -32,6 +32,12 @@ function fake(
     async completeTask() {
       throw new Error("completeTask was not expected");
     },
+    async scheduleTask() {
+      throw new Error("scheduleTask was not expected");
+    },
+    async updateTask() {
+      throw new Error("updateTask was not expected");
+    },
   };
   return { data, calls };
 }

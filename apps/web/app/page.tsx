@@ -5,7 +5,7 @@ import { requireUser } from "../auth";
 import { loadAccount, orderedAreas } from "../lib/areas";
 import { createNamedArea, deleteNamedArea, saveArea } from "./actions";
 import { Header } from "./header";
-import { TaskStacks, type StackArea, type StackTask } from "./task-stacks";
+import { TaskStacks, type StackArea, type StackGoal, type StackTask } from "./task-stacks";
 
 const errors: Record<string, string> = {
   "area-name": `That name is empty, too long, or already an Area. Names can be ${maxAreaNameLength} characters.`,
@@ -13,6 +13,7 @@ const errors: Record<string, string> = {
   task: `Couldn't add that task. The name has to be ${maxTaskNameLength} characters or fewer, and there has to be an Area.`,
   date: "A date has to be after today.",
   limit: "The limit has to be a whole number, 1 or more.",
+  goal: "That Goal name is empty, too long, or already in this Area, or it isn't a Goal here.",
 };
 
 export default async function Home({
@@ -43,9 +44,12 @@ export default async function Home({
     previousStatus: task.previousStatus,
     age: task.age,
     date: task.date,
+    goalId: task.goalId,
     createdAt: task.createdAt.toISOString(),
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
   }));
+
+  const goals: StackGoal[] = loaded.goals;
 
   return (
     <main>
@@ -71,6 +75,7 @@ export default async function Home({
           <TaskStacks
             areas={areas}
             tasks={tasks}
+            goals={goals}
             hiddenAreaIds={loaded.hiddenAreaIds}
           />
           <details>
@@ -107,6 +112,7 @@ export default async function Home({
                     >
                       <option value="priority-list">Priority List</option>
                       <option value="now-later">Now/Later</option>
+                      <option value="kanban">Kanban</option>
                     </select>
                     <Input
                       name="limit"

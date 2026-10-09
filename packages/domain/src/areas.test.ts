@@ -15,9 +15,19 @@ import {
   scheduleTask,
   stackedPage,
   utcDay,
+  applyTaskUpdate,
+  assignGoal,
+  goalInArea,
+  goalName,
+  goalNameTaken,
+  moveToColumn,
+  nextGoalOrder,
+  shiftGoal,
   viewArea,
+  withoutGoal,
   wipLimit,
   type AreaRecord,
+  type GoalRecord,
   type TaskRecord,
   type TaskStatus,
 } from "./areas.ts";
@@ -53,6 +63,7 @@ function task(
     previousStatus: null,
     age: "2026-10-01",
     date: null,
+    goalId: null,
     createdAt: new Date(Date.UTC(2026, 9, 1)),
     completedAt: null,
     ...overrides,
@@ -344,4 +355,295 @@ test("moving a strip Task to Now uses the Now rule and keeps the date", () => {
   );
   assert.deepEqual(ids(view.strip), []);
   assert.equal(view.nextId, "due");
+});
+
+function goal(
+  id: string,
+  areaId: string,
+  order: number,
+  name = id,
+): GoalRecord {
+  return { id, areaId, name, order };
+}
+
+test("Kanban keeps four columns, sorts by age then priority, and warns on In progress", () => {
+  const board = { ...area("Work", "kanban"), wipLimit: 1 };
+  const tasks = [
+    task("young-high", "Work", { status: "started", age: "2026-10-08", priority: 2 }),
+    task("old", "Work", { status: "started", age: "2026-09-01", priority: 0 }),
+    task("next-young", "Work", { status: "next", age: "2026-10-08", priority: 2 }),
+    task("next-old", "Work", { status: "next", age: "2026-09-01", priority: 0 }),
+    task("waiting", "Work", { status: "waiting", age: "2026-08-01" }),
+    task("later", "Work", { age: "2026-07-01" }),
+    task("done", "Work", { status: "completed", completedAt: new Date(), priority: 2 }),
+  ];
+  const view = viewArea(board, tasks, today);
+  assert.deepEqual(
+    view.sections.map((column) => column.id),
+    ["started", "next", "waiting", "later"],
+  );
+  assert.deepEqual(
+    view.sections.map((column) => column.label),
+    ["In progress", "Next", "Waiting", "Later"],
+  );
+  assert.deepEqual(ids(view.sections[0]!.tasks), ["old", "young-high"]);
+  assert.deepEqual(ids(view.sections[1]!.tasks), ["next-old", "next-young"]);
+  assert.equal(view.nextId, "old");
+  assert.equal(view.warning, true);
+  const quiet = viewArea({ ...board, wipLimit: 3 }, tasks, today);
+  assert.equal(quiet.warning, false);
+  const empty = viewArea(board, [], today);
+  assert.equal(empty.nextId, null);
+  assert.equal(empty.warning, false);
+  assert.deepEqual(
+    empty.sections.map((column) => column.tasks.length),
+    [0, 0, 0, 0],
+  );
+  assert.equal(view.sections.some((column) => column.tasks.some((item) => item.id === "done")), false);
+});
+
+test("a Kanban future date sits at the bottom of Later, and a due date is only in the strip", () => {
+  const board = area("Work", "kanban");
+  const tasks = [
+    task("undated", "Work", { age: "2026-12-01" }),
+    task("future", "Work", { age: "2026-01-01", date: "2026-10-20" }),
+    task("due", "Work", { date: today, age: today }),
+    task("started-dated", "Work", {
+      status: "started",
+      date: "2026-12-01",
+      age: "2026-09-01",
+    }),
+  ];
+  const view = viewArea(board, tasks, today);
+  assert.deepEqual(ids(view.strip), ["due"]);
+  assert.deepEqual(ids(view.sections[3]!.tasks), ["undated", "future"]);
+  assert.deepEqual(ids(view.sections[0]!.tasks), ["started-dated"]);
+  assert.equal(view.nextId, "started-dated");
+  const atLimit = viewArea({ ...board, wipLimit: 1 }, tasks, today);
+  assert.equal(atLimit.strip.length, 1);
+  assert.equal(atLimit.warning, false);
+  const onlyNext = viewArea(
+    board,
+    [task("soon", "Work", { status: "next", age: "2026-09-01" })],
+    today,
+  );
+  assert.equal(onlyNext.nextId, "soon");
+});
+
+test("moving onto a column sets that status and keeps the date", () => {
+  const due = task("due", "Work", { date: today, age: today });
+  const started = moveToColumn(due, "started");
+  assert.equal(started?.status, "started");
+  assert.equal(started?.previousStatus, "later");
+  assert.equal(started?.date, today);
+  const view = viewArea(area("Work", "kanban"), [started!], today);
+  assert.deepEqual(ids(view.strip), []);
+  assert.equal(view.nextId, "due");
+  assert.equal(moveToColumn(task("done", "Work", { status: "completed" }), "next"), null);
+});
+
+test("switching to Kanban keeps status and date", () => {
+  const tasks = [
+    task("a", "Work", { status: "waiting", date: "2026-12-01", age: "2026-12-01" }),
+    task("b", "Work", { status: "later", date: today }),
+  ];
+  const view = viewArea(area("Work", "kanban"), tasks, today);
+  const waiting = view.sections[2]!.tasks[0];
+  assert.equal(waiting?.id, "a");
+  assert.equal(waiting?.status, "waiting");
+  assert.equal(waiting?.date, "2026-12-01");
+  assert.deepEqual(ids(view.strip), ["b"]);
+});
+
+test("Goals group inside a section, and an empty Goal stays on the Area", () => {
+  const home = area("Personal", "now-later");
+  const goals = [
+    goal("chores", "Personal", 0, "Chores"),
+    goal("work", "Personal", 1, "Work"),
+    goal("empty", "Personal", 2, "Someday"),
+  ];
+  const tasks = [
+    task("loose-young", "Personal", { status: "next", age: "2026-10-08", priority: 0 }),
+    task("loose-old", "Personal", { status: "started", age: "2026-09-01", priority: 2 }),
+    task("chore", "Personal", {
+      status: "waiting",
+      age: "2026-08-01",
+      goalId: "chores",
+    }),
+    task("job", "Personal", { status: "next", age: "2026-07-01", goalId: "work" }),
+    task("later-loose", "Personal", { age: "2026-06-01" }),
+    task("later-chore", "Personal", { age: "2026-05-01", goalId: "chores" }),
+  ];
+  const view = viewArea(home, tasks, today, goals);
+  assert.deepEqual(
+    view.goals.map((item) => item.name),
+    ["Chores", "Work", "Someday"],
+  );
+  assert.deepEqual(
+    view.sections[0]!.groups.map((group) => group.name),
+    [null, "Chores", "Work"],
+  );
+  assert.deepEqual(ids(view.sections[0]!.tasks), [
+    "loose-old",
+    "loose-young",
+    "chore",
+    "job",
+  ]);
+  assert.equal(view.nextId, "loose-old");
+  assert.deepEqual(ids(view.sections[1]!.tasks), ["later-loose", "later-chore"]);
+  assert.equal(
+    view.sections[1]!.groups.some((group) => group.name === "Someday"),
+    false,
+  );
+});
+
+test("a future date sits at the bottom of Later, and the strip stays one list", () => {
+  const home = area("Personal", "now-later");
+  const goals = [goal("chores", "Personal", 0, "Chores")];
+  const tasks = [
+    task("loose", "Personal", { age: "2026-09-01" }),
+    task("loose-future", "Personal", { age: "2026-01-01", date: "2026-11-01" }),
+    task("chore", "Personal", { age: "2026-08-01", goalId: "chores" }),
+    task("chore-future", "Personal", {
+      age: "2026-01-01",
+      date: "2026-10-20",
+      goalId: "chores",
+    }),
+    task("due-chore", "Personal", {
+      age: "2026-10-01",
+      date: "2026-10-01",
+      goalId: "chores",
+    }),
+    task("due-loose", "Personal", { age: "2026-10-09", date: today }),
+  ];
+  const view = viewArea(home, tasks, today, goals);
+  assert.deepEqual(ids(view.strip), ["due-chore", "due-loose"]);
+  assert.equal(view.strip[0]?.goalId, "chores");
+  assert.deepEqual(ids(view.sections[1]!.tasks), [
+    "loose",
+    "chore",
+    "loose-future",
+    "chore-future",
+  ]);
+  assert.deepEqual(
+    view.sections[1]!.groups.map((group) => [group.name, group.tasks[0]?.id]),
+    [
+      [null, "loose"],
+      ["Chores", "chore"],
+      [null, "loose-future"],
+      ["Chores", "chore-future"],
+    ],
+  );
+});
+
+test("a Priority List groups by Goal and the bold Next is the first of that order", () => {
+  const work = area("Work");
+  const goals = [goal("alpha", "Work", 1, "Alpha"), goal("beta", "Work", 0, "Beta")];
+  const tasks = [
+    task("loose-low", "Work", { priority: -1, createdAt: new Date(Date.UTC(2026, 0, 1)) }),
+    task("loose-high", "Work", { priority: 1, createdAt: new Date(Date.UTC(2026, 0, 5)) }),
+    task("beta-high", "Work", {
+      priority: 2,
+      goalId: "beta",
+      createdAt: new Date(Date.UTC(2026, 0, 1)),
+    }),
+    task("alpha", "Work", { priority: 2, goalId: "alpha" }),
+  ];
+  const view = viewArea(work, tasks, today, goals);
+  assert.deepEqual(ids(view.tasks), ["loose-high", "loose-low", "beta-high", "alpha"]);
+  assert.equal(view.nextId, "loose-high");
+  assert.deepEqual(
+    view.groups.map((group) => group.name),
+    [null, "Beta", "Alpha"],
+  );
+});
+
+test("a Goal name is unique in its Area, ignoring case, and order moves within the Area", () => {
+  const goals = [goal("a", "Work", 0, "Chores"), goal("b", "Work", 1, "Work")];
+  assert.equal(goalName("  Chores "), "Chores");
+  assert.equal(goalName("  "), null);
+  assert.equal(goalNameTaken("chores", goals, "Work"), true);
+  assert.equal(goalNameTaken("chores", goals, "Work", "a"), false);
+  assert.equal(goalNameTaken("chores", goals, "Home"), false);
+  assert.equal(nextGoalOrder(goals), 2);
+  assert.equal(nextGoalOrder([]), 0);
+  const down = shiftGoal(goals, "a", "down");
+  assert.deepEqual(
+    down?.map((item) => item.id),
+    ["b", "a"],
+  );
+  assert.equal(shiftGoal(goals, "a", "up"), null);
+  assert.equal(shiftGoal(goals, "missing", "down"), null);
+});
+
+test("a Task takes one Goal from its own Area, and deleting the Goal keeps the Task", () => {
+  const chore = goal("chores", "Personal", 0, "Chores");
+  const other = goal("job", "Work", 0, "Job");
+  const open = task("milk", "Personal");
+  assert.equal(assignGoal(open, chore)?.goalId, "chores");
+  assert.equal(assignGoal(open, null)?.goalId, null);
+  assert.equal(assignGoal(open, other), null);
+  const filed = assignGoal(open, chore)!;
+  const removed = withoutGoal([chore, other], [filed], "chores");
+  assert.deepEqual(
+    removed?.goals.map((item) => item.id),
+    ["job"],
+  );
+  assert.equal(removed?.tasks[0]?.id, "milk");
+  assert.equal(removed?.tasks[0]?.goalId, null);
+  assert.equal(withoutGoal([chore], [filed], "missing"), null);
+  assert.equal(goalInArea("chores", [chore, other], "Personal")?.id, "chores");
+  assert.equal(goalInArea("chores", [chore], "Work"), null);
+  assert.equal(goalInArea("nope", [chore], "Personal"), null);
+});
+
+test("the Coach's update changes name, note, priority, status, and Goal, and refuses the rest", () => {
+  const at = new Date("2026-10-09T15:00:00.000Z");
+  const open = task("milk", "Personal", { note: "skim", priority: 0, status: "next" });
+  const chore = { id: "chores", areaId: "Personal" };
+  const other = { id: "job", areaId: "Work" };
+  const renamed = applyTaskUpdate(open, { name: "  Oat milk  ", note: "" }, at);
+  assert.equal(renamed?.name, "Oat milk");
+  assert.equal(renamed?.note, "");
+  assert.equal(renamed?.status, "next");
+  const filed = applyTaskUpdate(open, { goal: chore, priority: 2 }, at);
+  assert.equal(filed?.goalId, "chores");
+  assert.equal(filed?.priority, 2);
+  const done = applyTaskUpdate(open, { status: "completed" }, at);
+  assert.equal(done?.status, "completed");
+  assert.equal(done?.previousStatus, "next");
+  assert.equal(done?.completedAt, at);
+  assert.equal(applyTaskUpdate(done!, { status: "later" }, at), null);
+  assert.equal(applyTaskUpdate(done!, { name: "Still done" }, at)?.name, "Still done");
+  assert.equal(applyTaskUpdate(done!, { status: "later", name: "Nope" }, at), null);
+  assert.equal(applyTaskUpdate(open, { goal: other }, at), null);
+  assert.equal(applyTaskUpdate(open, { priority: 3 }, at), null);
+  assert.equal(applyTaskUpdate(open, { name: "  " }, at), null);
+  assert.equal(applyTaskUpdate(open, {}, at), open);
+});
+
+test("the Coach's Kanban order is the strip, then the columns", () => {
+  const areas = [area("Work", "kanban")];
+  const goals = [goal("chores", "Work", 0, "Chores")];
+  const tasks = [
+    task("due", "Work", { date: today, age: today }),
+    task("started-loose", "Work", { status: "started", age: "2026-10-01" }),
+    task("started-chore", "Work", {
+      status: "started",
+      age: "2026-09-01",
+      goalId: "chores",
+    }),
+    task("next", "Work", { status: "next", age: "2026-08-01" }),
+    task("later", "Work", { age: "2026-07-01", goalId: "chores" }),
+  ];
+  assert.deepEqual(
+    coachList(areas, tasks, today, goals).map((item) => [item.name, item.isNext]),
+    [
+      ["due", false],
+      ["started-loose", true],
+      ["started-chore", false],
+      ["next", false],
+      ["later", false],
+    ],
+  );
 });

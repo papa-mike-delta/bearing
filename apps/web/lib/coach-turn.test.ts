@@ -47,7 +47,13 @@ function writeToolsOffered(
     return;
   }
   const names = (call.tools ?? []).map((t) => t.name);
-  for (const name of ["createTask", "completeTask", "listArea"]) {
+  for (const name of [
+    "createTask",
+    "completeTask",
+    "listArea",
+    "scheduleTask",
+    "updateTask",
+  ]) {
     assert.ok(names.includes(name), name);
   }
   assert.deepEqual(call.toolChoice, { type: "auto" });
@@ -59,6 +65,12 @@ const unusedWrites = {
   },
   async completeTask() {
     throw new Error("completeTask should not run");
+  },
+  async scheduleTask() {
+    throw new Error("scheduleTask should not run");
+  },
+  async updateTask() {
+    throw new Error("updateTask should not run");
   },
 };
 
