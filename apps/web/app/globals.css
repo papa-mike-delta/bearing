@@ -206,3 +206,10 @@
     font-size: 16px;
   }
 }
+
+/* The kit's fields and buttons set outline-none and rely on a faint --ring
+   (about 2.6:1 in light mode). Unlayered, so the browser's own focus ring
+   comes back for keyboard focus in light and dark. */
+[data-slot]:focus-visible {
+  outline: revert;
+}
