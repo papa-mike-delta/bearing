@@ -23,6 +23,12 @@ export const users = pgTable("users", {
     withTimezone: true,
   }),
   image: text("image"),
+  // grayscale until the Account imports one theme. The six names are the
+  // built-ins; "imported" paints theme_light and theme_dark for this row only.
+  themeChoice: text("theme_choice").notNull().default("grayscale"),
+  themeCode: text("theme_code"),
+  themeLight: text("theme_light"),
+  themeDark: text("theme_dark"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
