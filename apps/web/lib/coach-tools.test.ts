@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mock, test } from "node:test";
-import type { CoachData } from "@repo/coach";
+import { coachCreateSourceId, type CoachData } from "@repo/coach";
 import { simulateReadableStream, streamText, type ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import {
@@ -21,6 +21,8 @@ const unusedWrites = {
     throw new Error("completeTask should not run");
   },
 } satisfies Pick<CoachData, "createTask" | "completeTask">;
+
+const messageId = "11111111-1111-4111-8111-111111111111";
 
 const usage = {
   inputTokens: {
@@ -80,7 +82,10 @@ async function run(toolsContext: unknown, input?: string) {
 test("a tool reads the user id from its context, not from the model", async () => {
   const userId = randomUUID();
   const someoneElse = JSON.stringify({ userId: randomUUID() });
-  const { asked, types } = await run(coachToolsContext(userId), someoneElse);
+  const { asked, types } = await run(
+    coachToolsContext(userId, messageId),
+    someoneElse,
+  );
   assert.deepEqual(asked, [userId]);
   assert.ok(types.includes("tool-result"));
 });
@@ -90,7 +95,7 @@ test("a tool call with no context, or no user id in it, fails and doesn't run", 
     undefined,
     {},
     { listArea: {} },
-    coachToolsContext("not-a-uuid"),
+    coachToolsContext("not-a-uuid", messageId),
   ]) {
     const { asked, types } = await run(context);
     assert.deepEqual(asked, [], JSON.stringify(context));
@@ -155,7 +160,7 @@ test("a tool error reaches the model as a fixed sentence, not the database text"
     model,
     prompt: "What's on my list?",
     tools: coachTools(data) as ToolSet,
-    toolsContext: coachToolsContext(userId) as never,
+    toolsContext: coachToolsContext(userId, messageId) as never,
     stopWhen: ({ steps }) => steps.length >= 2,
     onError: () => {},
   });
@@ -187,10 +192,13 @@ test("coachToolsContext lists every tool coachTools registers", () => {
     coachTools({ listOpenTasks: async () => [], ...unusedWrites }),
   ).sort();
   assert.deepEqual([...coachToolNames].sort(), registered);
-  assert.deepEqual(Object.keys(coachToolsContext(userId)).sort(), registered);
+  assert.deepEqual(
+    Object.keys(coachToolsContext(userId, messageId)).sort(),
+    registered,
+  );
 });
 
-test("createTask passes Coach provenance with the tool-call id", async () => {
+test("createTask passes Coach provenance with a resend-safe source id", async () => {
   const userId = randomUUID();
   const calls: unknown[] = [];
   const data: CoachData = {
@@ -228,7 +236,7 @@ test("createTask passes Coach provenance with the tool-call id", async () => {
     model,
     prompt: "Add call dentist",
     tools: coachTools(data) as ToolSet,
-    toolsContext: coachToolsContext(userId) as never,
+    toolsContext: coachToolsContext(userId, messageId) as never,
     onError: () => {},
   });
   const parts: { type: string; output?: unknown }[] = [];
@@ -237,7 +245,10 @@ test("createTask passes Coach provenance with the tool-call id", async () => {
     {
       uid: userId,
       input: { name: "Call dentist" },
-      from: { source: "coach", sourceId: "call_create" },
+      from: {
+        source: "coach",
+        sourceId: coachCreateSourceId(messageId, "Call dentist"),
+      },
     },
   ]);
   assert.ok(parts.some((p) => p.type === "tool-result"));
@@ -304,7 +315,7 @@ test("a createTask database error reaches the model as a fixed sentence", async 
     model,
     prompt: "Add X",
     tools: coachTools(data) as ToolSet,
-    toolsContext: coachToolsContext(userId) as never,
+    toolsContext: coachToolsContext(userId, messageId) as never,
     stopWhen: ({ steps }) => steps.length >= 2,
     onError: () => {},
   });
@@ -350,7 +361,7 @@ test("a second completeTask in one tools instance is refused before data", async
   const tools = coachTools(data);
   const ctx = { context: { userId }, toolCallId: "c1" };
   const first = await tools.completeTask.execute!({ taskId }, ctx as never);
-  assert.deepEqual(first, { id: taskId, name: "Done" });
+  assert.deepEqual(first, { id: taskId, name: "Done", next: null });
   let refused: unknown;
   try {
     await tools.completeTask.execute!({ taskId }, {
@@ -362,4 +373,90 @@ test("a second completeTask in one tools instance is refused before data", async
   }
   assert.match(String(refused), /only one Task per reply/);
   assert.equal(completes, 1);
+});
+
+test("a completeTask database error reaches the model as a fixed sentence", async () => {
+  const userId = randomUUID();
+  const data: CoachData = {
+    async listOpenTasks() {
+      return [];
+    },
+    async createTask() {
+      throw new Error("createTask should not run");
+    },
+    async completeTask() {
+      throw new Error(`Failed query: update … params: ${userId}`, {
+        cause: { code: "57014" },
+      });
+    },
+  };
+  let step = 0;
+  let secondPrompt = "";
+  const taskId = randomUUID();
+  const model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      step += 1;
+      if (step === 1) {
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              {
+                type: "tool-call",
+                toolCallId: "call_1",
+                toolName: "completeTask",
+                input: JSON.stringify({ taskId }),
+              },
+              {
+                type: "finish",
+                finishReason: { unified: "tool-calls", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        };
+      }
+      secondPrompt = JSON.stringify(options.prompt);
+      return {
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "t" },
+            { type: "text-delta", id: "t", delta: "ok" },
+            { type: "text-end", id: "t" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              usage,
+            },
+          ],
+        }),
+      };
+    },
+  });
+  const error = mock.method(console, "error", () => {});
+  const result = streamText({
+    model,
+    prompt: "Complete it",
+    tools: coachTools(data) as ToolSet,
+    toolsContext: coachToolsContext(userId, messageId) as never,
+    stopWhen: ({ steps }) => steps.length >= 2,
+    onError: () => {},
+  });
+  try {
+    for await (const _ of result.stream);
+  } finally {
+    error.mock.restore();
+  }
+  assert.ok(secondPrompt.includes("Couldn't complete that task."));
+  assert.ok(!secondPrompt.includes(userId));
+  assert.ok(!secondPrompt.includes("Failed query"));
+  const logged = error.mock.calls.map((call) =>
+    call.arguments.map(String).join(" "),
+  );
+  const toolError = logged.find((line) => line.includes("coach.tool.error"));
+  assert.ok(toolError, logged.join("\n"));
+  const entry = JSON.parse(toolError);
+  assert.equal(entry.event, "coach.tool.error");
+  assert.equal(entry.tool, "completeTask");
+  assert.equal(entry.error, "Error");
+  assert.equal(entry.code, "57014");
 });

@@ -22,7 +22,15 @@ function fake(tasks: ListedTask[]) {
 }
 
 const run = (data: CoachData, userId = "user-1") =>
-  listArea.run({}, { userId, toolCallId: "call_1", data });
+  listArea.run(
+    {},
+    {
+      userId,
+      toolCallId: "call_1",
+      messageId: "11111111-1111-4111-8111-111111111111",
+      data,
+    },
+  );
 
 const task = (id: string, priority: number, isNext = false) => ({
   id,

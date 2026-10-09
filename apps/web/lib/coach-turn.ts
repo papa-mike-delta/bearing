@@ -124,10 +124,13 @@ export async function coachTurn({
     system: coachSystemPrompt,
     messages: [...history, ...read.messages],
     tools,
-    toolsContext: coachToolsContext(userId),
+    toolsContext: coachToolsContext(userId, userMessage.id),
     // freshRead already injected the list; activeTools lets the model write
     // and call listArea again after a write. No turn-wide toolChoice:"none".
     activeTools: ["createTask", "completeTask", "listArea"],
+    // Last model step is text only so the turn ends with an answer.
+    prepareStep: ({ steps }) =>
+      steps.length >= maxCoachSteps - 1 ? { toolChoice: "none" as const } : {},
     stopWhen: isStepCount(maxCoachSteps),
     maxOutputTokens: maxReplyTokens,
     // Thinking counts toward maxReplyTokens. Top level, so the fallback
@@ -259,7 +262,11 @@ function logTurn(
       threadId,
       model: typeof model === "string" ? model : model.modelId,
       steps: count("step-start"),
-      toolCalls: { listArea: count("tool-listArea") },
+      toolCalls: {
+        listArea: count("tool-listArea"),
+        createTask: count("tool-createTask"),
+        completeTask: count("tool-completeTask"),
+      },
       finishReason,
     }),
   );

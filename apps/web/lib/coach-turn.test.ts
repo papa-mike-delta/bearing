@@ -14,7 +14,11 @@ import {
 } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq, inArray } from "drizzle-orm";
-import { maxCoachMessageLength, receipt } from "@repo/coach";
+import {
+  coachCreateSourceId,
+  maxCoachMessageLength,
+  receipt,
+} from "@repo/coach";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import {
   coachModel,
@@ -31,10 +35,17 @@ import {
   openTasks,
 } from "./tasks.ts";
 
-function writeToolsOffered(call: {
-  tools?: { name?: string }[];
-  toolChoice?: unknown;
-}) {
+function writeToolsOffered(
+  call: {
+    tools?: { name?: string }[];
+    toolChoice?: unknown;
+  },
+  { last = false }: { last?: boolean } = {},
+) {
+  if (last) {
+    assert.deepEqual(call.toolChoice, { type: "none" });
+    return;
+  }
   const names = (call.tools ?? []).map((t) => t.name);
   for (const name of ["createTask", "completeTask", "listArea"]) {
     assert.ok(names.includes(name), name);
@@ -1104,8 +1115,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const model = scripted({ listArea: "{}" });
     await turn(c, thread, userMessage("Keep reading my list"), model);
     assert.equal(model.doStreamCalls.length, 8);
-    for (const call of model.doStreamCalls) {
-      writeToolsOffered(call);
+    const calls = model.doStreamCalls;
+    for (const [i, call] of calls.entries()) {
+      writeToolsOffered(call, { last: i === calls.length - 1 });
     }
     assert.deepEqual(
       receiptsOf(await threadMessages(c, thread, db)),
@@ -1202,9 +1214,10 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     ]);
   });
 
-  test("createTask adds a Task with Coach provenance and the tool-call id", async () => {
+  test("createTask adds a Task with Coach provenance from the message id", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
+    const message = userMessage("Add call dentist");
     const model = scripted(
       {
         createTask: JSON.stringify({ name: "Call dentist" }),
@@ -1212,7 +1225,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       },
       { text: "Added." },
     );
-    await turn(c, thread, userMessage("Add call dentist"), model);
+    await turn(c, thread, message, model);
     const open = await openTasks(c, db);
     assert.equal(open.length, 1);
     assert.equal(open[0]!.name, "Call dentist");
@@ -1220,7 +1233,10 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       .select({ source: tasks.source, sourceId: tasks.sourceId })
       .from(tasks)
       .where(eq(tasks.id, open[0]!.id));
-    assert.deepEqual(row, { source: "coach", sourceId: "call_create_1" });
+    assert.deepEqual(row, {
+      source: "coach",
+      sourceId: coachCreateSourceId(message.id, "Call dentist"),
+    });
     const reloaded = await threadMessages(c, thread, db);
     assert.deepEqual(receiptsOf(reloaded), [
       "Read your list (0 open)",
@@ -1235,7 +1251,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(createPart?.output?.name, "Call dentist");
   });
 
-  test("a repeated createTask tool-call id adds nothing and returns the same Task", async () => {
+  test("two messages that create the same name each add a Task", async () => {
+    // Provenance is message id + name, not the tool-call id: a second ask
+    // is a new Task. Same-message resend is covered separately.
     const c = await account();
     const thread = await coachThread(c, db);
     const input = {
@@ -1254,7 +1272,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       userMessage("Add same again"),
       scripted(input, { text: "Still ok." }),
     );
-    assert.equal((await openTasks(c, db)).length, 1);
+    assert.equal((await openTasks(c, db)).length, 2);
     assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
       "Read your list (0 open)",
       "Created task 'Same'",
@@ -1282,32 +1300,64 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     ]);
   });
 
-  test("several createTask calls in one turn each create a Task", async () => {
+  test("a fourth parallel createTask in one step is refused by the per-turn cap", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
-    await turn(
-      c,
-      thread,
-      userMessage("Add a few"),
-      scripted(
-        {
-          createTask: JSON.stringify({ name: "One" }),
-          toolCallId: "call_a",
-        },
-        {
-          createTask: JSON.stringify({ name: "Two" }),
-          toolCallId: "call_b",
-        },
-        { text: "Both added." },
-      ),
+    const names = ["One", "Two", "Three", "Four"];
+    // Local step counter: MockLanguageModelV4 records doStreamCalls before
+    // doStream runs, so length === 0 is never true inside the handler.
+    let step = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        step += 1;
+        // First call: four createTask tool calls in one step.
+        if (step === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                ...names.map((name, i) => ({
+                  type: "tool-call" as const,
+                  toolCallId: `call_${i}`,
+                  toolName: "createTask",
+                  input: JSON.stringify({ name }),
+                })),
+                {
+                  type: "finish" as const,
+                  finishReason: {
+                    unified: "tool-calls" as const,
+                    raw: undefined,
+                  },
+                  usage,
+                },
+              ],
+            }),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "text-start" as const, id: "t" },
+              { type: "text-delta" as const, id: "t", delta: "Capped." },
+              { type: "text-end" as const, id: "t" },
+              {
+                type: "finish" as const,
+                finishReason: { unified: "stop" as const, raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        };
+      },
+    });
+    await turn(c, thread, userMessage("Add four"), model);
+    const open = (await openTasks(c, db)).map((t) => t.name).sort();
+    assert.deepEqual(open, ["One", "Three", "Two"]);
+    const receipts = receiptsOf(await threadMessages(c, thread, db))!;
+    assert.equal(
+      receipts.filter((r) => r.startsWith("Created task")).length,
+      3,
     );
-    const names = (await openTasks(c, db)).map((t) => t.name).sort();
-    assert.deepEqual(names, ["One", "Two"]);
-    assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
-      "Read your list (0 open)",
-      "Created task 'One'",
-      "Created task 'Two'",
-    ]);
+    assert.ok(receipts.includes("Couldn't create that task"));
   });
 
   test("completeTask completes the person's Task and moves Next when needed", async () => {
@@ -1411,6 +1461,70 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     );
   });
 
+  test("a resend after a failed turn does not duplicate a Coach-created Task", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Add Call dentist");
+    // Create, then fail the reply so nothing is saved and the person resends.
+    let step = 0;
+    const failingAfterCreate = new MockLanguageModelV4({
+      doStream: async () => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                {
+                  type: "tool-call",
+                  toolCallId: "call_first",
+                  toolName: "createTask",
+                  input: JSON.stringify({ name: "Call dentist" }),
+                },
+                {
+                  type: "finish",
+                  finishReason: { unified: "tool-calls", raw: undefined },
+                  usage,
+                },
+              ],
+            }),
+          };
+        }
+        throw new Error("Gateway unavailable");
+      },
+    });
+    await turn(c, thread, message, failingAfterCreate);
+    assert.equal((await openTasks(c, db)).length, 1);
+    // Resend the same message id with another create of the same name.
+    await turn(
+      c,
+      thread,
+      message,
+      scripted(
+        {
+          createTask: JSON.stringify({ name: "Call dentist" }),
+          toolCallId: "call_resend",
+        },
+        { text: "Already there." },
+      ),
+    );
+    assert.equal((await openTasks(c, db)).length, 1);
+    assert.ok(
+      receiptsOf(await threadMessages(c, thread, db))!.includes(
+        "Created task 'Call dentist'",
+      ),
+    );
+  });
+
+  test("the last model step is not offered tools", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted({ listArea: "{}" });
+    await turn(c, thread, userMessage("Keep going"), model);
+    assert.equal(model.doStreamCalls.length, 8);
+    writeToolsOffered(model.doStreamCalls.at(-1)!, { last: true });
+    writeToolsOffered(model.doStreamCalls[0]!);
+  });
+
   test("convertToModelMessages needs the tools to keep a listArea part", async () => {
     const tools = coachTools({
       listOpenTasks: async () => [],
@@ -1470,7 +1584,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         threadId: thread,
         model: "mock-model-id",
         steps,
-        toolCalls: { listArea },
+        toolCalls: { listArea, createTask: 0, completeTask: 0 },
         finishReason: "stop",
       })),
     );

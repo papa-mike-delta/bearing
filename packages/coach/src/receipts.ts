@@ -12,14 +12,14 @@ function nameOf(output: unknown): string | undefined {
   return typeof name === "string" ? name : undefined;
 }
 
-function notFound(output: unknown): boolean {
+function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
   if (typeof output !== "object" || output === null) return false;
-  return (output as { notFound?: unknown }).notFound === true;
+  return (output as Record<string, unknown>)[key] === true;
 }
 
 type Line = { line: string; href?: "/" };
 
-// `href` is set only when a write succeeded, and it points at the Priority List.
+// `href` is set only when a create succeeded (a completed Task is off /).
 function show(part: ToolPart): Line | null {
   if (part.type === "tool-listArea") {
     if (pending(part.state)) return { line: "Reading your list…" };
@@ -41,9 +41,12 @@ function show(part: ToolPart): Line | null {
     if (pending(part.state)) return { line: "Completing…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return { line: `Completed '${name}'`, href: "/" };
+      return { line: `Completed '${name}'` };
     }
-    if (part.state === "output-available" && notFound(part.output)) {
+    if (part.state === "output-available" && flag(part.output, "invalidId")) {
+      return { line: "That Task id isn't valid" };
+    }
+    if (part.state === "output-available" && flag(part.output, "notFound")) {
       return { line: "Couldn't find that task" };
     }
     return { line: "Couldn't complete that task" };
@@ -66,11 +69,11 @@ export type ShownPart =
 // shown in between) adds no line of its own, so a reply that read the list
 // twice shows it once; `calls` counts the reads behind each receipt. A write
 // stays its own line even when the next write looks the same. A receipt keeps
-// the tool-call id of its first call as its key. A successful create or
-// complete links to the Priority List.
+// the tool-call id of its first call as its key. A successful create links to
+// the Priority List; a complete does not (the Task has left the list).
 export function shownParts(parts: readonly Part[]): ShownPart[] {
   const shown: ShownPart[] = [];
-  let lastPart: Part | undefined; // the last part shown as a receipt
+  let lastPart: Part | undefined;
   parts.forEach((part, i) => {
     if (part.type === "text") {
       shown.push({ key: `text-${i}`, text: part.text ?? "" });

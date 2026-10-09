@@ -171,6 +171,14 @@ test("a completeTask call reads as a one-line receipt", () => {
     "Couldn't find that task",
   );
   assert.equal(
+    receipt({
+      ...part,
+      state: "output-available",
+      output: { invalidId: true },
+    }),
+    "That Task id isn't valid",
+  );
+  assert.equal(
     receipt({ ...part, state: "output-error" }),
     "Couldn't complete that task",
   );
@@ -180,7 +188,7 @@ test("a completeTask call reads as a one-line receipt", () => {
   );
 });
 
-test("a successful create or complete links to the Priority List", () => {
+test("a successful create links to the Priority List; a complete does not", () => {
   assert.deepEqual(
     shownParts([
       created("c1", { id: "t1", name: "Call dentist" }),
@@ -193,7 +201,7 @@ test("a successful create or complete links to the Priority List", () => {
         calls: 1,
         href: "/",
       },
-      { key: "c2", receipt: "Completed 'Call dentist'", calls: 1, href: "/" },
+      { key: "c2", receipt: "Completed 'Call dentist'", calls: 1 },
     ],
   );
   assert.deepEqual(
@@ -234,8 +242,8 @@ test("two creates in a row stay two lines", () => {
       completed("c2", { id: "t1", name: "Call dentist" }),
     ]),
     [
-      { key: "c1", receipt: "Completed 'Call dentist'", calls: 1, href: "/" },
-      { key: "c2", receipt: "Completed 'Call dentist'", calls: 1, href: "/" },
+      { key: "c1", receipt: "Completed 'Call dentist'", calls: 1 },
+      { key: "c2", receipt: "Completed 'Call dentist'", calls: 1 },
     ],
   );
 });
