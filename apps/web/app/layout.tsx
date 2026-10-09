@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { eq } from "drizzle-orm";
-import { db, users } from "@repo/db";
+import { db } from "@repo/db";
 import "@repo/ui/globals.css";
 import "./globals.css";
-import { auth } from "../auth";
+import { currentSession } from "../auth";
 import { themeCss } from "../lib/account-theme";
+import { loadAccountTheme } from "../lib/account-theme-store";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const geistSans = localFont({
@@ -26,27 +26,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  const session = await currentSession();
   const id = session?.user?.id;
-  const row = id
-    ? await db.query.users.findFirst({
-        where: eq(users.id, id),
-        columns: {
-          themeChoice: true,
-          themeCode: true,
-          themeLight: true,
-          themeDark: true,
-        },
-      })
-    : null;
-  const css = row
-    ? themeCss({
-        choice: row.themeChoice,
-        code: row.themeCode,
-        light: row.themeLight,
-        dark: row.themeDark,
-      })
-    : null;
+  const account = id ? await loadAccountTheme(db, id) : null;
+  const css = account ? themeCss(account) : null;
 
   return (
     <html

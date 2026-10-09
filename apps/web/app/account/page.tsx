@@ -1,7 +1,11 @@
 import { db, users } from "@repo/db";
 import { eq } from "drizzle-orm";
 import { requireUser } from "../../auth";
-import { importError, importNotice } from "../../lib/account-theme";
+import {
+  importError,
+  importNotice,
+  maxPresetInputLength,
+} from "../../lib/account-theme";
 import { accountError } from "../../lib/account-errors";
 import { minPasswordLength } from "../../lib/credentials";
 import { changeAccountPassword, importAccountTheme } from "../actions";
@@ -34,9 +38,20 @@ export default async function Account({
       <form action={importAccountTheme}>
         <label>
           Theme
-          <input name="preset" autoComplete="off" required />
+          <input
+            name="preset"
+            autoComplete="off"
+            maxLength={maxPresetInputLength}
+            required
+          />
         </label>
-        <a href="https://ui.shadcn.com/create">Design a theme</a>
+        <a
+          href="https://ui.shadcn.com/create"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Design a theme
+        </a>
         {notice ? <FormMessage role="status" message={notice} /> : null}
         {themeMessage ? (
           <FormMessage role="alert" message={themeMessage} />

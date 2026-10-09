@@ -2,7 +2,6 @@
 
 import { db, users } from "@repo/db";
 import { maxDraftLength } from "@repo/domain";
-import { eq } from "drizzle-orm";
 import { CredentialsSignin } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
@@ -13,6 +12,7 @@ import {
   readPreset,
   takeImport,
 } from "../lib/account-theme";
+import { saveAccountTheme } from "../lib/account-theme-store";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
 import { captureDraft, fileDraftAsTask } from "../lib/drafts";
@@ -81,15 +81,7 @@ export async function importAccountTheme(formData: FormData) {
   if (result.error || result.account.choice !== "imported") {
     redirect("/account?error=theme-failed");
   }
-  await db
-    .update(users)
-    .set({
-      themeChoice: result.account.choice,
-      themeCode: result.account.code,
-      themeLight: result.account.light,
-      themeDark: result.account.dark,
-    })
-    .where(eq(users.id, user.id));
+  await saveAccountTheme(db, user.id, result.account);
   revalidatePath("/", "layout");
   redirect("/account?imported=1");
 }

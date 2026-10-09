@@ -1,4 +1,4 @@
-import { decodePreset } from "shadcn/preset";
+import { decodePreset, isPresetCode } from "shadcn/preset";
 
 // The Account's theme. "grayscale" is the shared default. "imported" paints
 // the stored variables for that Account only.
@@ -15,6 +15,10 @@ export const defaultAccountTheme: AccountTheme = {
   light: null,
   dark: null,
 };
+
+// The paste box, and the variable block stored on the user row.
+export const maxPresetInputLength = 512;
+export const maxStoredThemeLength = 8192;
 
 const errors: Record<string, string> = {
   theme: "That isn't a theme link or a preset code.",
@@ -64,18 +68,18 @@ export function themeCss(account: AccountTheme) {
   return `:root{${light}}.dark{${dark}}`;
 }
 
-// :root and .dark custom properties from a CLI theme-only stylesheet.
-export function themeBlocks(css: string) {
-  const light = css.match(/:root\s*\{([^}]*)\}/);
-  const dark = css.match(/\.dark\s*\{([^}]*)\}/);
-  if (!light?.[1] || !dark?.[1]) return null;
-  const lightBlock = sanitizeBlock(light[1]);
-  const darkBlock = sanitizeBlock(dark[1]);
-  if (!lightBlock || !darkBlock) return null;
-  return { light: lightBlock, dark: darkBlock };
+// Current-format codes start with "b". Older "a…" codes still decode, and are
+// refused. decodePreset accepts almost any "b…" string, so isPresetCode does
+// the real check. The import then checks that the code expands.
+const currentPresetCode = /^b[0-9A-Za-z]+$/;
+
+function acceptedPreset(code: string) {
+  if (!currentPresetCode.test(code) || !isPresetCode(code)) return null;
+  return code;
 }
 
 export function readPreset(input: string) {
+  if (input.length > maxPresetInputLength) return null;
   const text = input.trim();
   if (!text || /[{}<>]/.test(text) || text.includes("--")) return null;
   if (/^[a-z][a-z0-9+.-]*:/i.test(text) || text.startsWith("//")) {
@@ -90,12 +94,11 @@ export function readPreset(input: string) {
     }
     if (url.pathname !== "/create") return null;
     const preset = url.searchParams.get("preset");
-    if (!preset || !decodePreset(preset)) return null;
-    return preset;
+    if (!preset) return null;
+    return acceptedPreset(preset);
   }
   if (text.includes("/") || /\s/.test(text)) return null;
-  if (!decodePreset(text)) return null;
-  return text;
+  return acceptedPreset(text);
 }
 
 function ignoredParts(code: string) {
@@ -120,7 +123,7 @@ const name = /^--[a-z0-9-]+$/i;
 const value = /^[a-z0-9.%()/,+\s-]+$/i;
 
 export function sanitizeBlock(body: string | null | undefined) {
-  if (!body) return null;
+  if (!body || body.length > maxStoredThemeLength) return null;
   if (/[{}<>]|url\s*\(|expression\s*\(|@import|<\/|["'`\\]/i.test(body)) {
     return null;
   }

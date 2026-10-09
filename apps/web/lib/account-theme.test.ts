@@ -1,46 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { expandPreset } from "./expand-preset.ts";
 import {
   defaultAccountTheme,
   importError,
   importNotice,
+  maxPresetInputLength,
+  maxStoredThemeLength,
+  readPreset,
+  sanitizeBlock,
   takeImport,
-  themeBlocks,
   themeCss,
   type AccountTheme,
 } from "./account-theme.ts";
 
-// Light and dark blocks from `shadcn apply b1sACkXE8 --only theme` (shadcn 4.21.4).
-// The code decodes to Nova, Inter, Lucide, fuchsia on mauve. Not a hand-built scale.
-const cliCss = `
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0.008 326);
-    --primary: oklch(0.518 0.253 323.949);
-    --primary-foreground: oklch(0.977 0.017 320.058);
-    --muted-foreground: oklch(0.542 0.034 322.5);
-    --border: oklch(0.922 0.005 325.62);
-    --radius: 0.625rem;
-    --chart-1: oklch(0.865 0.127 207.078);
-}
-.dark {
-    --background: oklch(0.145 0.008 326);
-    --foreground: oklch(0.985 0 0);
-    --primary: oklch(0.452 0.211 324.591);
-    --primary-foreground: oklch(0.977 0.017 320.058);
-    --muted-foreground: oklch(0.711 0.019 323.02);
-    --border: oklch(1 0 0 / 10%);
-    --chart-1: oklch(0.865 0.127 207.078);
-}
-`;
+// Nova, Inter, Lucide, fuchsia on mauve. The variables come from the checked-in
+// theme table (shadcn 4.21.4), not a hand-built scale.
+const fuchsia = expandPreset("b1sACkXE8");
+if (!fuchsia) throw new Error("b1sACkXE8 did not expand");
 
-const fuchsia = themeBlocks(cliCss)!;
-
-const otherCss = `
-:root { --background: oklch(1 0 0); --radius: 0.45rem; }
-.dark { --background: oklch(0.145 0 0); --radius: 0.45rem; }
-`;
-const other = themeBlocks(otherCss)!;
+const other = {
+  light: "--background: oklch(1 0 0); --radius: 0.45rem;",
+  dark: "--background: oklch(0.145 0 0); --radius: 0.45rem;",
+};
 
 function imported(account: AccountTheme = defaultAccountTheme) {
   return takeImport(
@@ -81,15 +63,6 @@ test("a second import replaces the code and both variable sets", () => {
   assert.equal(second.notice, "Theme imported.");
 });
 
-test("another account is unchanged", () => {
-  const them = { ...defaultAccountTheme };
-  const mine = imported();
-  assert.deepEqual(them, defaultAccountTheme);
-  assert.equal(themeCss(them), null);
-  assert.match(themeCss(mine.account) ?? "", /323\.949/);
-  assert.doesNotMatch(themeCss(mine.account) ?? "", /0\.45rem/);
-});
-
 test("a bad paste is rejected and the theme stays", () => {
   const current = imported().account;
   for (const input of [
@@ -127,12 +100,13 @@ test("an import without variables falls back to the shared theme", () => {
   assert.equal(themeCss(defaultAccountTheme), null);
 });
 
-test("stored variables are custom properties from the CLI, not injected CSS", () => {
-  const dirty = `
-:root { --background: oklch(1 0 0); --primary: url(https://evil.test); }
-.dark { --background: oklch(0.145 0 0); }
-`;
-  assert.equal(themeBlocks(dirty), null);
+test("stored variables are custom properties, not injected CSS", () => {
+  assert.equal(
+    sanitizeBlock(
+      "--background: oklch(1 0 0); --primary: url(https://evil.test);",
+    ),
+    null,
+  );
   assert.equal(
     themeCss({
       choice: "imported",
@@ -142,4 +116,52 @@ test("stored variables are custom properties from the CLI, not injected CSS", ()
     }),
     null,
   );
+});
+
+test("a plain custom property is kept", () => {
+  assert.notEqual(sanitizeBlock("--x: red"), null);
+});
+
+test("a property that is not a custom property is rejected", () => {
+  assert.equal(sanitizeBlock("color: red"), null);
+});
+
+test("a url value is rejected", () => {
+  assert.equal(sanitizeBlock("--x: url(//evil.test/a.png)"), null);
+});
+
+test("an important flag is rejected", () => {
+  assert.equal(sanitizeBlock("--x: red !important"), null);
+});
+
+test("an old preset code and a create link that carries one are rejected", () => {
+  assert.equal(readPreset("abc123"), null);
+  assert.equal(
+    readPreset("https://ui.shadcn.com/create?preset=abc123"),
+    null,
+  );
+});
+
+test("a b-prefixed string that isn't a preset code is rejected", () => {
+  assert.equal(readPreset("bnotapreset"), null);
+  assert.equal(
+    readPreset("https://ui.shadcn.com/create?preset=bnotapreset"),
+    null,
+  );
+  assert.equal(readPreset("b1sACkXE8"), "b1sACkXE8");
+});
+
+test("a preset input longer than 512 characters is rejected", () => {
+  assert.equal(maxPresetInputLength, 512);
+  assert.equal(readPreset("b".repeat(513)), null);
+});
+
+test("a stored block longer than 8192 characters is rejected", () => {
+  assert.equal(maxStoredThemeLength, 8192);
+  const piece = "--x: red; ";
+  const body = piece.repeat(
+    Math.ceil((maxStoredThemeLength + 1) / piece.length),
+  );
+  assert.ok(body.length > maxStoredThemeLength);
+  assert.equal(sanitizeBlock(body), null);
 });
