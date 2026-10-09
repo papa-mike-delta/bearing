@@ -51,19 +51,7 @@
   li form {
     flex-direction: row;
     gap: 0.25rem;
-  }
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    color: var(--muted-foreground);
-    font-size: 12px;
-  }
-
-  label :is(input, textarea) {
-    color: var(--foreground);
-    font-size: 14px;
+    align-items: center;
   }
 
   /* 4px under the input. A shared stack, so the form's 0.75rem gap does
@@ -95,28 +83,6 @@
     text-decoration: none;
   }
 
-  input,
-  textarea,
-  button {
-    font: inherit;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-  }
-
-  button {
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  main > form button:first-of-type {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: var(--primary-foreground);
-  }
-
   [role="alert"],
   main > p {
     color: var(--muted-foreground);
@@ -144,29 +110,6 @@
   li small {
     display: block;
     color: var(--muted-foreground);
-  }
-
-  li button {
-    padding: 0 0.4rem;
-    border-color: transparent;
-    color: var(--muted-foreground);
-  }
-
-  li button:hover:enabled {
-    border-color: var(--primary);
-  }
-
-  li button:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  li button.complete {
-    width: 1rem;
-    height: 1rem;
-    padding: 0;
-    border-color: var(--border);
-    border-radius: 50%;
   }
 
   li strong {
@@ -235,27 +178,26 @@
     flex: 1;
   }
 
-  /* Undo Tailwind preflight: keep the browser's placeholder colour (AA
-     contrast) and textarea resize, so screens match main. */
-  ::placeholder {
-    color: revert;
-  }
-
-  textarea {
-    resize: revert;
-  }
-
-  /* Phones: the email gives way so the header fits on one line, and 16px
-     inputs stop iOS Safari zooming in on focus. */
+  /* Phones: the email gives way so the header fits on one line. */
   @media (max-width: 480px) {
     header > span {
       display: none;
     }
-
-    input,
-    textarea,
-    label :is(input, textarea) {
-      font-size: 16px;
-    }
   }
+}
+
+/* 16px on phones so iOS Safari does not zoom a focused field. Unlayered, so
+   it beats the kit field's own text size. */
+@media (max-width: 480px) {
+  [data-slot="input"],
+  [data-slot="textarea"] {
+    font-size: 16px;
+  }
+}
+
+/* The kit's fields and buttons set outline-none and rely on a faint --ring
+   (about 2.6:1 in light mode). Unlayered, so the browser's own focus ring
+   comes back for keyboard focus in light and dark. */
+[data-slot]:focus-visible {
+  outline: revert;
 }

@@ -1,3 +1,5 @@
+import { Button } from "@repo/ui/components/button";
+import { Textarea } from "@repo/ui/components/textarea";
 import { maxDraftLength, maxTaskNameLength } from "@repo/domain";
 import { requireUser } from "../../auth";
 import { inboxDrafts } from "../../lib/drafts";
@@ -25,17 +27,19 @@ export default async function Inbox({
     <main>
       <Header email={user.email} />
       <form action={captureToInbox}>
-        <textarea
+        <Textarea
           name="body"
           aria-label="Capture"
           rows={4}
+          // The kit field does not resize. A capture stays resizable, as it was.
+          className="field-sizing-fixed resize"
           maxLength={maxDraftLength}
           required
         />
         {error && Object.hasOwn(errors, error) ? (
           <p role="alert">{errors[error]}</p>
         ) : null}
-        <button type="submit">Capture</button>
+        <Button type="submit">Capture</Button>
       </form>
       {drafts.length === 0 ? (
         <p>Inbox is empty.</p>
@@ -46,7 +50,9 @@ export default async function Inbox({
               <span>{draft.body}</span>
               <form action={fileDraft}>
                 <input type="hidden" name="id" value={draft.id} />
-                <button type="submit">File as task</button>
+                <Button type="submit" variant="outline">
+                  File as task
+                </Button>
               </form>
             </li>
           ))}

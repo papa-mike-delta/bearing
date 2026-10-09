@@ -1,3 +1,5 @@
+import { Input } from "@repo/ui/components/input";
+import { Label } from "@repo/ui/components/label";
 import { db, users } from "@repo/db";
 import { eq } from "drizzle-orm";
 import { requireUser } from "../../auth";
@@ -40,16 +42,15 @@ export default async function Account({
       <h1>Theme</h1>
       <form action={importAccountTheme}>
         <div className="field">
-          <label>
-            Preset link or code
-            <input
-              name="preset"
-              aria-describedby="preset-hint"
-              autoComplete="off"
-              maxLength={maxPresetInputLength}
-              required
-            />
-          </label>
+          <Label htmlFor="preset">Preset link or code</Label>
+          <Input
+            id="preset"
+            name="preset"
+            aria-describedby="preset-hint"
+            autoComplete="off"
+            maxLength={maxPresetInputLength}
+            required
+          />
           <p id="preset-hint" className="hint">
             Paste a ui.shadcn.com/create link or its preset code.{" "}
             <a
@@ -69,35 +70,38 @@ export default async function Account({
       </form>
       <h1>Change password</h1>
       <form action={changeAccountPassword}>
-        <label>
-          Current password
-          <input
+        <div className="field">
+          <Label htmlFor="current">Current password</Label>
+          <Input
+            id="current"
             name="current"
             type="password"
             autoComplete="current-password"
             required
           />
-        </label>
-        <label>
-          New password
-          <input
+        </div>
+        <div className="field">
+          <Label htmlFor="next">New password</Label>
+          <Input
+            id="next"
             name="next"
             type="password"
             autoComplete="new-password"
             minLength={minPasswordLength}
             required
           />
-        </label>
-        <label>
-          Confirm new password
-          <input
+        </div>
+        <div className="field">
+          <Label htmlFor="confirm">Confirm new password</Label>
+          <Input
+            id="confirm"
             name="confirm"
             type="password"
             autoComplete="new-password"
             minLength={minPasswordLength}
             required
           />
-        </label>
+        </div>
         {changed === "1" ? (
           <FormMessage
             role="status"

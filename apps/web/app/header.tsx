@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/components/button";
 import Link from "next/link";
 import { signOutOfBearing } from "./actions";
 
@@ -12,7 +13,9 @@ export function Header({ email }: { email?: string | null }) {
       </nav>
       <span>{email}</span>
       <form action={signOutOfBearing}>
-        <button type="submit">Sign out</button>
+        <Button type="submit" variant="outline">
+          Sign out
+        </Button>
       </form>
     </header>
   );
