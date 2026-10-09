@@ -10,6 +10,7 @@ import { accountError } from "../../lib/account-errors";
 import { minPasswordLength } from "../../lib/credentials";
 import { changeAccountPassword, importAccountTheme } from "../actions";
 import { Header } from "../header";
+import { ClearParam } from "./clear-param";
 import { FormMessage } from "./form-message";
 import { ImportThemeButton } from "./import-button";
 import { ChangePasswordButton } from "./submit-button";
@@ -35,23 +36,31 @@ export default async function Account({
   return (
     <main>
       <Header email={user.email} />
+      {imported === "1" || changed === "1" ? <ClearParam /> : null}
+      <h1>Theme</h1>
       <form action={importAccountTheme}>
-        <label>
-          Theme
-          <input
-            name="preset"
-            autoComplete="off"
-            maxLength={maxPresetInputLength}
-            required
-          />
-        </label>
-        <a
-          href="https://ui.shadcn.com/create"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Design a theme
-        </a>
+        <div className="field">
+          <label>
+            Preset link or code
+            <input
+              name="preset"
+              aria-describedby="preset-hint"
+              autoComplete="off"
+              maxLength={maxPresetInputLength}
+              required
+            />
+          </label>
+          <p id="preset-hint" className="hint">
+            Paste a ui.shadcn.com/create link or its preset code.{" "}
+            <a
+              href="https://ui.shadcn.com/create"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Design a theme
+            </a>
+          </p>
+        </div>
         {notice ? <FormMessage role="status" message={notice} /> : null}
         {themeMessage ? (
           <FormMessage role="alert" message={themeMessage} />

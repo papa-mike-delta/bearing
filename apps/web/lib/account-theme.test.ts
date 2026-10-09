@@ -24,6 +24,9 @@ const other = {
   dark: "--background: oklch(0.145 0 0); --radius: 0.45rem;",
 };
 
+const importedNotice =
+  "Theme imported. Bearing uses its colours and corner radius.";
+
 function imported(account: AccountTheme = defaultAccountTheme) {
   return takeImport(
     account,
@@ -45,12 +48,11 @@ test("a create link and a preset code become the stored code and the CLI's varia
   assert.equal(fromLink.account.light?.includes("https://"), false);
 });
 
-test("a preset with a different style or type keeps the colors and says what was left out", () => {
-  const result = imported();
-  assert.match(result.notice ?? "", /style/);
-  assert.match(result.notice ?? "", /type/);
-  assert.doesNotMatch(result.notice ?? "", /icons/);
-  assert.match(importNotice("b1sACkXE8") ?? "", /style/);
+test("a decoded preset says Bearing uses its colours and corner radius", () => {
+  assert.equal(imported().notice, importedNotice);
+  assert.equal(importNotice("b1sACkXE8"), importedNotice);
+  assert.equal(importNotice(null), null);
+  assert.equal(importNotice(""), null);
 });
 
 test("a second import replaces the code and both variable sets", () => {
@@ -60,7 +62,7 @@ test("a second import replaces the code and both variable sets", () => {
   assert.equal(second.account.code, "b1D0dxoG");
   assert.equal(second.account.light, other.light);
   assert.equal(second.account.dark, other.dark);
-  assert.equal(second.notice, "Theme imported.");
+  assert.equal(second.notice, importedNotice);
 });
 
 test("a bad paste is rejected and the theme stays", () => {

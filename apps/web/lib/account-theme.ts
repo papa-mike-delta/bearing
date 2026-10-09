@@ -29,14 +29,11 @@ export function importError(key: string | undefined) {
   return key && Object.hasOwn(errors, key) ? errors[key]! : null;
 }
 
-// What the Account page says after a successful import. A preset can ask for
-// a different style, type, or icons; theme-only apply does not change those.
+// What the Account page says after a successful import. Only the colour
+// custom properties and --radius are applied.
 export function importNotice(code: string | null) {
   if (!code || !decodePreset(code)) return null;
-  const parts = ignoredParts(code);
-  if (parts.length === 0) return "Theme imported.";
-  const verb = parts.length === 1 ? "was" : "were";
-  return `Colors, radius, charts, and menu colors were applied. The theme's ${join(parts)} ${verb} not applied.`;
+  return "Theme imported. Bearing uses its colours and corner radius.";
 }
 
 export function takeImport(
@@ -99,24 +96,6 @@ export function readPreset(input: string) {
   }
   if (text.includes("/") || /\s/.test(text)) return null;
   return acceptedPreset(text);
-}
-
-function ignoredParts(code: string) {
-  const decoded = decodePreset(code);
-  if (!decoded) return [];
-  const parts: string[] = [];
-  if (decoded.style !== "mira") parts.push("style");
-  if (decoded.font !== "geist" || decoded.fontHeading !== "inherit") {
-    parts.push("type");
-  }
-  if (decoded.iconLibrary !== "lucide") parts.push("icons");
-  return parts;
-}
-
-function join(parts: string[]) {
-  if (parts.length <= 1) return parts[0] ?? "";
-  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
 }
 
 const name = /^--[a-z0-9-]+$/i;
