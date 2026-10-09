@@ -1,11 +1,12 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { maxCoachMessageLength, shownParts } from "@repo/coach";
+import { maxCoachMessageLength } from "@repo/coach";
 import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { shownThread } from "../../lib/coach-screen";
 
 export function Chat({
   threadId,
@@ -15,6 +16,11 @@ export function Chat({
   initialMessages: UIMessage[];
 }) {
   const [input, setInput] = useState("");
+  // User message ids whose reply was stopped in this view. Not saved: a
+  // reload starts over from the stored thread, so the note is gone and the
+  // full reply is there. Stop does not reload, and it does not cancel the
+  // model's turn.
+  const [stoppedUserIds, setStoppedUserIds] = useState<string[]>([]);
   const router = useRouter();
   const { messages, sendMessage, status, stop, error, regenerate } = useChat({
     id: threadId,
@@ -54,7 +60,7 @@ export function Chat({
   }, []);
   useEffect(() => {
     if (following.current) end.current?.scrollIntoView({ block: "end" });
-  }, [messages, status]);
+  }, [messages, status, stoppedUserIds]);
   // Open at the newest message. The browser restores the old scroll position
   // on a reload, and Next scrolls to the top after a link, both after the
   // effect above; so restoration is off while the Coach is open, and the
@@ -72,10 +78,9 @@ export function Chat({
   }, []);
 
   // A reply that failed before any text or tool call has nothing to show.
-  const shown = messages.flatMap((message) => {
-    const parts = shownParts(message.parts);
-    return parts.length ? [{ ...message, parts }] : [];
-  });
+  // A stopped one still does: a neutral note. Stop ends the browser stream;
+  // reload to see the reply if the Coach finished and saved it.
+  const shown = shownThread(messages, stoppedUserIds);
 
   return (
     <>
@@ -99,6 +104,11 @@ export function Chat({
                   <p key={part.key}>{part.text}</p>
                 ),
               )}
+              {message.marker ? (
+                <p className="receipt" role="status">
+                  {message.marker}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>
@@ -130,7 +140,20 @@ export function Chat({
           disabled={replying}
         />
         {replying ? (
-          <button type="button" onClick={() => stop()}>
+          <button
+            type="button"
+            onClick={() => {
+              const userId = [...messages]
+                .reverse()
+                .find((message) => message.role === "user")?.id;
+              if (userId) {
+                setStoppedUserIds((ids) =>
+                  ids.includes(userId) ? ids : [...ids, userId],
+                );
+              }
+              void stop();
+            }}
+          >
             Stop
           </button>
         ) : (

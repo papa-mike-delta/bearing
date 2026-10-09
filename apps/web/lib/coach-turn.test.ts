@@ -640,6 +640,28 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     ]);
   });
 
+  test("a reply stopped before the first token is still saved in full", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const result = await coachTurn({
+      userId: c,
+      threadId: thread,
+      message: userMessage("Stop now"),
+      model: replying("The whole reply, written after Stop."),
+      db,
+    });
+    assert.ok(!("refused" in result));
+    const reader = result.stream.getReader();
+    // Before any token. Not awaited: a tee branch's cancel waits for the
+    // source to end, and the other branch is what saves the reply.
+    void reader.cancel();
+    await result.saved;
+    assert.deepEqual(textOf(await threadMessages(c, thread, db)), [
+      ["user", "Stop now"],
+      ["assistant", "The whole reply, written after Stop."],
+    ]);
+  });
+
   test("a reply stopped in the browser still reloads before the next message", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
