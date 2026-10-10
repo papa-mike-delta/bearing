@@ -6,14 +6,20 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { areas, coachThreads, createDb, tasks, users } from "@repo/db";
-import { eq, inArray } from "drizzle-orm";
+import { areas, coachThreads, createDb, goals, tasks, users } from "@repo/db";
+import { kanbanColumns } from "@repo/domain";
+import { asc, eq, inArray } from "drizzle-orm";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import {
   createArea,
+  createGoal,
   deleteArea,
+  deleteGoal,
   loadAccount,
+  moveGoal,
   renameArea,
+  renameGoal,
+  saveArea,
   setAreaHidden,
   setAreaWip,
   setAreaWorkflow,
@@ -27,6 +33,8 @@ import {
   moveTask,
   openTasks,
   scheduleOn,
+  setTaskGoal,
+  updateOpenTask,
   type Provenance,
 } from "./tasks.ts";
 
@@ -69,6 +77,19 @@ describe(
       (await db.select().from(tasks).where(eq(tasks.id, id)))[0]!;
     const areaRow = async (id: string) =>
       (await db.select().from(areas).where(eq(areas.id, id)))[0]!;
+    const goalRows = (areaId: string) =>
+      db
+        .select()
+        .from(goals)
+        .where(eq(goals.areaId, areaId))
+        .orderBy(asc(goals.position));
+    const hiddenIds = async (userId: string) =>
+      (
+        await db
+          .select({ hiddenAreaIds: users.hiddenAreaIds })
+          .from(users)
+          .where(eq(users.id, userId))
+      )[0]!.hiddenAreaIds;
     const coach = (): Provenance => ({
       source: "coach",
       sourceId: `call_${randomUUID()}`,
@@ -394,6 +415,164 @@ describe(
       assert.equal(await scheduleOn(c, added.id, today, today, db), null);
       assert.equal(await scheduleOn(c, added.id, "2026-10-08", today, db), null);
       assert.equal((await rowOf(added.id)).scheduledOn, null);
+    });
+
+    test("another account's Goals and Task edits are refused", async () => {
+      const area = (await createArea(b, "B goals", db))!;
+      const first = (await createGoal(b, area.id, "Ship", db))!;
+      const second = (await createGoal(b, area.id, "Hold", db))!;
+      const task = (await addTask(b, { today, name: "B's goaled", area: "B goals" }, db))!;
+      const goalsBefore = await goalRows(area.id);
+      const taskBefore = await rowOf(task.id);
+      const goalsA = (await loadAccount(a, db)).goals.length;
+      assert.equal(goalsBefore.length, 2);
+      assert.equal(await createGoal(a, area.id, "Intruder", db), null);
+      assert.equal(await renameGoal(a, first.id, "Stolen", db), null);
+      assert.equal(await moveGoal(a, first.id, "down", db), false);
+      assert.equal(await deleteGoal(a, first.id, db), false);
+      assert.equal(await setTaskGoal(a, task.id, second.id, db), false);
+      assert.equal(
+        await updateOpenTask(a, task.id, { name: "Stolen task", status: "started" }, db),
+        null,
+      );
+      assert.deepEqual(await goalRows(area.id), goalsBefore);
+      assert.deepEqual(await rowOf(task.id), taskBefore);
+      assert.equal((await loadAccount(a, db)).goals.length, goalsA);
+      assert.equal((await rowOf(task.id)).goalId, null);
+    });
+
+    test("a Goal from another Area is refused, and deleting a Goal keeps its Tasks", async () => {
+      const c = await account();
+      const home = (await loadAccount(c, db)).areas[0]!;
+      const away = (await createArea(c, "Away", db))!;
+      const launch = (await createGoal(c, away.id, "Launch", db))!;
+      const stayed = (await addTask(c, { today, name: "Stay", area: "Tasks" }, db))!;
+      const before = await rowOf(stayed.id);
+      assert.equal(await setTaskGoal(c, stayed.id, launch.id, db), false);
+      assert.equal(await updateOpenTask(c, stayed.id, { goal: "Launch" }, db), null);
+      assert.deepEqual(await rowOf(stayed.id), before);
+
+      const health = (await createGoal(c, home.id, "Health", db))!;
+      const loose = (await addTask(c, { today, name: "Walk", area: "Tasks" }, db))!;
+      assert.equal(await setTaskGoal(c, stayed.id, health.id, db), true);
+      assert.equal((await rowOf(stayed.id)).goalId, health.id);
+      assert.equal(await deleteGoal(c, health.id, db), true);
+      const after = await rowOf(stayed.id);
+      assert.equal(after.goalId, null);
+      assert.equal(after.name, "Stay");
+      assert.equal(after.areaId, home.id);
+      assert.equal(after.status, "later");
+      assert.equal((await rowOf(loose.id)).name, "Walk");
+      assert.equal((await rowOf(loose.id)).goalId, null);
+      assert.deepEqual(
+        await db.select({ id: goals.id }).from(goals).where(eq(goals.id, health.id)),
+        [],
+      );
+      assert.equal((await goalRows(away.id))[0]!.id, launch.id);
+    });
+
+    test("a Kanban Task moves through each column, and a completed Task or a bad patch is refused", async () => {
+      const c = await account();
+      const area = (await loadAccount(c, db)).areas[0]!;
+      assert.equal(await setAreaWorkflow(c, area.id, "kanban", db), true);
+      const card = (await addTask(c, { today, name: "Card", area: "Tasks" }, db))!;
+      let previous = "later";
+      for (const column of kanbanColumns) {
+        assert.deepEqual(await updateOpenTask(c, card.id, { status: column }, db), {
+          id: card.id,
+          name: "Card",
+        });
+        const row = await rowOf(card.id);
+        assert.equal(row.status, column);
+        assert.equal(row.previousStatus, previous);
+        previous = column;
+      }
+
+      const open = (await addTask(c, { today, name: "Patch", area: "Tasks" }, db))!;
+      const before = await rowOf(open.id);
+      assert.equal(
+        await updateOpenTask(c, open.id, { name: "x".repeat(501) }, db),
+        null,
+      );
+      await assert.rejects(
+        updateOpenTask(c, open.id, { name: "Changed", status: "nope" as "later" }, db),
+      );
+      assert.deepEqual(await rowOf(open.id), before);
+
+      assert.deepEqual(await completeTask(c, card.id, db), { id: card.id, name: "Card" });
+      const done = await rowOf(card.id);
+      assert.equal(done.status, "completed");
+      assert.equal(
+        await updateOpenTask(c, card.id, { status: "started", name: "Nope" }, db),
+        null,
+      );
+      assert.deepEqual(await rowOf(card.id), done);
+    });
+
+    test("saving an Area refuses another account, a bad limit, and a clashing name", async () => {
+      const area = (await createArea(b, "B save", db))!;
+      const areaBefore = await areaRow(area.id);
+      const hiddenB = await hiddenIds(b);
+      const hiddenA = await hiddenIds(a);
+      assert.equal(
+        await saveArea(
+          a,
+          area.id,
+          { name: "Stolen", hidden: true, workflow: "kanban", limit: 4 },
+          db,
+        ),
+        null,
+      );
+      assert.deepEqual(await areaRow(area.id), areaBefore);
+      assert.deepEqual(await hiddenIds(b), hiddenB);
+      assert.deepEqual(await hiddenIds(a), hiddenA);
+
+      const c = await account();
+      const mine = (await loadAccount(c, db)).areas[0]!;
+      const mineBefore = await areaRow(mine.id);
+      const hiddenC = await hiddenIds(c);
+      assert.equal(
+        await saveArea(
+          c,
+          mine.id,
+          { name: "Renamed", hidden: true, workflow: "kanban", limit: 0 },
+          db,
+        ),
+        false,
+      );
+      assert.deepEqual(await areaRow(mine.id), mineBefore);
+      assert.deepEqual(await hiddenIds(c), hiddenC);
+
+      const other = (await createArea(c, "Other", db))!;
+      const otherBefore = await areaRow(other.id);
+      const beforeClash = await areaRow(mine.id);
+      assert.equal(
+        await saveArea(
+          c,
+          mine.id,
+          { name: "other", hidden: true, workflow: "now-later", limit: 9 },
+          db,
+        ),
+        null,
+      );
+      assert.deepEqual(await areaRow(mine.id), beforeClash);
+      assert.deepEqual(await areaRow(other.id), otherBefore);
+      assert.deepEqual(await hiddenIds(c), hiddenC);
+
+      assert.equal(
+        await saveArea(
+          c,
+          mine.id,
+          { name: "Renamed", hidden: true, workflow: "kanban", limit: 4 },
+          db,
+        ),
+        true,
+      );
+      const saved = await areaRow(mine.id);
+      assert.equal(saved.name, "Renamed");
+      assert.equal(saved.workflow, "kanban");
+      assert.equal(saved.wipLimit, 4);
+      assert.deepEqual(await hiddenIds(c), [mine.id]);
     });
   },
 );
