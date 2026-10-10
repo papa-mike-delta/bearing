@@ -47,7 +47,13 @@ function writeToolsOffered(
     return;
   }
   const names = (call.tools ?? []).map((t) => t.name);
-  for (const name of ["createTask", "completeTask", "listArea"]) {
+  for (const name of [
+    "createTask",
+    "completeTask",
+    "listArea",
+    "scheduleTask",
+    "updateTask",
+  ]) {
     assert.ok(names.includes(name), name);
   }
   assert.deepEqual(call.toolChoice, { type: "auto" });
@@ -59,6 +65,12 @@ const unusedWrites = {
   },
   async completeTask() {
     throw new Error("completeTask should not run");
+  },
+  async scheduleTask() {
+    throw new Error("scheduleTask should not run");
+  },
+  async updateTask() {
+    throw new Error("updateTask should not run");
   },
 };
 
@@ -1613,7 +1625,13 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         threadId: thread,
         model: "mock-model-id",
         steps,
-        toolCalls: { listArea, createTask: 0, completeTask: 0 },
+        toolCalls: {
+          listArea,
+          createTask: 0,
+          completeTask: 0,
+          scheduleTask: 0,
+          updateTask: 0,
+        },
         finishReason: "stop",
       })),
     );

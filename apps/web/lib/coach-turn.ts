@@ -131,7 +131,13 @@ export async function coachTurn({
     toolsContext: coachToolsContext(userId, userMessage.id),
     // freshRead already injected the list; activeTools lets the model write
     // and call listArea again after a write. No turn-wide toolChoice:"none".
-    activeTools: ["createTask", "completeTask", "listArea"],
+    activeTools: [
+      "createTask",
+      "completeTask",
+      "scheduleTask",
+      "updateTask",
+      "listArea",
+    ],
     // Last model step is text only so the turn ends with an answer.
     prepareStep: ({ steps }) =>
       steps.length >= maxCoachSteps - 1 ? { toolChoice: "none" as const } : {},
@@ -270,6 +276,8 @@ function logTurn(
         listArea: count("tool-listArea"),
         createTask: count("tool-createTask"),
         completeTask: count("tool-completeTask"),
+        scheduleTask: count("tool-scheduleTask"),
+        updateTask: count("tool-updateTask"),
       },
       finishReason,
     }),

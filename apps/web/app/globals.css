@@ -181,6 +181,15 @@
     min-width: 0;
   }
 
+  ul.manager label {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  ul.manager > li > form + form {
+    margin-left: auto;
+  }
+
   section.stack {
     margin-top: 2.5rem;
   }
@@ -199,6 +208,141 @@
     background: var(--background);
     color: var(--foreground);
     padding: 0 0.5rem;
+  }
+
+  section.stack h4 {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .goals form,
+  .board {
+    margin-top: 0.75rem;
+  }
+
+  /* Four columns from 480px up. Below that they stack, with no sideways scroll. */
+  .board {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  @media (min-width: 480px) {
+    .board {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .column {
+    min-width: 0;
+    min-height: 8rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    overflow-wrap: anywhere;
+  }
+
+  .column.over {
+    outline: 2px solid var(--primary);
+  }
+
+  .column h3 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  .column ul {
+    margin-top: 0;
+  }
+
+  li.card,
+  .column li {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  li.card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+
+  li.card > .card-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
+    overflow-wrap: anywhere;
+  }
+
+  li.card .handle {
+    flex: none;
+  }
+
+  li.card .card-name {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .card-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .card-row form,
+  li.card details,
+  li.card details form,
+  li.card input,
+  li.card select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  form.move {
+    flex: 1 1 8rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  form.move select.choice {
+    min-width: 0;
+    flex: 1 1 4.5rem;
+    max-width: 100%;
+  }
+
+  li.card details {
+    width: 100%;
+  }
+
+  section.stack > details {
+    margin-top: 1.25rem;
+  }
+
+  .column p,
+  .goals > p {
+    color: var(--muted-foreground);
+    margin-top: 0.5rem;
+  }
+
+  .handle {
+    cursor: grab;
+    color: var(--muted-foreground);
+    user-select: none;
+  }
+
+  section.stack li {
+    flex-wrap: wrap;
   }
 
   .thread {
@@ -301,6 +445,25 @@
   select.choice {
     font-size: 16px;
   }
+}
+
+/* Goal rename fills the row on phones. Unlayered, so it beats w-40. */
+@media (max-width: 479px) {
+  form.goal-rename {
+    flex: 1 0 100%;
+    max-width: 100%;
+  }
+
+  input.goal-rename {
+    width: 100%;
+  }
+}
+
+/* Compact no-JS fallback, aligned with the move select. */
+form.move [data-slot="button"] {
+  height: 1.75rem;
+  padding-inline: 0.4rem;
+  font-size: 0.75rem;
 }
 
 /* The kit's fields and buttons set outline-none and rely on a faint --ring.

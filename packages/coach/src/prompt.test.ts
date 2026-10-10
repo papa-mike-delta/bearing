@@ -13,8 +13,30 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt.includes(
-      "You can add a Task with createTask and complete one Task with completeTask.",
+      "You can add a Task with createTask, complete one Task with completeTask, schedule one with scheduleTask, and update one with updateTask.",
     ),
+  );
+  assert.ok(
+    coachSystemPrompt.includes(
+      "scheduleTask takes a Task id and a calendar date after today.",
+    ),
+  );
+  assert.ok(
+    coachSystemPrompt.includes("You cannot move a Task to another Area"),
+  );
+  assert.ok(
+    coachSystemPrompt.includes(
+      "the status (started, next, waiting, or later), and the Goal.",
+    ),
+  );
+  assert.ok(
+    coachSystemPrompt.includes(
+      "completeTask is the only way to complete a Task.",
+    ),
+  );
+  assert.equal(
+    coachSystemPrompt.includes("Setting status to completed completes the Task."),
+    false,
   );
   assert.ok(
     coachSystemPrompt.includes(

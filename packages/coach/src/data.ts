@@ -27,6 +27,27 @@ export type CoachData = {
     userId: string,
     taskId: string,
   ): Promise<{ id: string; name: string } | null>;
+  // Null when the Task isn't an open Task of this user, or the date isn't
+  // strictly after today. Same rule as the date field.
+  scheduleTask(
+    userId: string,
+    taskId: string,
+    date: string,
+  ): Promise<{ id: string; name: string } | null>;
+  // Null when the Task isn't an open Task of this user, or a field is refused.
+  // Omitted fields stay. `goal` null clears it. Area, workflow, and the date
+  // are not here.
+  updateTask(
+    userId: string,
+    taskId: string,
+    input: {
+      name?: string;
+      note?: string;
+      priority?: number;
+      status?: "later" | "next" | "started" | "waiting" | "completed";
+      goal?: string | null;
+    },
+  ): Promise<{ id: string; name: string } | null>;
 };
 
 // What a tool's handler runs with: the session user, the model's tool-call id,

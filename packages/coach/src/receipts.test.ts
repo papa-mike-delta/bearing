@@ -25,6 +25,30 @@ test("a listArea call reads as a one-line receipt", () => {
     receipt({ type: "tool-somethingElse", state: "output-available" }),
     null,
   );
+  assert.equal(
+    receipt({
+      type: "tool-scheduleTask",
+      state: "output-available",
+      output: { name: "Call dentist" },
+    }),
+    "Scheduled 'Call dentist'",
+  );
+  assert.equal(
+    receipt({ type: "tool-scheduleTask", state: "output-available", output: { refused: true } }),
+    "Couldn't schedule that task",
+  );
+  assert.equal(
+    receipt({
+      type: "tool-updateTask",
+      state: "output-available",
+      output: { name: "Oat milk" },
+    }),
+    "Updated 'Oat milk'",
+  );
+  assert.equal(
+    receipt({ type: "tool-updateTask", state: "input-available" }),
+    "Updating…",
+  );
 });
 
 // Parts as a reply stores them: a step-start before each model step.

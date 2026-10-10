@@ -1,13 +1,18 @@
-import { areas, db as defaultDb, tasks, users } from "@repo/db";
+import { areas, db as defaultDb, goals, tasks, users } from "@repo/db";
 import {
   areaName,
   areaNameTaken,
   areasInCreationOrder,
   defaultWipLimit,
+  goalName,
+  goalNameTaken,
+  nextGoalOrder,
   offeredWorkflow,
+  shiftGoal,
   taskStatuses,
   wipLimit,
   type AreaRecord,
+  type GoalRecord,
   type TaskRecord,
   type TaskStatus,
   type Workflow,
@@ -20,6 +25,7 @@ import { isUuid, type Db } from "./db.ts";
 export type LoadedAccount = {
   areas: AreaRecord[];
   tasks: TaskRecord[];
+  goals: GoalRecord[];
   hiddenAreaIds: string[];
 };
 
@@ -71,11 +77,23 @@ export async function loadAccount(
           previousStatus: tasks.previousStatus,
           age: tasks.age,
           date: tasks.scheduledOn,
+          goalId: tasks.goalId,
           createdAt: tasks.createdAt,
           completedAt: tasks.completedAt,
         })
         .from(tasks)
         .where(inArray(tasks.areaId, areaIds))
+    : [];
+  const goalRows = areaIds.length
+    ? await db
+        .select({
+          id: goals.id,
+          areaId: goals.areaId,
+          name: goals.name,
+          order: goals.position,
+        })
+        .from(goals)
+        .where(inArray(goals.areaId, areaIds))
     : [];
   return {
     areas: areaRows.map((area) => ({
@@ -92,6 +110,7 @@ export async function loadAccount(
       age: asDay(task.age),
       date: task.date ? asDay(task.date) : null,
     })),
+    goals: goalRows,
     hiddenAreaIds: user?.hiddenAreaIds ?? [],
   };
 }
@@ -264,6 +283,59 @@ export async function setAreaWip(
   return Boolean(row);
 }
 
+// Name, hide flag, workflow, and limit are all checked before any write,
+// including a case-insensitive clash with this account's other Areas. Null
+// refuses the name or the Area. False refuses the limit or the workflow.
+// The Area row and the hidden list then update together, or not at all.
+export async function saveArea(
+  userId: string,
+  areaId: string,
+  input: { name: string; hidden: boolean; workflow: string; limit: number },
+  db: Db = defaultDb,
+) {
+  if (!isUuid(areaId)) return null;
+  const name = areaName(input.name);
+  if (!name) return null;
+  const workflow = offeredWorkflow(input.workflow);
+  const limit = wipLimit(input.limit);
+  const existing = await db
+    .select({ id: areas.id, name: areas.name })
+    .from(areas)
+    .where(eq(areas.userId, userId));
+  if (!existing.some((area) => area.id === areaId)) return null;
+  if (areaNameTaken(name, existing, areaId)) return null;
+  if (typeof input.hidden !== "boolean" || !workflow || limit === null) {
+    return false;
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ hiddenAreaIds: users.hiddenAreaIds })
+        .from(users)
+        .where(eq(users.id, userId))
+        .for("update");
+      if (!user) return null;
+      const [row] = await tx
+        .update(areas)
+        .set({ name, workflow, wipLimit: limit })
+        .where(and(eq(areas.id, areaId), eq(areas.userId, userId)))
+        .returning({ id: areas.id });
+      if (!row) return null;
+      const ids = new Set(user.hiddenAreaIds);
+      if (input.hidden) ids.add(areaId);
+      else ids.delete(areaId);
+      await tx
+        .update(users)
+        .set({ hiddenAreaIds: [...ids] })
+        .where(eq(users.id, userId));
+      return true;
+    });
+  } catch (error) {
+    if (uniqueViolation(error)) return null;
+    throw error;
+  }
+}
+
 export function orderedAreas(loaded: LoadedAccount) {
   const counts = new Map<string, number>();
   for (const task of loaded.tasks) {
@@ -275,4 +347,131 @@ export function orderedAreas(loaded: LoadedAccount) {
     hidden: hidden.has(area.id),
     taskCount: counts.get(area.id) ?? 0,
   }));
+}
+
+async function ownedArea(userId: string, areaId: string, db: Db) {
+  if (!isUuid(areaId)) return null;
+  const [area] = await db
+    .select({ id: areas.id })
+    .from(areas)
+    .where(and(eq(areas.id, areaId), eq(areas.userId, userId)));
+  return area ?? null;
+}
+
+export async function createGoal(
+  userId: string,
+  areaId: string,
+  name: string,
+  db: Db = defaultDb,
+) {
+  const trimmed = goalName(name);
+  if (!trimmed || !(await ownedArea(userId, areaId, db))) return null;
+  const existing = await db
+    .select({ id: goals.id, areaId: goals.areaId, name: goals.name, order: goals.position })
+    .from(goals)
+    .where(eq(goals.areaId, areaId));
+  if (goalNameTaken(trimmed, existing, areaId)) return null;
+  try {
+    const [row] = await db
+      .insert(goals)
+      .values({
+        areaId,
+        name: trimmed,
+        position: nextGoalOrder(existing),
+      })
+      .returning({ id: goals.id, name: goals.name });
+    return row ?? null;
+  } catch (error) {
+    if (uniqueViolation(error)) return null;
+    throw error;
+  }
+}
+
+export async function renameGoal(
+  userId: string,
+  goalId: string,
+  name: string,
+  db: Db = defaultDb,
+) {
+  if (!isUuid(goalId)) return null;
+  const trimmed = goalName(name);
+  if (!trimmed) return null;
+  const [current] = await db
+    .select({ id: goals.id, areaId: goals.areaId, name: goals.name })
+    .from(goals)
+    .innerJoin(areas, eq(goals.areaId, areas.id))
+    .where(and(eq(goals.id, goalId), eq(areas.userId, userId)));
+  if (!current) return null;
+  const existing = await db
+    .select({ id: goals.id, areaId: goals.areaId, name: goals.name })
+    .from(goals)
+    .where(eq(goals.areaId, current.areaId));
+  if (goalNameTaken(trimmed, existing, current.areaId, goalId)) return null;
+  try {
+    const [row] = await db
+      .update(goals)
+      .set({ name: trimmed })
+      .where(eq(goals.id, goalId))
+      .returning({ id: goals.id, name: goals.name });
+    return row ?? null;
+  } catch (error) {
+    if (uniqueViolation(error)) return null;
+    throw error;
+  }
+}
+
+export async function moveGoal(
+  userId: string,
+  goalId: string,
+  direction: "up" | "down",
+  db: Db = defaultDb,
+) {
+  if (!isUuid(goalId)) return false;
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ id: goals.id, areaId: goals.areaId })
+      .from(goals)
+      .innerJoin(areas, eq(goals.areaId, areas.id))
+      .where(and(eq(goals.id, goalId), eq(areas.userId, userId)))
+      .for("update");
+    if (!current) return false;
+    const rows = await tx
+      .select({
+        id: goals.id,
+        areaId: goals.areaId,
+        name: goals.name,
+        order: goals.position,
+      })
+      .from(goals)
+      .where(eq(goals.areaId, current.areaId))
+      .for("update");
+    const next = shiftGoal(rows, goalId, direction);
+    if (!next) return false;
+    for (const goal of next) {
+      await tx
+        .update(goals)
+        .set({ position: goal.order })
+        .where(eq(goals.id, goal.id));
+    }
+    return true;
+  });
+}
+
+// The Goal row goes. Tasks keep their rows; the foreign key clears the Goal.
+export async function deleteGoal(
+  userId: string,
+  goalId: string,
+  db: Db = defaultDb,
+) {
+  if (!isUuid(goalId)) return false;
+  const [removed] = await db
+    .delete(goals)
+    .where(
+      and(
+        eq(goals.id, goalId),
+        sql`exists (select 1 from ${areas} where ${areas.id} = ${goals.areaId} and ${areas.userId} = ${userId})`,
+      ),
+    )
+    .returning({ id: goals.id });
+  return Boolean(removed);
 }
