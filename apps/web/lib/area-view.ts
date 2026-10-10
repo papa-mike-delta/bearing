@@ -147,14 +147,6 @@ export function taskMenu(input: {
   return groups;
 }
 
-// The row is the sentence. Controls live in the menu, not here.
-export function taskRow() {
-  return {
-    fields: ["complete", "name", "note", "date", "goal", "next"] as const,
-    controls: [] as string[],
-  };
-}
-
 export type KanbanColumnCount = {
   id: KanbanColumn;
   count: number;
