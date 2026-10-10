@@ -26,6 +26,20 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt.includes(
+      "the status (started, next, waiting, or later), and the Goal.",
+    ),
+  );
+  assert.ok(
+    coachSystemPrompt.includes(
+      "completeTask is the only way to complete a Task.",
+    ),
+  );
+  assert.equal(
+    coachSystemPrompt.includes("Setting status to completed completes the Task."),
+    false,
+  );
+  assert.ok(
+    coachSystemPrompt.includes(
       "At most one completeTask per reply. If they ask to complete everything, do one and say so.",
     ),
   );

@@ -1625,7 +1625,13 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         threadId: thread,
         model: "mock-model-id",
         steps,
-        toolCalls: { listArea, createTask: 0, completeTask: 0 },
+        toolCalls: {
+          listArea,
+          createTask: 0,
+          completeTask: 0,
+          scheduleTask: 0,
+          updateTask: 0,
+        },
         finishReason: "stop",
       })),
     );

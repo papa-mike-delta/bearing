@@ -15,6 +15,9 @@ import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, upd
 
 export { maxCreatesPerTurn };
 
+const maxSchedulesPerTurn = 3;
+const maxUpdatesPerTurn = 3;
+
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
@@ -110,7 +113,7 @@ async function runUpdateTask(
     name?: string;
     note?: string;
     priority?: number;
-    status?: "later" | "next" | "started" | "waiting" | "completed";
+    status?: "started" | "next" | "waiting" | "later";
     goal?: string | null;
   },
   ctx: ToolRun,
@@ -126,6 +129,8 @@ async function runUpdateTask(
 export function coachTools(data: CoachData) {
   let completedThisTurn = false;
   let createdThisTurn = 0;
+  let scheduledThisTurn = 0;
+  let updatedThisTurn = 0;
   return {
     listArea: tool({
       description: listArea.description,
@@ -180,25 +185,41 @@ export function coachTools(data: CoachData) {
       description: scheduleTask.description,
       inputSchema: scheduleTask.inputSchema,
       contextSchema: toolContext,
-      execute: (input, { context, toolCallId }) =>
-        runScheduleTask(input, {
+      execute: (input, { context, toolCallId }) => {
+        // Count before awaiting so parallel calls in one step share the cap.
+        if (scheduledThisTurn >= maxSchedulesPerTurn) {
+          throw new Error(
+            `You can schedule only ${maxSchedulesPerTurn} Tasks per reply.`,
+          );
+        }
+        scheduledThisTurn += 1;
+        return runScheduleTask(input, {
           userId: context.userId,
           toolCallId,
           messageId: context.messageId,
           data,
-        }),
+        });
+      },
     }),
     updateTask: tool({
       description: updateTask.description,
       inputSchema: updateTask.inputSchema,
       contextSchema: toolContext,
-      execute: (input, { context, toolCallId }) =>
-        runUpdateTask(input, {
+      execute: (input, { context, toolCallId }) => {
+        // Count before awaiting so parallel calls in one step share the cap.
+        if (updatedThisTurn >= maxUpdatesPerTurn) {
+          throw new Error(
+            `You can update only ${maxUpdatesPerTurn} Tasks per reply.`,
+          );
+        }
+        updatedThisTurn += 1;
+        return runUpdateTask(input, {
           userId: context.userId,
           toolCallId,
           messageId: context.messageId,
           data,
-        }),
+        });
+      },
     }),
   };
 }
