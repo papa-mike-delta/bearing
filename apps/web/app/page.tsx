@@ -50,9 +50,13 @@ export default async function Home({
   }));
 
   const goals: StackGoal[] = loaded.goals;
+  const wide = areas.some(
+    (area) =>
+      area.workflow === "kanban" && !loaded.hiddenAreaIds.includes(area.id),
+  );
 
   return (
-    <main>
+    <main className={wide ? "wide" : undefined}>
       <Header email={user.email} />
       {error && Object.hasOwn(errors, error) ? (
         <p role="alert">{errors[error]}</p>
