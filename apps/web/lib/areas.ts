@@ -283,6 +283,59 @@ export async function setAreaWip(
   return Boolean(row);
 }
 
+// Name, hide flag, workflow, and limit are all checked before any write,
+// including a case-insensitive clash with this account's other Areas. Null
+// refuses the name or the Area. False refuses the limit or the workflow.
+// The Area row and the hidden list then update together, or not at all.
+export async function saveArea(
+  userId: string,
+  areaId: string,
+  input: { name: string; hidden: boolean; workflow: string; limit: number },
+  db: Db = defaultDb,
+) {
+  if (!isUuid(areaId)) return null;
+  const name = areaName(input.name);
+  if (!name) return null;
+  const workflow = offeredWorkflow(input.workflow);
+  const limit = wipLimit(input.limit);
+  const existing = await db
+    .select({ id: areas.id, name: areas.name })
+    .from(areas)
+    .where(eq(areas.userId, userId));
+  if (!existing.some((area) => area.id === areaId)) return null;
+  if (areaNameTaken(name, existing, areaId)) return null;
+  if (typeof input.hidden !== "boolean" || !workflow || limit === null) {
+    return false;
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ hiddenAreaIds: users.hiddenAreaIds })
+        .from(users)
+        .where(eq(users.id, userId))
+        .for("update");
+      if (!user) return null;
+      const [row] = await tx
+        .update(areas)
+        .set({ name, workflow, wipLimit: limit })
+        .where(and(eq(areas.id, areaId), eq(areas.userId, userId)))
+        .returning({ id: areas.id });
+      if (!row) return null;
+      const ids = new Set(user.hiddenAreaIds);
+      if (input.hidden) ids.add(areaId);
+      else ids.delete(areaId);
+      await tx
+        .update(users)
+        .set({ hiddenAreaIds: [...ids] })
+        .where(eq(users.id, userId));
+      return true;
+    });
+  } catch (error) {
+    if (uniqueViolation(error)) return null;
+    throw error;
+  }
+}
+
 export function orderedAreas(loaded: LoadedAccount) {
   const counts = new Map<string, number>();
   for (const task of loaded.tasks) {

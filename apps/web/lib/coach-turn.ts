@@ -276,6 +276,8 @@ function logTurn(
         listArea: count("tool-listArea"),
         createTask: count("tool-createTask"),
         completeTask: count("tool-completeTask"),
+        scheduleTask: count("tool-scheduleTask"),
+        updateTask: count("tool-updateTask"),
       },
       finishReason,
     }),

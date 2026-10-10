@@ -4,7 +4,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mock, test } from "node:test";
-import { coachCreateSourceId, type CoachData } from "@repo/coach";
+import {
+  coachCreateSourceId,
+  updateTask,
+  type CoachData,
+} from "@repo/coach";
 import { simulateReadableStream, streamText, type ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import {
@@ -492,4 +496,145 @@ test("a completeTask database error reaches the model as a fixed sentence", asyn
   assert.equal(entry.tool, "completeTask");
   assert.equal(entry.error, "Error");
   assert.equal(entry.code, "57014");
+});
+
+async function settled(run: () => unknown) {
+  try {
+    return { ok: true as const, value: await run() };
+  } catch (error) {
+    return { ok: false as const, error };
+  }
+}
+
+test("a fourth parallel updateTask in one step is refused by the per-turn cap", async () => {
+  const userId = randomUUID();
+  const taskId = randomUUID();
+  let updates = 0;
+  const data: CoachData = {
+    async listOpenTasks() {
+      return [];
+    },
+    ...unusedWrites,
+    async updateTask() {
+      updates += 1;
+      return { id: taskId, name: "T" };
+    },
+  };
+  const tools = coachTools(data);
+  const results = await Promise.all(
+    [0, 1, 2, 3].map((i) =>
+      settled(() =>
+        tools.updateTask.execute!(
+          { taskId, name: `N${i}` },
+          { context: { userId, messageId }, toolCallId: `u${i}` } as never,
+        ),
+      ),
+    ),
+  );
+  assert.equal(results.filter((result) => result.ok).length, 3);
+  assert.equal(updates, 3);
+  const refused = results.find((result) => !result.ok);
+  assert.match(String(refused?.error), /You can update only 3 Tasks per reply/);
+});
+
+test("a fourth parallel scheduleTask in one step is refused by the per-turn cap", async () => {
+  const userId = randomUUID();
+  const taskId = randomUUID();
+  let schedules = 0;
+  const data: CoachData = {
+    async listOpenTasks() {
+      return [];
+    },
+    ...unusedWrites,
+    async scheduleTask() {
+      schedules += 1;
+      return { id: taskId, name: "T" };
+    },
+  };
+  const tools = coachTools(data);
+  const results = await Promise.all(
+    [0, 1, 2, 3].map((i) =>
+      settled(() =>
+        tools.scheduleTask.execute!(
+          { taskId, date: "2026-10-20" },
+          { context: { userId, messageId }, toolCallId: `s${i}` } as never,
+        ),
+      ),
+    ),
+  );
+  assert.equal(results.filter((result) => result.ok).length, 3);
+  assert.equal(schedules, 3);
+  const refused = results.find((result) => !result.ok);
+  assert.match(
+    String(refused?.error),
+    /You can schedule only 3 Tasks per reply/,
+  );
+});
+
+test("updateTask rejects status completed", () => {
+  const taskId = randomUUID();
+  assert.equal(
+    updateTask.inputSchema.safeParse({ taskId, status: "completed" }).success,
+    false,
+  );
+  assert.equal(
+    updateTask.inputSchema.safeParse({ taskId, status: "started" }).success,
+    true,
+  );
+  const tools = coachTools({
+    async listOpenTasks() {
+      return [];
+    },
+    ...unusedWrites,
+  });
+  assert.equal(tools.updateTask.inputSchema, updateTask.inputSchema);
+});
+
+test("parallel updateTask calls and an extra completeTask complete at most one Task", async () => {
+  const userId = randomUUID();
+  const taskId = randomUUID();
+  let updates = 0;
+  let completed = 0;
+  const data: CoachData = {
+    async listOpenTasks() {
+      return [];
+    },
+    async createTask() {
+      throw new Error("createTask should not run");
+    },
+    async completeTask() {
+      completed += 1;
+      return { id: taskId, name: "T" };
+    },
+    async scheduleTask() {
+      throw new Error("scheduleTask should not run");
+    },
+    async updateTask(_userId, _taskId, input) {
+      updates += 1;
+      if (input.status === "completed") completed += 1;
+      return { id: taskId, name: "T" };
+    },
+  };
+  const tools = coachTools(data);
+  const call =
+    (toolCallId: string) =>
+    ({ context: { userId, messageId }, toolCallId }) as never;
+  const results = await Promise.all([
+    ...[0, 1, 2].map((i) =>
+      settled(() =>
+        tools.updateTask.execute!(
+          { taskId, status: "started" },
+          call(`u${i}`),
+        ),
+      ),
+    ),
+    settled(() => tools.completeTask.execute!({ taskId }, call("c1"))),
+    settled(() => tools.completeTask.execute!({ taskId }, call("c2"))),
+  ]);
+  assert.ok(completed <= 1);
+  assert.equal(completed, 1);
+  assert.equal(updates, 3);
+  assert.equal(results.filter((result) => result.ok).length, 4);
+  const refused = results.find((result) => !result.ok);
+  assert.match(String(refused?.error), /only one Task per reply/);
 });

@@ -98,6 +98,32 @@ function useBrowserToday() {
   );
 }
 
+function MoveTo({ task }: { task: TaskRecord }) {
+  return (
+    <form className="move" action={moveTaskOnList}>
+      <input type="hidden" name="id" value={task.id} />
+      <select
+        className="choice"
+        name="to"
+        aria-label={`Move ${task.name} to`}
+        defaultValue={task.status}
+        onChange={(event) => {
+          event.currentTarget.form?.requestSubmit();
+        }}
+      >
+        {kanbanColumns.map((column) => (
+          <option key={column} value={column}>
+            {columnLabel[column]}
+          </option>
+        ))}
+      </select>
+      <Button type="submit" variant="outline" size="xs" className="px-1.5">
+        Move
+      </Button>
+    </form>
+  );
+}
+
 function TaskLine({
   task,
   next,
@@ -112,70 +138,147 @@ function TaskLine({
   move: "none" | "now-later" | "kanban";
 }) {
   const [pickingDate, setPickingDate] = useState(false);
+  const done = (
+    <form action={completeTaskOnList}>
+      <input type="hidden" name="id" value={task.id} />
+      <Button
+        type="submit"
+        variant="outline"
+        size="icon-xs"
+        className="size-4 rounded-full"
+        aria-label={`Complete ${task.name}`}
+      />
+    </form>
+  );
+  const priority = (
+    <form action={changeTaskPriority}>
+      <input type="hidden" name="id" value={task.id} />
+      <Button
+        type="submit"
+        name="step"
+        value="up"
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
+        aria-label={`Raise ${task.name}`}
+        disabled={task.priority >= maxPriority}
+      >
+        ↑
+      </Button>
+      <Button
+        type="submit"
+        name="step"
+        value="down"
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
+        aria-label={`Lower ${task.name}`}
+        disabled={task.priority <= minPriority}
+      >
+        ↓
+      </Button>
+    </form>
+  );
+  const goal =
+    goals.length > 0 ? (
+      <form action={assignTaskGoal}>
+        <input type="hidden" name="id" value={task.id} />
+        <select
+          className="choice"
+          name="goal"
+          aria-label={`Goal for ${task.name}`}
+          defaultValue={task.goalId ?? ""}
+        >
+          <option value="">No goal</option>
+          {goals.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" variant="ghost" size="xs">
+          Goal
+        </Button>
+      </form>
+    ) : null;
+  const schedule = (
+    <form action={scheduleTaskOnList}>
+      <input type="hidden" name="id" value={task.id} />
+      <input type="hidden" name="today" value={today} />
+      {pickingDate ? (
+        <>
+          <Input
+            type="date"
+            name="date"
+            className="w-36"
+            aria-label={`Date for ${task.name}`}
+            min={dayAfter(today)}
+            required
+          />
+          <Button type="submit" variant="ghost" size="xs">
+            Set
+          </Button>
+        </>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => setPickingDate(true)}
+        >
+          Date
+        </Button>
+      )}
+    </form>
+  );
+
+  if (move === "kanban") {
+    return (
+      <li className="card">
+        <span className="card-title">
+          <span
+            className="handle"
+            draggable
+            aria-label={`Drag ${task.name}`}
+            onDragStart={(event: DragEvent<HTMLSpanElement>) => {
+              event.dataTransfer.setData("text/plain", task.id);
+              event.dataTransfer.effectAllowed = "move";
+            }}
+          >
+            ⋮⋮
+          </span>
+          <span className="card-name">
+            {task.name}
+            {task.note ? <small>{task.note}</small> : null}
+            {task.date ? <small>{formatDay(task.date)}</small> : null}
+          </span>
+        </span>
+        <div className="card-row">
+          {done}
+          {priority}
+          <MoveTo task={task} />
+        </div>
+        <details>
+          <summary>More</summary>
+          {goal}
+          {schedule}
+        </details>
+      </li>
+    );
+  }
+
   return (
     <li>
-      {move === "kanban" ? (
-        <span
-          className="handle"
-          draggable
-          aria-label={`Drag ${task.name}`}
-          onDragStart={(event: DragEvent<HTMLSpanElement>) => {
-            event.dataTransfer.setData("text/plain", task.id);
-            event.dataTransfer.effectAllowed = "move";
-          }}
-        >
-          ⋮⋮
-        </span>
-      ) : null}
-      <form action={completeTaskOnList}>
-        <input type="hidden" name="id" value={task.id} />
-        <Button
-          type="submit"
-          variant="outline"
-          size="icon-xs"
-          className="size-4 rounded-full"
-          aria-label={`Complete ${task.name}`}
-        />
-      </form>
+      {done}
       <span>
         {task.name}
         {task.note ? <small>{task.note}</small> : null}
         {task.date ? <small>{formatDay(task.date)}</small> : null}
-        {move !== "kanban" && task.status === "started" ? (
-          <small>In progress</small>
-        ) : null}
-        {move !== "kanban" && task.status === "waiting" ? (
-          <small>Waiting</small>
-        ) : null}
+        {task.status === "started" ? <small>In progress</small> : null}
+        {task.status === "waiting" ? <small>Waiting</small> : null}
       </span>
       {next ? <strong>Next</strong> : null}
-      <form action={changeTaskPriority}>
-        <input type="hidden" name="id" value={task.id} />
-        <Button
-          type="submit"
-          name="step"
-          value="up"
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
-          aria-label={`Raise ${task.name}`}
-          disabled={task.priority >= maxPriority}
-        >
-          ↑
-        </Button>
-        <Button
-          type="submit"
-          name="step"
-          value="down"
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
-          aria-label={`Lower ${task.name}`}
-          disabled={task.priority <= minPriority}
-        >
-          ↓
-        </Button>
-      </form>
+      {priority}
       {move === "now-later" &&
       task.status !== "next" &&
       task.status !== "started" &&
@@ -197,68 +300,8 @@ function TaskLine({
           </Button>
         </form>
       ) : null}
-      {move === "kanban"
-        ? kanbanColumns
-            .filter((column) => column !== task.status)
-            .map((column) => (
-              <form action={moveTaskOnList} key={column}>
-                <input type="hidden" name="id" value={task.id} />
-                <input type="hidden" name="to" value={column} />
-                <Button type="submit" variant="outline" size="xs">
-                  {columnLabel[column]}
-                </Button>
-              </form>
-            ))
-        : null}
-      {goals.length > 0 ? (
-        <form action={assignTaskGoal}>
-          <input type="hidden" name="id" value={task.id} />
-          <select
-            className="choice"
-            name="goal"
-            aria-label={`Goal for ${task.name}`}
-            defaultValue={task.goalId ?? ""}
-          >
-            <option value="">No goal</option>
-            {goals.map((goal) => (
-              <option key={goal.id} value={goal.id}>
-                {goal.name}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" variant="ghost" size="xs">
-            Goal
-          </Button>
-        </form>
-      ) : null}
-      <form action={scheduleTaskOnList}>
-        <input type="hidden" name="id" value={task.id} />
-        <input type="hidden" name="today" value={today} />
-        {pickingDate ? (
-          <>
-            <Input
-              type="date"
-              name="date"
-              className="w-36"
-              aria-label={`Date for ${task.name}`}
-              min={dayAfter(today)}
-              required
-            />
-            <Button type="submit" variant="ghost" size="xs">
-              Set
-            </Button>
-          </>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => setPickingDate(true)}
-          >
-            Date
-          </Button>
-        )}
-      </form>
+      {goal}
+      {schedule}
     </li>
   );
 }
@@ -305,12 +348,12 @@ function GoalList({ areaId, goals }: { areaId: string; goals: AreaGoal[] }) {
         <ul>
           {goals.map((goal, index) => (
             <li key={goal.id}>
-              <form action={renameNamedGoal}>
+              <form className="goal-rename" action={renameNamedGoal}>
                 <input type="hidden" name="id" value={goal.id} />
                 <Input
                   name="name"
                   aria-label={`Rename ${goal.name}`}
-                  className="w-40"
+                  className="w-40 goal-rename"
                   defaultValue={goal.name}
                   maxLength={maxAreaNameLength}
                   required
@@ -425,7 +468,6 @@ export function TaskStacks({
                 than {view.wipLimit}.
               </p>
             ) : null}
-            <GoalList areaId={view.id} goals={view.goals} />
             <form action={addTask}>
               <input type="hidden" name="area" value={view.name} />
               <input type="hidden" name="today" value={today} />
@@ -526,6 +568,10 @@ export function TaskStacks({
                 </div>
               ))
             )}
+            <details className="manage-goals">
+              <summary>Manage goals</summary>
+              <GoalList areaId={view.id} goals={view.goals} />
+            </details>
           </section>
         );
       })}

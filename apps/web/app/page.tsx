@@ -71,7 +71,7 @@ export default async function Home({
         </form>
       ) : (
         <>
-          <h1>Areas</h1>
+          <h1>Tasks</h1>
           <TaskStacks
             areas={areas}
             tasks={tasks}
@@ -96,7 +96,7 @@ export default async function Home({
                       maxLength={maxAreaNameLength}
                       required
                     />
-                    <label>
+                    <label className="text-xs text-muted-foreground">
                       <input
                         type="checkbox"
                         name="hidden"
@@ -127,7 +127,7 @@ export default async function Home({
                       Save
                     </Button>
                   </form>
-                  <form action={deleteNamedArea}>
+                  <form className="ml-auto" action={deleteNamedArea}>
                     <input type="hidden" name="id" value={area.id} />
                     <Button
                       type="submit"

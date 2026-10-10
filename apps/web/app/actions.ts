@@ -26,11 +26,8 @@ import {
   deleteArea,
   deleteGoal,
   moveGoal,
-  renameArea,
   renameGoal,
-  setAreaHidden,
-  setAreaWip,
-  setAreaWorkflow,
+  saveArea as saveAreaRecord,
 } from "../lib/areas";
 import {
   addTask,
@@ -120,18 +117,14 @@ export async function createNamedArea(formData: FormData) {
 
 export async function saveArea(formData: FormData) {
   const { id: userId } = await requireUser();
-  const id = String(formData.get("id"));
-  const renamed = await renameArea(
-    userId,
-    id,
-    String(formData.get("name") ?? ""),
-  );
-  await setAreaHidden(userId, id, formData.has("hidden"));
-  await setAreaWorkflow(userId, id, String(formData.get("workflow") ?? ""));
-  const limit = Number(formData.get("limit"));
-  const saved = await setAreaWip(userId, id, limit);
+  const saved = await saveAreaRecord(userId, String(formData.get("id")), {
+    name: String(formData.get("name") ?? ""),
+    hidden: formData.has("hidden"),
+    workflow: String(formData.get("workflow") ?? ""),
+    limit: Number(formData.get("limit")),
+  });
   revalidatePath("/");
-  if (!renamed) redirect("/?error=area-name");
+  if (saved === null) redirect("/?error=area-name");
   if (!saved) redirect("/?error=limit");
 }
 

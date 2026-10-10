@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { maxAreaNameLength } from "@repo/domain";
 import type { CoachData } from "../data.ts";
 import { updateTask } from "./update-task.ts";
 
@@ -43,7 +44,7 @@ const ctx = (data: CoachData) => ({
 test("updateTask passes only the fields it was given", async () => {
   const { data, calls } = fake({ id: taskId, name: "Oat milk" });
   const result = await updateTask.run(
-    { taskId, name: "Oat milk", goal: null, status: "completed" },
+    { taskId, name: "Oat milk", goal: null, status: "started" },
     ctx(data),
   );
   assert.equal(result.name, "Oat milk");
@@ -51,7 +52,7 @@ test("updateTask passes only the fields it was given", async () => {
     {
       userId: "user-7",
       taskId,
-      input: { name: "Oat milk", goal: null, status: "completed" },
+      input: { name: "Oat milk", goal: null, status: "started" },
     },
   ]);
 });
@@ -73,5 +74,33 @@ test("updateTask reports refused, and invalidId for a bad id", async () => {
   assert.equal(
     updateTask.inputSchema.safeParse({ taskId, date: "2026-10-20" }).success,
     false,
+  );
+  assert.equal(
+    updateTask.inputSchema.safeParse({ taskId, status: "completed" }).success,
+    false,
+  );
+  assert.equal(
+    updateTask.inputSchema.safeParse({ taskId, status: "started" }).success,
+    true,
+  );
+  assert.equal(
+    updateTask.inputSchema.safeParse({
+      taskId,
+      goal: "g".repeat(maxAreaNameLength),
+    }).success,
+    true,
+  );
+  assert.equal(
+    updateTask.inputSchema.safeParse({
+      taskId,
+      goal: "g".repeat(maxAreaNameLength + 1),
+    }).success,
+    false,
+  );
+  assert.equal(updateTask.description.includes("completes the Task"), false);
+  assert.ok(
+    updateTask.description.includes(
+      "completeTask is the only way to complete a Task.",
+    ),
   );
 });
