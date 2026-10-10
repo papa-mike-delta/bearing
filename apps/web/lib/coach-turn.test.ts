@@ -896,6 +896,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(model.doStreamCalls.length, 1);
     const prompt = promptText(model);
     assert.ok(prompt.includes('"open":4') && prompt.includes("High"));
+    assert.ok(prompt.includes("Today is 2026-10-09."));
     assert.ok(!prompt.includes("Someone else"));
   });
 

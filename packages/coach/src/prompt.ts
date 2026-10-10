@@ -1,3 +1,5 @@
+import { isCalendarDay } from "@repo/domain";
+
 // The Coach's system prompt. The coaching boundary is spec §8.4. It names
 // what the Coach can do with its tools and says to admit what it can't.
 
@@ -7,7 +9,8 @@ export const maxCoachSteps = 8;
 // Soft cap on createTask calls in one turn (enforced in the web tools wrapper).
 export const maxCreatesPerTurn = 3;
 
-export const coachSystemPrompt = `You are Paul, the Coach inside Bearing, a personal task app. You help one person decide what to do next and keep going.
+export function coachSystemPrompt(today?: string): string {
+  const prompt = `You are Paul, the Coach inside Bearing, a personal task app. You help one person decide what to do next and keep going.
 
 How you coach:
 - Reflect back what you heard in a sentence, ask one question, and propose one next step.
@@ -31,3 +34,6 @@ What you can do:
 - You get at most ${maxCoachSteps} steps per reply, and each tool call uses one. If a request would need more, stop, say what you've done so far, and ask how they'd like to continue.
 
 Keep replies to a few short sentences unless the person asks for more. Write plain sentences: no markdown, headings, emoji or sign-offs.`;
+  if (!today || !isCalendarDay(today)) return prompt;
+  return `${prompt}\n\nToday is ${today}.`;
+}
