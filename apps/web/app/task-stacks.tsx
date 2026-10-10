@@ -162,21 +162,46 @@ function TaskMenu({
           <Menu.Popup className="task-menu">
             {groups.map((group) => (
               <Menu.Group key={group.id}>
-                <Menu.GroupLabel className="task-menu-label">
-                  {group.label}
-                </Menu.GroupLabel>
-                {group.items.map((item) => (
-                  <Menu.Item
-                    key={`${group.id}-${item.label}`}
-                    className="task-menu-item"
-                    disabled={!item.enabled}
-                    aria-current={item.current ? "true" : undefined}
-                    onClick={() => runMenu(task.id, item, onDate)}
-                  >
-                    {item.label}
-                    {item.current ? " (current)" : ""}
-                  </Menu.Item>
-                ))}
+                {group.id === "date" ? null : (
+                  <Menu.GroupLabel className="task-menu-label">
+                    {group.label}
+                  </Menu.GroupLabel>
+                )}
+                {group.id === "goal" ? (
+                  <Menu.RadioGroup value={task.goalId ?? ""}>
+                    {group.items.map((item) => (
+                      <Menu.RadioItem
+                        key={`${group.id}-${item.label}`}
+                        className="task-menu-item"
+                        value={
+                          item.action.type === "goal"
+                            ? (item.action.goalId ?? "")
+                            : item.label
+                        }
+                        disabled={!item.enabled}
+                        closeOnClick
+                        aria-current={item.current ? "true" : undefined}
+                        onClick={() => runMenu(task.id, item, onDate)}
+                      >
+                        {item.label}
+                        {item.current ? " (current)" : ""}
+                      </Menu.RadioItem>
+                    ))}
+                  </Menu.RadioGroup>
+                ) : (
+                  group.items.map((item) => (
+                    <Menu.Item
+                      key={`${group.id}-${item.label}`}
+                      className="task-menu-item"
+                      disabled={!item.enabled}
+                      aria-current={item.current ? "true" : undefined}
+                      onClick={() => runMenu(task.id, item, onDate)}
+                    >
+                      {item.label}
+                      {item.current ? " (current)" : ""}
+                    </Menu.Item>
+                  ))
+                )}
               </Menu.Group>
             ))}
           </Menu.Popup>
@@ -203,6 +228,7 @@ function TaskLine({
 }) {
   const [pickingDate, setPickingDate] = useState(false);
   const goalName = goals.find((goal) => goal.id === task.goalId)?.name;
+  const kanbanNext = next && workflow === "kanban";
   return (
     <li
       draggable={drag}
@@ -215,29 +241,32 @@ function TaskLine({
           : undefined
       }
     >
-      <form action={completeTaskOnList}>
-        <input type="hidden" name="id" value={task.id} />
-        <Button
-          type="submit"
-          variant="outline"
-          size="icon-xs"
-          className="hit rounded-full"
-          aria-label={`Complete ${task.name}`}
-        />
-      </form>
-      <span>
-        {task.name}
-        {task.note ? <small>{task.note}</small> : null}
-        {task.date ? <small>{formatDay(task.date)}</small> : null}
-        {goalName ? <small>{goalName}</small> : null}
-        {workflow !== "kanban" && task.status === "started" ? (
-          <small>In progress</small>
-        ) : null}
-        {workflow !== "kanban" && task.status === "waiting" ? (
-          <small>Waiting</small>
-        ) : null}
-      </span>
-      {next ? <strong>Next</strong> : null}
+      <div className="card-title">
+        <form action={completeTaskOnList}>
+          <input type="hidden" name="id" value={task.id} />
+          <Button
+            type="submit"
+            variant="outline"
+            size="icon-xs"
+            className="hit rounded-full"
+            aria-label={`Complete ${task.name}`}
+          />
+        </form>
+        <span className={kanbanNext ? "card-name next-title" : "card-name"}>
+          {kanbanNext ? <span className="sr-only">Next: </span> : null}
+          {task.name}
+          {task.note ? <small>{task.note}</small> : null}
+          {task.date ? <small>{formatDay(task.date)}</small> : null}
+          {goalName ? <small>{goalName}</small> : null}
+          {workflow !== "kanban" && task.status === "started" ? (
+            <small>In progress</small>
+          ) : null}
+          {workflow !== "kanban" && task.status === "waiting" ? (
+            <small>Waiting</small>
+          ) : null}
+        </span>
+      </div>
+      {next && workflow !== "kanban" ? <strong>Next</strong> : null}
       <TaskMenu
         task={task}
         goals={goals}
@@ -245,7 +274,12 @@ function TaskLine({
         onDate={() => setPickingDate(true)}
       />
       {pickingDate ? (
-        <form action={scheduleTaskOnList}>
+        <form
+          action={(formData) => {
+            setPickingDate(false);
+            return scheduleTaskOnList(formData);
+          }}
+        >
           <input type="hidden" name="id" value={task.id} />
           <input type="hidden" name="today" value={today} />
           <Input
@@ -485,14 +519,13 @@ export function TaskStacks({
             {frame ? (
               <>
                 {frame.switcher ? (
-                  <div className="switcher" role="tablist" aria-label={`${view.name} columns`}>
+                  <div className="switcher" role="group" aria-label={`${view.name} columns`}>
                     {frame.switcher.map((entry) => (
                       <button
                         key={entry.id}
                         type="button"
-                        role="tab"
                         className="hit"
-                        aria-selected={frame.shown[0] === entry.id}
+                        aria-pressed={frame.shown[0] === entry.id}
                         onClick={() =>
                           setChosen((current) => ({
                             ...current,
@@ -538,7 +571,7 @@ export function TaskStacks({
                           : undefined
                       }
                     >
-                      <h3>{column.label}</h3>
+                      {frame.switcher ? null : <h3>{column.label}</h3>}
                       {column.tasks.length === 0 ? (
                         <p>Empty</p>
                       ) : (

@@ -105,6 +105,11 @@ export default async function Home({
                         type="checkbox"
                         name="hidden"
                         defaultChecked={area.hidden}
+                        style={{
+                          accentColor: "var(--primary)",
+                          width: "1rem",
+                          height: "1rem",
+                        }}
                       />{" "}
                       Hidden
                     </label>
