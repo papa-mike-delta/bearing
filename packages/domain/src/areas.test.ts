@@ -430,6 +430,46 @@ test("a Kanban future date sits at the bottom of Later, and a due date is only i
   assert.equal(onlyNext.nextId, "soon");
 });
 
+test("Kanban Next is the first started Task, otherwise the first Next, otherwise none", () => {
+  const board = area("Work", "kanban");
+  const started = stackedPage(
+    [board],
+    [
+      task("next-old", "Work", { status: "next", age: "2026-01-01" }),
+      task("started-new", "Work", { status: "started", age: "2026-10-01" }),
+      task("started-old", "Work", { status: "started", age: "2026-05-01" }),
+      task("waiting", "Work", { status: "waiting", age: "2026-01-01" }),
+    ],
+    [],
+    today,
+  );
+  assert.equal(started[0]?.nextId, "started-old");
+
+  const nextOnly = stackedPage(
+    [board],
+    [
+      task("later-old", "Work", { age: "2026-01-01" }),
+      task("next-new", "Work", { status: "next", age: "2026-10-01" }),
+      task("next-old", "Work", { status: "next", age: "2026-05-01" }),
+      task("waiting", "Work", { status: "waiting", age: "2026-01-01" }),
+    ],
+    [],
+    today,
+  );
+  assert.equal(nextOnly[0]?.nextId, "next-old");
+
+  const none = stackedPage(
+    [board],
+    [
+      task("later-old", "Work", { age: "2026-01-01" }),
+      task("waiting", "Work", { status: "waiting", age: "2026-01-01" }),
+    ],
+    [],
+    today,
+  );
+  assert.equal(none[0]?.nextId, null);
+});
+
 test("moving onto a column sets that status and keeps the date", () => {
   const due = task("due", "Work", { date: today, age: today });
   const started = moveToColumn(due, "started");

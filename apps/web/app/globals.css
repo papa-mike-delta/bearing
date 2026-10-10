@@ -309,16 +309,28 @@
   }
 
   form.move {
-    flex: 1 1 8rem;
-    flex-direction: row;
-    align-items: center;
+    width: 100%;
+    max-width: none;
+    flex: none;
+    flex-direction: column;
+    align-items: stretch;
     gap: 0.25rem;
   }
 
   form.move select.choice {
+    width: 100%;
     min-width: 0;
-    flex: 1 1 4.5rem;
-    max-width: 100%;
+    max-width: none;
+    flex: none;
+  }
+
+  li.card details > summary {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  li.card .next-title {
+    font-weight: 600;
   }
 
   li.card details {
@@ -459,11 +471,26 @@
   }
 }
 
-/* Compact no-JS fallback, aligned with the move select. */
-form.move [data-slot="button"] {
-  height: 1.75rem;
-  padding-inline: 0.4rem;
-  font-size: 0.75rem;
+/* The move select is its own line across the card at every width. Unlayered,
+   so a layered form max-width cannot shrink it. */
+form.move,
+form.move select.choice {
+  width: 100%;
+  max-width: none;
+}
+
+/* Visually hidden, still read by assistive tech. Unlayered, so it beats a
+   button's height and padding utilities. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* The kit's fields and buttons set outline-none and rely on a faint --ring.

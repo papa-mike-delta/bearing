@@ -125,7 +125,7 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: coachSystemPrompt,
+    system: coachSystemPrompt(today),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: coachToolsContext(userId, userMessage.id),
