@@ -106,20 +106,25 @@ function MoveTo({ task }: { task: TaskRecord }) {
         className="choice"
         name="to"
         aria-label={`Move ${task.name} to`}
-        defaultValue={task.status}
+        defaultValue=""
         onChange={(event) => {
           event.currentTarget.form?.requestSubmit();
         }}
       >
+        <option value="" disabled>
+          Move to…
+        </option>
         {kanbanColumns.map((column) => (
           <option key={column} value={column}>
             {columnLabel[column]}
           </option>
         ))}
       </select>
-      <Button type="submit" variant="outline" size="xs" className="px-1.5">
-        Move
-      </Button>
+      <noscript>
+        <Button type="submit" className="sr-only">
+          Move
+        </Button>
+      </noscript>
     </form>
   );
 }
@@ -248,7 +253,8 @@ function TaskLine({
             ⋮⋮
           </span>
           <span className="card-name">
-            {task.name}
+            {next ? <span className="sr-only">Next: </span> : null}
+            <span className={next ? "next-title" : undefined}>{task.name}</span>
             {task.note ? <small>{task.note}</small> : null}
             {task.date ? <small>{formatDay(task.date)}</small> : null}
           </span>
@@ -256,8 +262,8 @@ function TaskLine({
         <div className="card-row">
           {done}
           {priority}
-          <MoveTo task={task} />
         </div>
+        <MoveTo task={task} />
         <details>
           <summary>More</summary>
           {goal}
@@ -487,7 +493,7 @@ export function TaskStacks({
                     <TaskLine
                       key={task.id}
                       task={task}
-                      next={false}
+                      next={task.id === view.nextId}
                       today={today}
                       goals={view.goals}
                       move={move}
