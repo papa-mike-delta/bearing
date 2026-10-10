@@ -2,19 +2,14 @@
 
 import {
   kanbanColumns,
+  kanbanLabels,
   maxPriority,
   minPriority,
+  nowStatuses,
   type KanbanColumn,
   type TaskStatus,
   type Workflow,
 } from "@repo/domain";
-
-const columnLabel: Record<KanbanColumn, string> = {
-  started: "In progress",
-  next: "Next",
-  waiting: "Waiting",
-  later: "Later",
-};
 
 export type MenuAction =
   | { type: "move"; to: "now" | KanbanColumn }
@@ -37,9 +32,6 @@ export type MenuGroup = {
 
 export type AreaGoalName = { id: string; name: string };
 
-const inNow = (status: TaskStatus) =>
-  status === "next" || status === "started" || status === "waiting";
-
 function moveGroup(
   workflow: Workflow,
   status: TaskStatus,
@@ -49,7 +41,7 @@ function moveGroup(
       .filter((column) => column !== status)
       .map(
         (column): MenuItem => ({
-          label: columnLabel[column],
+          label: kanbanLabels[column],
           enabled: true,
           current: false,
           action: { type: "move", to: column },
@@ -72,7 +64,7 @@ function moveGroup(
         ],
       };
     }
-    if (inNow(status)) {
+    if (nowStatuses.has(status)) {
       return {
         id: "move",
         label: "Move",
@@ -145,7 +137,7 @@ export function taskMenu(input: {
     label: "Date",
     items: [
       {
-        label: "Date",
+        label: "Set date…",
         enabled: true,
         current: false,
         action: { type: "date" },
@@ -153,14 +145,6 @@ export function taskMenu(input: {
     ],
   });
   return groups;
-}
-
-// The row is the sentence. Controls live in the menu, not here.
-export function taskRow() {
-  return {
-    fields: ["complete", "name", "note", "date", "goal", "next"] as const,
-    controls: [] as string[],
-  };
 }
 
 export type KanbanColumnCount = {
@@ -188,7 +172,7 @@ export function kanbanFrame(input: {
     shown: [shown],
     switcher: input.columns.map((column) => ({
       id: column.id,
-      label: columnLabel[column.id],
+      label: kanbanLabels[column.id],
       count: column.count,
     })),
     dragging: false,

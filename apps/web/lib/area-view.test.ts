@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { kanbanColumns } from "@repo/domain";
-import { kanbanFrame, taskMenu, taskRow } from "./area-view.ts";
+import { kanbanFrame, taskMenu } from "./area-view.ts";
 
 const goals = [
   { id: "chores", name: "Chores" },
@@ -106,15 +105,6 @@ test("raise and lower are present and unusable at the ends of the scale", () => 
   );
 });
 
-test("the row has no move, priority, Goal, or date controls", () => {
-  const row = taskRow();
-  for (const control of ["move", "priority", "goal", "date"]) {
-    assert.equal(row.controls.includes(control), false);
-  }
-  assert.ok(row.fields.includes("name"));
-  assert.ok(row.fields.includes("complete"));
-});
-
 test("Goals are listed in order, with No goal, and the current one is marked", () => {
   const goal = taskMenu({
     workflow: "kanban",
@@ -130,6 +120,17 @@ test("Goals are listed in order, with No goal, and the current one is marked", (
       ["Money", true],
       ["No goal", false],
     ],
+  );
+  const unset = taskMenu({
+    workflow: "kanban",
+    status: "later",
+    priority: 0,
+    goals,
+    goalId: null,
+  }).find((group) => group.id === "goal")!;
+  assert.equal(
+    unset.items.find((item) => item.label === "No goal")?.current,
+    true,
   );
 });
 
@@ -156,21 +157,27 @@ test("the menu groups are Move, Priority, Goal, then Date", () => {
 });
 
 test("a narrow screen shows one column, defaulting to Next's column", () => {
-  const frame = kanbanFrame({ narrow: true, columns, chosen: null });
-  assert.deepEqual(frame.shown, ["started"]);
+  const frame = kanbanFrame({
+    narrow: true,
+    columns: columns.map((column) =>
+      column.id === "started"
+        ? { ...column, count: 0, holdsNext: false }
+        : column.id === "next"
+          ? { ...column, count: 1, holdsNext: true }
+          : column,
+    ),
+    chosen: null,
+  });
+  assert.deepEqual(frame.shown, ["next"]);
   assert.equal(frame.dragging, false);
   assert.deepEqual(
-    frame.switcher?.map((entry) => [entry.id, entry.count]),
+    frame.switcher?.map((entry) => [entry.label, entry.count]),
     [
-      ["started", 1],
-      ["next", 0],
-      ["waiting", 2],
-      ["later", 4],
+      ["In progress", 0],
+      ["Next", 1],
+      ["Waiting", 2],
+      ["Later", 4],
     ],
-  );
-  assert.deepEqual(
-    frame.switcher?.map((entry) => entry.id),
-    [...kanbanColumns],
   );
 });
 
