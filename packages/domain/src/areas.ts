@@ -158,6 +158,19 @@ export const kanbanColumns = ["started", "next", "waiting", "later"] as const;
 
 export type KanbanColumn = (typeof kanbanColumns)[number];
 
+export const kanbanLabels: Record<KanbanColumn, string> = {
+  started: "In progress",
+  next: "Next",
+  waiting: "Waiting",
+  later: "Later",
+};
+
+export const nowStatuses: ReadonlySet<TaskStatus> = new Set([
+  "next",
+  "started",
+  "waiting",
+]);
+
 // Dropping a Task on a column sets that status. Completed Tasks are refused.
 export function moveToColumn<T extends StatusTask>(
   task: T,
@@ -495,13 +508,6 @@ function section(
   return { id, label, tasks: grouped.tasks, groups: grouped.groups };
 }
 
-const kanbanLabels: Record<KanbanColumn, string> = {
-  started: "In progress",
-  next: "Next",
-  waiting: "Waiting",
-  later: "Later",
-};
-
 export function viewArea(
   area: AreaRecord,
   tasks: readonly TaskRecord[],
@@ -560,12 +566,7 @@ export function viewArea(
   }
   const { strip, later } = laterPool(open, today);
   const now = groupByGoal(
-    open.filter(
-      (task) =>
-        task.status === "next" ||
-        task.status === "started" ||
-        task.status === "waiting",
-    ),
+    open.filter((task) => nowStatuses.has(task.status)),
     goals,
     area.id,
     (items) => [...items].sort(byAge),

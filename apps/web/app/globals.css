@@ -186,6 +186,12 @@
     color: var(--muted-foreground);
   }
 
+  ul.manager input[name="hidden"] {
+    accent-color: var(--primary);
+    width: 1rem;
+    height: 1rem;
+  }
+
   ul.manager > li > form + form {
     margin-left: auto;
   }
@@ -269,21 +275,24 @@
     gap: 0.25rem;
   }
 
-  li.card > .card-title {
+  .card-title {
     display: flex;
     align-items: flex-start;
     gap: 0.35rem;
-    width: 100%;
     min-width: 0;
-    flex: 0 0 auto;
+    flex: 1;
     overflow-wrap: anywhere;
+  }
+
+  .card-title form {
+    flex: none;
   }
 
   li.card .handle {
     flex: none;
   }
 
-  li.card .card-name {
+  .card-name {
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
@@ -329,7 +338,7 @@
     color: var(--muted-foreground);
   }
 
-  li.card .next-title {
+  .next-title {
     font-weight: 600;
   }
 
@@ -433,7 +442,15 @@
       min-width: 0;
     }
 
-    section.stack li > span,
+    section.stack li > .card-title {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+
+    .switcher ~ div .column h3 {
+      display: none;
+    }
+
     ul.manager > li > span {
       flex: 1 0 100%;
       min-width: 0;
@@ -494,7 +511,7 @@ form.move select.choice {
   border: 0;
 }
 
-@media (min-width: 480px) {
+@media (min-width: 481px) {
   main.wide {
     max-width: 64rem;
   }
@@ -518,7 +535,7 @@ form.move select.choice {
   cursor: pointer;
 }
 
-.switcher button[aria-selected="true"] {
+.switcher button[aria-pressed="true"] {
   color: var(--primary);
 }
 
@@ -561,6 +578,10 @@ button.hit,
   border-radius: 0.25rem;
   font: inherit;
   cursor: pointer;
+}
+
+.task-menu-item[data-highlighted] {
+  background: var(--muted);
 }
 
 .task-menu-item[data-disabled] {
