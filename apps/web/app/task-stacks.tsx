@@ -2,11 +2,10 @@
 
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
+import { Menu } from "@base-ui/react/menu";
 import {
   kanbanColumns,
   maxAreaNameLength,
-  maxPriority,
-  minPriority,
   stackedPage,
   type AreaGoal,
   type AreaRecord,
@@ -18,6 +17,11 @@ import {
   type Workflow,
 } from "@repo/domain";
 import { useState, useSyncExternalStore, type DragEvent } from "react";
+import {
+  kanbanFrame,
+  taskMenu,
+  type MenuItem,
+} from "../lib/area-view";
 import { localToday } from "../lib/today";
 import {
   addTaskToList,
@@ -62,12 +66,9 @@ export type StackTask = {
   completedAt: string | null;
 };
 
-const columnLabel: Record<KanbanColumn, string> = {
-  started: "In progress",
-  next: "Next",
-  waiting: "Waiting",
-  later: "Later",
-};
+function isColumn(id: string): id is KanbanColumn {
+  return (kanbanColumns as readonly string[]).includes(id);
+}
 
 function dayAfter(day: string) {
   const [year, month, date] = day.split("-").map(Number);
@@ -98,34 +99,90 @@ function useBrowserToday() {
   );
 }
 
-function MoveTo({ task }: { task: TaskRecord }) {
+function usePhone() {
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const query = window.matchMedia("(max-width: 480px)");
+      query.addEventListener("change", onStoreChange);
+      return () => query.removeEventListener("change", onStoreChange);
+    },
+    () => window.matchMedia("(max-width: 480px)").matches,
+    () => false,
+  );
+}
+
+function runMenu(taskId: string, item: MenuItem, onDate: () => void) {
+  if (!item.enabled || item.current) return;
+  if (item.action.type === "date") {
+    onDate();
+    return;
+  }
+  const data = new FormData();
+  data.set("id", taskId);
+  if (item.action.type === "move") {
+    data.set("to", item.action.to);
+    void moveTaskOnList(data);
+  } else if (item.action.type === "priority") {
+    data.set("step", item.action.step);
+    void changeTaskPriority(data);
+  } else {
+    data.set("goal", item.action.goalId ?? "");
+    void assignTaskGoal(data);
+  }
+}
+
+function TaskMenu({
+  task,
+  goals,
+  workflow,
+  onDate,
+}: {
+  task: TaskRecord;
+  goals: AreaGoal[];
+  workflow: Workflow;
+  onDate: () => void;
+}) {
+  const groups = taskMenu({
+    workflow,
+    status: task.status,
+    priority: task.priority,
+    goals,
+    goalId: task.goalId,
+  });
   return (
-    <form className="move" action={moveTaskOnList}>
-      <input type="hidden" name="id" value={task.id} />
-      <select
-        className="choice"
-        name="to"
-        aria-label={`Move ${task.name} to`}
-        defaultValue=""
-        onChange={(event) => {
-          event.currentTarget.form?.requestSubmit();
-        }}
+    <Menu.Root>
+      <Menu.Trigger
+        className="hit task-menu-trigger"
+        aria-label={`Actions for ${task.name}`}
       >
-        <option value="" disabled>
-          Move to…
-        </option>
-        {kanbanColumns.map((column) => (
-          <option key={column} value={column}>
-            {columnLabel[column]}
-          </option>
-        ))}
-      </select>
-      <noscript>
-        <Button type="submit" className="sr-only">
-          Move
-        </Button>
-      </noscript>
-    </form>
+        Actions
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner>
+          <Menu.Popup className="task-menu">
+            {groups.map((group) => (
+              <Menu.Group key={group.id}>
+                <Menu.GroupLabel className="task-menu-label">
+                  {group.label}
+                </Menu.GroupLabel>
+                {group.items.map((item) => (
+                  <Menu.Item
+                    key={`${group.id}-${item.label}`}
+                    className="task-menu-item"
+                    disabled={!item.enabled}
+                    aria-current={item.current ? "true" : undefined}
+                    onClick={() => runMenu(task.id, item, onDate)}
+                  >
+                    {item.label}
+                    {item.current ? " (current)" : ""}
+                  </Menu.Item>
+                ))}
+              </Menu.Group>
+            ))}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 
@@ -134,84 +191,63 @@ function TaskLine({
   next,
   today,
   goals,
-  move,
+  workflow,
+  drag,
 }: {
   task: TaskRecord;
   next: boolean;
   today: string;
   goals: AreaGoal[];
-  move: "none" | "now-later" | "kanban";
+  workflow: Workflow;
+  drag: boolean;
 }) {
   const [pickingDate, setPickingDate] = useState(false);
-  const done = (
-    <form action={completeTaskOnList}>
-      <input type="hidden" name="id" value={task.id} />
-      <Button
-        type="submit"
-        variant="outline"
-        size="icon-xs"
-        className="size-4 rounded-full"
-        aria-label={`Complete ${task.name}`}
-      />
-    </form>
-  );
-  const priority = (
-    <form action={changeTaskPriority}>
-      <input type="hidden" name="id" value={task.id} />
-      <Button
-        type="submit"
-        name="step"
-        value="up"
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        aria-label={`Raise ${task.name}`}
-        disabled={task.priority >= maxPriority}
-      >
-        ↑
-      </Button>
-      <Button
-        type="submit"
-        name="step"
-        value="down"
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        aria-label={`Lower ${task.name}`}
-        disabled={task.priority <= minPriority}
-      >
-        ↓
-      </Button>
-    </form>
-  );
-  const goal =
-    goals.length > 0 ? (
-      <form action={assignTaskGoal}>
+  const goalName = goals.find((goal) => goal.id === task.goalId)?.name;
+  return (
+    <li
+      draggable={drag}
+      onDragStart={
+        drag
+          ? (event: DragEvent<HTMLLIElement>) => {
+              event.dataTransfer.setData("text/plain", task.id);
+              event.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
+    >
+      <form action={completeTaskOnList}>
         <input type="hidden" name="id" value={task.id} />
-        <select
-          className="choice"
-          name="goal"
-          aria-label={`Goal for ${task.name}`}
-          defaultValue={task.goalId ?? ""}
-        >
-          <option value="">No goal</option>
-          {goals.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="ghost" size="xs">
-          Goal
-        </Button>
+        <Button
+          type="submit"
+          variant="outline"
+          size="icon-xs"
+          className="hit rounded-full"
+          aria-label={`Complete ${task.name}`}
+        />
       </form>
-    ) : null;
-  const schedule = (
-    <form action={scheduleTaskOnList}>
-      <input type="hidden" name="id" value={task.id} />
-      <input type="hidden" name="today" value={today} />
+      <span>
+        {task.name}
+        {task.note ? <small>{task.note}</small> : null}
+        {task.date ? <small>{formatDay(task.date)}</small> : null}
+        {goalName ? <small>{goalName}</small> : null}
+        {workflow !== "kanban" && task.status === "started" ? (
+          <small>In progress</small>
+        ) : null}
+        {workflow !== "kanban" && task.status === "waiting" ? (
+          <small>Waiting</small>
+        ) : null}
+      </span>
+      {next ? <strong>Next</strong> : null}
+      <TaskMenu
+        task={task}
+        goals={goals}
+        workflow={workflow}
+        onDate={() => setPickingDate(true)}
+      />
       {pickingDate ? (
-        <>
+        <form action={scheduleTaskOnList}>
+          <input type="hidden" name="id" value={task.id} />
+          <input type="hidden" name="today" value={today} />
           <Input
             type="date"
             name="date"
@@ -223,91 +259,8 @@ function TaskLine({
           <Button type="submit" variant="ghost" size="xs">
             Set
           </Button>
-        </>
-      ) : (
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => setPickingDate(true)}
-        >
-          Date
-        </Button>
-      )}
-    </form>
-  );
-
-  if (move === "kanban") {
-    return (
-      <li className="card">
-        <span className="card-title">
-          <span
-            className="handle"
-            draggable
-            aria-label={`Drag ${task.name}`}
-            onDragStart={(event: DragEvent<HTMLSpanElement>) => {
-              event.dataTransfer.setData("text/plain", task.id);
-              event.dataTransfer.effectAllowed = "move";
-            }}
-          >
-            ⋮⋮
-          </span>
-          <span className="card-name">
-            {next ? <span className="sr-only">Next: </span> : null}
-            <span className={next ? "next-title" : undefined}>{task.name}</span>
-            {task.note ? <small>{task.note}</small> : null}
-            {task.date ? <small>{formatDay(task.date)}</small> : null}
-          </span>
-        </span>
-        <div className="card-row">
-          {done}
-          {priority}
-        </div>
-        <MoveTo task={task} />
-        <details>
-          <summary>More</summary>
-          {goal}
-          {schedule}
-        </details>
-      </li>
-    );
-  }
-
-  return (
-    <li>
-      {done}
-      <span>
-        {task.name}
-        {task.note ? <small>{task.note}</small> : null}
-        {task.date ? <small>{formatDay(task.date)}</small> : null}
-        {task.status === "started" ? <small>In progress</small> : null}
-        {task.status === "waiting" ? <small>Waiting</small> : null}
-      </span>
-      {next ? <strong>Next</strong> : null}
-      {priority}
-      {move === "now-later" &&
-      task.status !== "next" &&
-      task.status !== "started" &&
-      task.status !== "waiting" ? (
-        <form action={moveTaskOnList}>
-          <input type="hidden" name="id" value={task.id} />
-          <input type="hidden" name="to" value="now" />
-          <Button type="submit" variant="outline" size="xs">
-            Now
-          </Button>
         </form>
       ) : null}
-      {move === "now-later" && task.status !== "later" ? (
-        <form action={moveTaskOnList}>
-          <input type="hidden" name="id" value={task.id} />
-          <input type="hidden" name="to" value="later" />
-          <Button type="submit" variant="outline" size="xs">
-            Later
-          </Button>
-        </form>
-      ) : null}
-      {goal}
-      {schedule}
     </li>
   );
 }
@@ -317,13 +270,15 @@ function TaskGroups({
   nextId,
   today,
   goals,
-  move,
+  workflow,
+  drag,
 }: {
   groups: TaskGroup[];
   nextId: string | null;
   today: string;
   goals: AreaGoal[];
-  move: "none" | "now-later" | "kanban";
+  workflow: Workflow;
+  drag: boolean;
 }) {
   return groups.map((group, index) => (
     <div key={`${group.goalId ?? "none"}-${index}`}>
@@ -336,7 +291,8 @@ function TaskGroups({
             next={task.id === nextId}
             today={today}
             goals={goals}
-            move={move}
+            workflow={workflow}
+            drag={drag}
           />
         ))}
       </ul>
@@ -347,7 +303,6 @@ function TaskGroups({
 function GoalList({ areaId, goals }: { areaId: string; goals: AreaGoal[] }) {
   return (
     <div className="goals">
-      <h3>Goals</h3>
       {goals.length === 0 ? (
         <p>No goals yet.</p>
       ) : (
@@ -430,7 +385,9 @@ export function TaskStacks({
   hiddenAreaIds: string[];
 }) {
   const today = useBrowserToday();
+  const phone = usePhone();
   const [over, setOver] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Record<string, KanbanColumn>>({});
   if (!today) return null;
   const records: AreaRecord[] = areas.map((area) => ({
     ...area,
@@ -449,7 +406,8 @@ export function TaskStacks({
     event.preventDefault();
     setOver(null);
     const id = event.dataTransfer.getData("text/plain");
-    if (!id) return;
+    const task = rows.find((row) => row.id === id);
+    if (!task || task.status === column) return;
     const data = new FormData();
     data.set("id", id);
     data.set("to", column);
@@ -459,12 +417,33 @@ export function TaskStacks({
   return (
     <>
       {pages.map((view) => {
-        const move =
-          view.workflow === "kanban"
-            ? "kanban"
-            : view.workflow === "now-later"
-              ? "now-later"
-              : "none";
+        const workflow = view.workflow;
+        const frame =
+          workflow === "kanban"
+            ? kanbanFrame({
+                narrow: phone,
+                columns: view.sections.flatMap((column) =>
+                  isColumn(column.id)
+                    ? [
+                        {
+                          id: column.id,
+                          count: column.tasks.length,
+                          holdsNext: column.tasks.some(
+                            (task) => task.id === view.nextId,
+                          ),
+                        },
+                      ]
+                    : [],
+                ),
+                chosen: chosen[view.id] ?? null,
+              })
+            : null;
+        const shown = frame
+          ? view.sections.filter((column) => {
+              const id = column.id;
+              return isColumn(id) && frame.shown.includes(id);
+            })
+          : [];
         return (
           <section className="stack" key={view.id}>
             <h2>{view.name}</h2>
@@ -496,56 +475,86 @@ export function TaskStacks({
                       next={task.id === view.nextId}
                       today={today}
                       goals={view.goals}
-                      move={move}
+                      workflow={workflow}
+                      drag={frame?.dragging ?? false}
                     />
                   ))}
                 </ul>
               </>
             ) : null}
-            {view.workflow === "kanban" ? (
-              <div className="board">
-                {view.sections.map((column) => (
-                  <div
-                    key={column.id}
-                    className={
-                      over === `${view.id}:${column.id}` ? "column over" : "column"
-                    }
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                      setOver(`${view.id}:${column.id}`);
-                    }}
-                    onDragLeave={() =>
-                      setOver((current) =>
-                        current === `${view.id}:${column.id}` ? null : current,
-                      )
-                    }
-                    onDrop={(event) => {
-                      if (
-                        column.id === "started" ||
-                        column.id === "next" ||
-                        column.id === "waiting" ||
-                        column.id === "later"
-                      ) {
-                        dropOn(column.id, event);
-                      }
-                    }}
-                  >
-                    <h3>{column.label}</h3>
-                    {column.tasks.length === 0 ? (
-                      <p>Empty</p>
-                    ) : (
-                      <TaskGroups
-                        groups={column.groups}
-                        nextId={view.nextId}
-                        today={today}
-                        goals={view.goals}
-                        move="kanban"
-                      />
-                    )}
+            {frame ? (
+              <>
+                {frame.switcher ? (
+                  <div className="switcher" role="tablist" aria-label={`${view.name} columns`}>
+                    {frame.switcher.map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        role="tab"
+                        className="hit"
+                        aria-selected={frame.shown[0] === entry.id}
+                        onClick={() =>
+                          setChosen((current) => ({
+                            ...current,
+                            [view.id]: entry.id,
+                          }))
+                        }
+                      >
+                        {entry.label} {entry.count}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
+                ) : null}
+                <div className={frame.switcher ? undefined : "board"}>
+                  {shown.map((column) => (
+                    <div
+                      key={column.id}
+                      className={
+                        over === `${view.id}:${column.id}` ? "column over" : "column"
+                      }
+                      onDragOver={
+                        frame.dragging
+                          ? (event) => {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                              setOver(`${view.id}:${column.id}`);
+                            }
+                          : undefined
+                      }
+                      onDragLeave={
+                        frame.dragging
+                          ? () =>
+                              setOver((current) =>
+                                current === `${view.id}:${column.id}` ? null : current,
+                              )
+                          : undefined
+                      }
+                      onDrop={
+                        frame.dragging
+                          ? (event) => {
+                              const id = column.id;
+                              if (isColumn(id)) dropOn(id, event);
+                            }
+                          : undefined
+                      }
+                    >
+                      <h3>{column.label}</h3>
+                      {column.tasks.length === 0 ? (
+                        <p>Empty</p>
+                      ) : (
+                        <TaskGroups
+                          groups={column.groups}
+                          nextId={view.nextId}
+                          today={today}
+                          goals={view.goals}
+                          workflow="kanban"
+                          drag={frame.dragging}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
             ) : view.sections.length === 0 ? (
               view.tasks.length === 0 ? (
                 <p>No tasks yet.</p>
@@ -555,7 +564,8 @@ export function TaskStacks({
                   nextId={view.nextId}
                   today={today}
                   goals={view.goals}
-                  move="none"
+                  workflow={workflow}
+                  drag={false}
                 />
               )
             ) : (
@@ -568,14 +578,15 @@ export function TaskStacks({
                       nextId={view.nextId}
                       today={today}
                       goals={view.goals}
-                      move="now-later"
+                      workflow={workflow}
+                      drag={false}
                     />
                   )}
                 </div>
               ))
             )}
             <details className="manage-goals">
-              <summary>Manage goals</summary>
+              <summary>Goals</summary>
               <GoalList areaId={view.id} goals={view.goals} />
             </details>
           </section>
