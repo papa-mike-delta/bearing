@@ -31,6 +31,7 @@ export function JournalDay({ day, entry, settings, mood }: { day: string; entry:
       <Link href="/journal">Today</Link>
     </nav>
     {day > today ? <p>This day is not open yet.</p> : <>
+      <Button variant="outline" className="mb-4" nativeButton={false} render={<Link href={`/coach?closeDay=${day}`} prefetch={false} />}>Daily close</Button>
       <MoodControl day={day} initialMood={mood} />
       <JournalEditor day={day} entry={entry} settings={settings} />
     </>}

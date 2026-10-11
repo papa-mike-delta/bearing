@@ -24,6 +24,19 @@ type Line = { line: string; href?: string };
 
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
+  if (part.type === "tool-readJournalingArticle") {
+    if (pending(part.state)) return { line: "Reading journaling knowledge…" };
+    return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
+  }
+  if (part.type === "tool-readJournalDay") {
+    if (pending(part.state)) return { line: "Reading this Journal day…" };
+    const output = part.output as { day?: unknown } | undefined;
+    return part.state === "output-available" && typeof output?.day === "string" && isCalendarDay(output.day)
+      ? { line: `Read journal for ${output.day}`, href: `/journal/${output.day}` } : { line: "Couldn't read that Journal day" };
+  }
+  if (part.type === "tool-getJournalTemplate") {
+    return { line: pending(part.state) ? "Reading your Journal template…" : part.state === "output-available" ? "Read your Journal template" : "Couldn't read your Journal template" };
+  }
   if (part.type === "tool-listInboxDrafts") {
     if (pending(part.state)) return { line: "Reading your Inbox drafts…" };
     const rows = (part.output as { drafts?: unknown } | undefined)?.drafts;

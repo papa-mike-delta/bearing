@@ -14,9 +14,13 @@ import { localToday } from "../../lib/today";
 export function Chat({
   threadId,
   initialMessages,
+  initialCloseDay,
+  openingClose,
 }: {
   threadId: string;
   initialMessages: UIMessage[];
+  initialCloseDay: string | null;
+  openingClose: boolean;
 }) {
   const [input, setInput] = useState("");
   // User message ids whose reply was stopped in this view. Not saved: a
@@ -25,6 +29,7 @@ export function Chat({
   // model's turn.
   const [stoppedUserIds, setStoppedUserIds] = useState<string[]>([]);
   const router = useRouter();
+  const closeDay = useRef(initialCloseDay);
   const { messages, sendMessage, status, stop, error, regenerate } = useChat({
     id: threadId,
     messages: initialMessages,
@@ -38,11 +43,15 @@ export function Chat({
         router.refresh();
       }
     },
+    onFinish: () => {
+      if (openingClose) router.replace("/coach", { scroll: false });
+      router.refresh();
+    },
     transport: new DefaultChatTransport({
       api: "/api/coach",
       // Only the newest message; the server loads the rest of the thread.
       prepareSendMessagesRequest: ({ id, messages }) => ({
-        body: { threadId: id, message: messages.at(-1), today: localToday() },
+        body: { threadId: id, message: messages.at(-1), today: localToday(), closeDay: closeDay.current },
       }),
     }),
   });
@@ -87,6 +96,11 @@ export function Chat({
 
   return (
     <>
+      {initialCloseDay && <section aria-label="Daily close" className="mb-6 flex flex-wrap items-center gap-3">
+        <p>Daily close · {initialCloseDay}. Skip any question or cancel.</p>
+        {openingClose && <Button type="button" disabled={replying} onClick={() => sendMessage({ text: "Start Daily close" })}>Start Daily close</Button>}
+        <Button type="button" variant="outline" disabled={replying} onClick={() => sendMessage({ text: "Cancel Daily close" })}>Cancel Daily close</Button>
+      </section>}
       {shown.length === 0 ? (
         <p>No messages yet.</p>
       ) : (

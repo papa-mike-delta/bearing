@@ -72,6 +72,12 @@ Paul's `appendJournal` tool appends only the reflection text explicitly requeste
 
 Migration `0012_coach_message_day` binds the browser day to the triggering user message. Resends retain that day across midnight; append operation ids combine the message id and a sha256 of the resolved day and exact text. Changed payloads under an existing operation conflict. Mood uses the stored message's creation time, so an older resend cannot replace a newer choice or clear. The tools share the three-call limit with `createTask` and `createNote`, counted before awaiting, and retain the eight-step limit. Postgres tests use scripted models without a Gateway key to cover receipts, replay, calendar errors, limits, and ownership.
 
+### Daily close with Paul
+
+Open **Daily close** from today's or a past Journal day, then start when ready, or tell Paul “Daily close” / “close the day” (optionally naming a past `YYYY-MM-DD` day). Opening the button sends no turn and saves no Journal, Mood, or filing. The selected day is bound to each user message at send time in `coach_messages.close_day`; subsequent turns inherit it, and resends keep the original day and browser Today. Cancel ends the mode without domain writes.
+
+Paul asks one question at a time from your saved template or the starter, appends only your answers, asks for an explicit Mood, and offers one particular Inbox draft and destination before filing. Skip any step. Close turns expose only the selected day's bounded read (4,000 characters with a truncation flag), the template, journaling knowledge, Inbox excerpts, append, Mood, and single-draft filing. The runtime omits every other tool and retains the existing step/write caps and replay identities. Each write has its own linked receipt; later failures keep earlier writes. Nothing is scheduled. [Journaling: evidence and limits](packages/coach/knowledge/journaling.md) is available to Paul and at `/coach/knowledge/journaling`, with research citations and no promised benefit.
+
 ## Scripts
 
 ```sh

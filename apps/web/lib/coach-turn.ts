@@ -1,6 +1,8 @@
 import {
   type CoachData,
   coachSystemPrompt,
+  dailyClosePrompt,
+  dailyCloseToolNames,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -16,7 +18,9 @@ import {
   type ToolSet,
   type UIMessage,
 } from "ai";
-import { coachMessageContext, saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachCloseDay, coachMessageContext, saveMessage, threadMessages } from "./coach-threads.ts";
+import { cancelsClose, closeData, closeTools } from "./coach-close.ts";
+import { isJournalDay } from "./journal-day.ts";
 import {
   coachData,
   coachTools,
@@ -63,6 +67,8 @@ function newMessageText(message: unknown) {
 // - 404: a thread that isn't the user's;
 // - 409: an id already used by another thread or role, or by an earlier
 //   message (only the last message can be resent), or changed resend text.
+// A close turn validates and binds its selected day, skips the Task read,
+// and supplies only close tools. The mode survives reload and resend.
 // The message is rebuilt from its text alone, so nothing else the client
 // sends is stored or reaches the model. The Coach's tools act for `userId`
 // only, and a turn stops after maxCoachSteps model steps. Every turn reads
@@ -79,6 +85,7 @@ export async function coachTurn({
   model,
   db = defaultDb,
   today = "",
+  closeDay: requestedCloseDay,
   data: suppliedData,
 }: {
   userId: string;
@@ -89,6 +96,8 @@ export async function coachTurn({
   // The browser's calendar day, sent with the turn. Creates are refused
   // without one.
   today?: string;
+  // Omitted inherits the stored mode; null ends it. Resends retain first-send context.
+  closeDay?: unknown;
   // What the Coach reads, from `db` unless given.
   data?: CoachData;
 }) {
@@ -109,17 +118,33 @@ export async function coachTurn({
   const thread = threadId as string;
   const originalContext = resent === -1 ? null : await coachMessageContext(userId, thread, incoming.id, db);
   const browserToday = originalContext ? originalContext.today : today;
+  const startsClose = !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text);
+  const selectedDay = originalContext ? originalContext.closeDay
+    : startsClose ? (typeof requestedCloseDay === "string" ? requestedCloseDay : incoming.text.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0] ?? browserToday)
+    : requestedCloseDay !== undefined ? requestedCloseDay
+    : await coachCloseDay(userId, thread, db);
+  if (selectedDay !== null && (!isJournalDay(browserToday) || !isJournalDay(selectedDay) || selectedDay > browserToday)) return { refused: 400 } as const;
   const readData = suppliedData ?? coachData(db, browserToday);
   const prior = resent === -1 ? earlier : earlier.slice(0, -1);
   // Read before saving, so a failed read writes nothing.
-  const read = await freshRead(userId, readData);
-  if (!(await saveMessage(userId, thread, userMessage, db, undefined, browserToday))) {
+  const read = selectedDay ? {
+    messages: [], receipt: new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>(),
+  } : await freshRead(userId, readData);
+  const template = selectedDay ? await readData.getJournalTemplate?.(userId) : undefined;
+  if (selectedDay && !template) return { refused: 400 } as const;
+  if (!(await saveMessage(userId, thread, userMessage, db, undefined, browserToday, selectedDay as string | null))) {
     return { refused: 409 } as const;
   }
   const context = await coachMessageContext(userId, thread, userMessage.id, db);
   if (!context) return { refused: 409 } as const;
-  const data = suppliedData ?? coachData(db, context.today);
-  const tools = coachTools(data);
+  const baseData = suppliedData ?? coachData(db, context.today);
+  const data = context.closeDay ? closeData(baseData, context.closeDay, incoming.text, prior) : baseData;
+  const allTools = coachTools(data);
+  // The SDK infers keyof a union as only the common names. Give its types
+  // the combined vocabulary; the actual object contains only this mode's
+  // tools, so an unadvertised call has no handler and is rejected by the SDK.
+  const tools = (context.closeDay ? closeTools(allTools, data, userId, context.closeDay) : allTools) as
+    ReturnType<typeof coachTools> & ReturnType<typeof closeTools>;
   const messages = await historyForModel(prior, userMessage, tools, thread);
 
   // Start the model's view at a user message.
@@ -128,13 +153,13 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: coachSystemPrompt(context.today),
+    system: context.closeDay ? dailyClosePrompt(context.today, context.closeDay, template!.template) : coachSystemPrompt(context.today),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: coachToolsContext(userId, userMessage.id, context.today, context.messageCreatedAt),
     // freshRead already injected the list; activeTools lets the model write
     // and call listArea again after a write. No turn-wide toolChoice:"none".
-    activeTools: [
+    activeTools: context.closeDay ? [...dailyCloseToolNames] : [
       "fileDraft",
       "listInboxDrafts",
       "createTask",
@@ -216,7 +241,7 @@ function textOnly(messages: UIMessage[]) {
 async function historyForModel(
   earlier: UIMessage[],
   userMessage: UIMessage,
-  tools: ReturnType<typeof coachTools>,
+  tools: ToolSet,
   threadId: string,
 ) {
   try {

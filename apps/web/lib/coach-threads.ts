@@ -2,6 +2,7 @@ import { coachMessages, coachThreads, db as defaultDb } from "@repo/db";
 import type { UIMessage } from "ai";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
+import { cancelsClose } from "./coach-close.ts";
 
 // Every query here takes the session user, like lib/tasks.ts.
 
@@ -79,6 +80,7 @@ export async function saveMessage(
   db: Db = defaultDb,
   answering?: string,
   browserToday?: string,
+  closeDay?: string | null,
 ) {
   const [saved] = await db
     .insert(coachMessages)
@@ -89,6 +91,7 @@ export async function saveMessage(
       role: message.role,
       parts: message.parts,
       browserToday,
+      closeDay,
       ...(answering && {
         createdAt: sql`coalesce((select ${coachMessages.createdAt} + interval '1 microsecond' from ${coachMessages} where ${and(eq(coachMessages.id, answering), eq(coachMessages.threadId, threadId))}), now())`,
       }),
@@ -104,8 +107,18 @@ export async function saveMessage(
 
 // Bound once on insert, independent of model input and unchanged on resend.
 export async function coachMessageContext(userId: string, threadId: string, messageId: string, db: Db = defaultDb) {
-  const [message] = await db.select({ today: coachMessages.browserToday, createdAt: coachMessages.createdAt })
+  const [message] = await db.select({ today: coachMessages.browserToday, closeDay: coachMessages.closeDay, createdAt: coachMessages.createdAt })
     .from(coachMessages).innerJoin(coachThreads, eq(coachMessages.threadId, coachThreads.id))
     .where(and(threadOf(userId, threadId), eq(coachMessages.id, messageId), eq(coachMessages.role, "user")));
-  return message ? { today: message.today ?? "", messageCreatedAt: message.createdAt.getTime() } : null;
+  return message ? { today: message.today ?? "", closeDay: message.closeDay, messageCreatedAt: message.createdAt.getTime() } : null;
+}
+
+// Latest user turn decides the mode on reload; never derive it from model text.
+export async function coachCloseDay(userId: string, threadId: string, db: Db = defaultDb) {
+  const [message] = await db.select({ closeDay: coachMessages.closeDay, parts: coachMessages.parts })
+    .from(coachMessages).innerJoin(coachThreads, eq(coachMessages.threadId, coachThreads.id))
+    .where(and(threadOf(userId, threadId), eq(coachMessages.role, "user")))
+    .orderBy(sql`${coachMessages.createdAt} desc`).limit(1);
+  const parts = message?.parts as { type: string; text?: string }[] | undefined;
+  return parts?.some((part) => part.type === "text" && cancelsClose(part.text ?? "")) ? null : message?.closeDay ?? null;
 }

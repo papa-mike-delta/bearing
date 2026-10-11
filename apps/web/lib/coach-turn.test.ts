@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { getMood, setMood } from "./mood.ts";
-import { getJournalDay, saveJournalDay } from "./journal.ts";
+import { getJournalDay, saveJournalDay, saveJournalTemplate } from "./journal.ts";
 import { after, before, describe, mock, test } from "node:test";
 import {
   coachMessages,
@@ -35,7 +35,7 @@ import {
 } from "@repo/coach";
 import { captureDraft, fileDraft, fileDraftAsTask, fileDraftAsJournal, inboxDrafts } from "./drafts.ts";
 import { noteHref } from "@repo/domain";
-import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachCloseDay, coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
 import {
   coachModel,
@@ -239,6 +239,9 @@ type Step =
   | { fileDraft: string; toolCallId?: string }
   | { listInboxDrafts: string; toolCallId?: string }
   | { setMood: string; toolCallId?: string }
+  | { readJournalingArticle: string; toolCallId?: string }
+  | { readJournalDay: string; toolCallId?: string }
+  | { getJournalTemplate: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
 function scripted(...steps: Step[]) {
@@ -285,7 +288,13 @@ function scripted(...steps: Step[]) {
                         ? { name: "fileDraft" as const, input: step.fileDraft, id: step.toolCallId }
                         : "listInboxDrafts" in step
                           ? { name: "listInboxDrafts" as const, input: step.listInboxDrafts, id: step.toolCallId }
-                          : null;
+                          : "readJournalingArticle" in step
+                            ? { name: "readJournalingArticle" as const, input: step.readJournalingArticle, id: step.toolCallId }
+                            : "readJournalDay" in step
+                              ? { name: "readJournalDay" as const, input: step.readJournalDay, id: step.toolCallId }
+                              : "getJournalTemplate" in step
+                                ? { name: "getJournalTemplate" as const, input: step.getJournalTemplate, id: step.toolCallId }
+                                : null;
       const chunks = [
         ...(tool
           ? [
@@ -383,6 +392,186 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     return user!.id;
   }
 
+  test("Daily close rejects an out-of-list tool even when the model emits it", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted({ createTask: JSON.stringify({ name: "Unwanted" }) }, { text: "Let's close the day." });
+    await turn(c, thread, userMessage("Daily close"), model);
+    assert.equal((await openTasks(c, db)).length, 0);
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+    assert.equal(await getMood(c, "2026-10-09", db), null);
+    assert.deepEqual(model.doStreamCalls[0]!.tools?.map((tool) => tool.name).sort(), [
+      "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts", "readJournalDay", "readJournalingArticle", "setMood",
+    ]);
+    assert.equal(readIn(await threadMessages(c, thread, db)), undefined);
+  });
+
+  test("Daily close start, skip and cancel reject writes; answers and explicit mood stay on the selected day", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    for (const text of ["Start Daily close", "skip", "cancel daily close"]) {
+      await turn(c, thread, userMessage(text), scripted(
+        { appendJournal: JSON.stringify({ day, text: "Invented" }) },
+        { setMood: JSON.stringify({ day, mood: "Good" }) },
+        { text: "Okay." },
+      ), "2026-10-09", undefined, day);
+      assert.equal(await getJournalDay(c, day, db), null);
+      assert.equal(await getMood(c, day, db), null);
+    }
+    await turn(c, thread, userMessage("Tea with my friend. Mood: Good."), scripted(
+      { appendJournal: JSON.stringify({ day: "2026-10-09", text: "Tea with my friend." }) },
+      { setMood: JSON.stringify({ day, mood: "Very good" }) },
+      { text: "Try again." },
+    ), "2026-10-09", undefined, day);
+    await turn(c, thread, userMessage("Tea with my friend. Mood: Good."), scripted(
+      { appendJournal: JSON.stringify({ day, text: "Tea with my friend." }) },
+      { setMood: JSON.stringify({ day, mood: "Good" }) },
+      { text: "Saved." },
+    ), "2026-10-09", undefined, day);
+    assert.equal((await getJournalDay(c, day, db))?.body, "Tea with my friend.");
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+    assert.equal(await getMood(c, day, db), "Good");
+  });
+
+  test("Daily close files only the particular offered draft after agreement, and refuses mass filing", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await captureDraft(c, "A walk with Sam", db);
+    await captureDraft(c, "Buy a notebook", db);
+    const rows = await inboxDrafts(c, db);
+    const one = rows.find((draft) => draft.body === "A walk with Sam")!;
+    const two = rows.find((draft) => draft.body === "Buy a notebook")!;
+    const file = (id: string) => JSON.stringify({ draftId: id, destination: { kind: "journal", day: "2026-10-09" } });
+    await turn(c, thread, userMessage("Daily close"), scripted(
+      { listInboxDrafts: "{}" },
+      { text: 'Would you like to file "A walk with Sam" in the Journal for 2026-10-09?' },
+    ));
+    await turn(c, thread, userMessage("File everything"), scripted(
+      { fileDraft: file(one.id) }, { fileDraft: file(two.id) }, { text: "Choose just one." },
+    ));
+    assert.equal((await inboxDrafts(c, db)).length, 2);
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+    await turn(c, thread, userMessage("Offer one"), replying('Would you like to file "A walk with Sam" in the Journal for 2026-10-09?'));
+    await turn(c, thread, userMessage("Yes"), scripted(
+      { fileDraft: file(two.id) }, { fileDraft: file(one.id) }, { fileDraft: file(two.id) }, { text: "Filed that one." },
+    ));
+    assert.deepEqual((await inboxDrafts(c, db)).map((draft) => draft.id), [two.id]);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "A walk with Sam");
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended draft to journal for 2026-10-09"));
+  });
+
+  test("Daily close supplies the saved template or starter and a citable knowledge article", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const starter = replying("What are you grateful for?");
+    await turn(c, thread, userMessage("Daily close"), starter);
+    assert.match(promptText(starter), /Gratitude.*Best thing.*Hard part/s);
+    await saveJournalTemplate(c, "## Connection\nWho did you spend time with?\n\n## Tomorrow\nWhat can wait?", db);
+    const model = scripted({ readJournalingArticle: "{}" }, { text: "Who did you spend time with?" });
+    await turn(c, thread, userMessage("Start Daily close"), model);
+    assert.match(promptText(model), /Connection.*Who did you spend time with\?.*Tomorrow/s);
+    assert.match(promptText(model), /one question at a time/i);
+    assert.doesNotMatch(promptText(model), /## Gratitude/);
+    const output = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-readJournalingArticle" && "output" in p);
+    assert.ok(output && "output" in output);
+    const article = JSON.stringify(output.output);
+    for (const citation of ["Pennebaker", "Beall", "1986", "Frattaroli", "2006", "Emmons", "McCullough", "2003", "Davis", "2016", "https://doi.org/"]) assert.ok(article.includes(citation), citation);
+    assert.match(article, /no.*(?:guarantee|promise)|does not promise/i);
+    assert.match(article, /clinical|diagnos/i);
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+  });
+
+  test("Daily close retains its allow-list and day after reload and failed-turn resend, then cancels without writes", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Close the day"), replying("What went well?"), "2026-10-09", undefined, day);
+    assert.equal(await coachCloseDay(c, thread, db), day);
+    const message = userMessage("Nothing yet");
+    await turn(c, thread, message, failing());
+    assert.equal((await threadMessages(c, thread, db))!.at(-1)!.id, message.id);
+    const retry = scripted({ createTask: JSON.stringify({ name: "Escaped" }) }, { text: "You can skip." });
+    await turn(c, thread, message, retry, "2026-10-10", undefined, null);
+    assert.equal((await openTasks(c, db)).length, 0);
+    assert.match(promptText(retry), /Daily close for 2026-10-08/);
+    assert.match(promptText(retry), /Today is 2026-10-09/);
+    assert.ok(!retry.doStreamCalls[0]!.tools?.some((tool) => tool.name === "createTask"));
+    await turn(c, thread, userMessage("cancel daily close"), replying("Stopped."));
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    assert.equal(await getJournalDay(c, day, db), null);
+    assert.equal(await getMood(c, day, db), null);
+  });
+
+  test("Daily close reads only one owned bounded day and refuses alternate day inputs", async () => {
+    const c = await account();
+    const other = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await saveJournalDay(c, day, "A".repeat(5_000), 0, "2026-10-09", db);
+    await saveJournalDay(c, "2026-10-09", "Another day secret", 0, "2026-10-09", db);
+    await saveJournalDay(other, day, "Another person's secret", 0, "2026-10-09", db);
+    const model = scripted({ readJournalDay: "{}" }, { readJournalDay: JSON.stringify({ day: "2026-10-09", userId: other }) }, { getJournalTemplate: "{}" }, { text: "What went well?" });
+    await turn(c, thread, userMessage("Daily close"), model, "2026-10-09", undefined, day);
+    const read = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((part) => part.type === "tool-readJournalDay" && "output" in part);
+    assert.ok(read && "output" in read);
+    assert.deepEqual(read.output, { day, body: "A".repeat(4_000), truncated: true });
+    const allPrompts = JSON.stringify(model.doStreamCalls);
+    assert.ok(!allPrompts.includes("Another day secret"));
+    assert.ok(!allPrompts.includes("Another person's secret"));
+    assert.ok(!allPrompts.includes("A".repeat(4_001)));
+    assert.equal((await getJournalDay(c, day, db))!.body.length, 5_000);
+    assert.deepEqual(await turn(other, thread, userMessage("Daily close"), replying("No")), { refused: 404 });
+    for (const invalid of ["2026-02-30", "2026-10-10", "today", "", null]) {
+      if (invalid === null) continue;
+      assert.deepEqual(await turn(c, thread, userMessage("Daily close"), replying("No"), "2026-10-09", undefined, invalid), { refused: 400 });
+    }
+  });
+
+  test("Daily close never infers a mood from a reflection that mentions good news", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Good news from my friend."), scripted({ setMood: JSON.stringify({ mood: "Good" }) }, { text: "What mood would you choose?" }), "2026-10-09", undefined, "2026-10-09");
+    assert.equal(await getMood(c, "2026-10-09", db), null);
+  });
+
+  test("Daily close keeps a committed filing across failure and replays its own linked receipt once", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await captureDraft(c, "A quiet evening", db);
+    const [draft] = await inboxDrafts(c, db);
+    await turn(c, thread, userMessage("Daily close"), scripted({ listInboxDrafts: "{}" }, { text: 'File "A quiet evening" in the Journal for 2026-10-09?' }));
+    const message = userMessage("Yes");
+    const input = { draftId: draft!.id, destination: { kind: "journal", day: "2026-10-09" } };
+    await turn(c, thread, message, failingAfterWrite("fileDraft", input));
+    assert.equal((await inboxDrafts(c, db)).length, 0);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "A quiet evening");
+    await turn(c, thread, message, scripted({ fileDraft: JSON.stringify(input), toolCallId: "changed_retry_call" }, { text: "Already filed." }), "2026-10-10", undefined, null);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "A quiet evening");
+    const parts = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+    assert.ok(parts.some((p) => "receipt" in p && p.receipt === "Appended draft to journal for 2026-10-09" && p.href === "/journal/2026-10-09"));
+  });
+
+  test("Daily close retains the shared write cap, separate receipts, and model step cap", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("One\nTwo\nThree\nMood: Good"), scripted(
+      { appendJournal: JSON.stringify({ text: "One" }) },
+      { setMood: JSON.stringify({ mood: "Good" }) },
+      { appendJournal: JSON.stringify({ text: "Two" }) },
+      { appendJournal: JSON.stringify({ text: "Three" }) },
+      { text: "Saved what I could." },
+    ), "2026-10-09", undefined, "2026-10-09");
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "One\n\nTwo");
+    assert.equal(await getMood(c, "2026-10-09", db), "Good");
+    const parts = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+    assert.equal(parts.filter((p) => "receipt" in p && p.href === "/journal/2026-10-09").length, 3);
+    const model = scripted({ readJournalDay: "{}" });
+    await turn(c, thread, userMessage("Read this day"), model);
+    assert.equal(model.doStreamCalls.length, 8);
+    assert.deepEqual(model.doStreamCalls.at(-1)!.toolChoice, { type: "none" });
+  });
+
   // Runs a turn the way the route does and reads the whole stream, like a
   // browser that stays open. Returns the chunks the browser got, and whether
   // the stream broke off with an error instead of ending.
@@ -393,6 +582,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     model: MockLanguageModelV4,
     today = "2026-10-09",
     data?: ReturnType<typeof coachData>,
+    closeDay?: string | null,
   ) {
     const result = await coachTurn({
       userId,
@@ -402,6 +592,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       db,
       today,
       data,
+      closeDay,
     });
     if ("refused" in result) return result;
     const chunks: { type: string }[] = [];

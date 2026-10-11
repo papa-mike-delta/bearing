@@ -1,0 +1,1 @@
+ALTER TABLE "coach_messages" ADD COLUMN "close_day" text;

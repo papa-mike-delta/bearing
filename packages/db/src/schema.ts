@@ -303,6 +303,8 @@ export const coachMessages = pgTable(
     parts: jsonb("parts_json").notNull(),
     // Browser day bound on first send; resends keep it, including missing/invalid context.
     browserToday: text("browser_today"),
+    // Daily close's selected day, bound at send time; null is ordinary Coach.
+    closeDay: text("close_day"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),

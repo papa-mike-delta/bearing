@@ -14,6 +14,8 @@ export type ListedTask = {
 };
 
 export type CoachData = {
+  readJournalDay?(userId: string, day: string): Promise<{ day: string; body: string; truncated: boolean }>;
+  getJournalTemplate?(userId: string): Promise<{ template: string }>;
   listInboxDrafts?(userId: string): Promise<{ id: string; excerpt: string; createdAt: string }[]>;
   fileDraft?(userId: string, input: FileDraftInput & { today: string }): Promise<FiledDraft>;
   setMood?(

@@ -18,7 +18,7 @@ import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
 import { setMood as setMoodRow, MoodError } from "./mood.ts";
 import { isJournalDay } from "./journal-day.ts";
-import { appendJournal as appendJournalRow, JournalError } from "./journal.ts";
+import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate, JournalError } from "./journal.ts";
 import { fileDraft as fileDraftRow, listInboxDrafts as inboxRows, DraftError } from "./drafts.ts";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
@@ -33,6 +33,12 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    async readJournalDay(userId, day) {
+      const entry = await getJournalDay(userId, day, db);
+      const body = entry?.body ?? "";
+      return { day, body: body.slice(0, 4_000), truncated: body.length > 4_000 };
+    },
+    getJournalTemplate(userId) { return getJournalTemplate(userId, db); },
     listInboxDrafts(userId) { return inboxRows(userId, db); },
     fileDraft(userId, input) { return fileDraftRow(userId, input, db); },
     setMood(userId, input) { return setMoodRow(userId, input, db); },
