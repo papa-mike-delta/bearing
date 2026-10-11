@@ -135,6 +135,8 @@ export async function coachTurn({
     // freshRead already injected the list; activeTools lets the model write
     // and call listArea again after a write. No turn-wide toolChoice:"none".
     activeTools: [
+      "fileDraft",
+      "listInboxDrafts",
       "createTask",
       "completeTask",
       "scheduleTask",
@@ -280,6 +282,8 @@ function logTurn(
       model: typeof model === "string" ? model : model.modelId,
       steps: count("step-start"),
       toolCalls: {
+        listInboxDrafts: count("tool-listInboxDrafts"),
+        fileDraft: count("tool-fileDraft"),
         listArea: count("tool-listArea"),
         listNotebooks: count("tool-listNotebooks"),
         createTask: count("tool-createTask"),

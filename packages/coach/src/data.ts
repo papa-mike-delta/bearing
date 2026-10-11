@@ -2,6 +2,7 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
+import type { FileDraftInput, FiledDraft } from "./tools/file-draft.ts";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
@@ -13,6 +14,8 @@ export type ListedTask = {
 };
 
 export type CoachData = {
+  listInboxDrafts?(userId: string): Promise<{ id: string; excerpt: string; createdAt: string }[]>;
+  fileDraft?(userId: string, input: FileDraftInput & { today: string }): Promise<FiledDraft>;
   setMood?(
     userId: string,
     input: {

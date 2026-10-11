@@ -1,5 +1,7 @@
 import {
   appendJournal,
+  fileDraft,
+  listInboxDrafts,
   completeTask,
   createNote,
   listNotebooks,
@@ -17,10 +19,11 @@ import { z } from "zod";
 import { setMood as setMoodRow, MoodError } from "./mood.ts";
 import { isJournalDay } from "./journal-day.ts";
 import { appendJournal as appendJournalRow, JournalError } from "./journal.ts";
+import { fileDraft as fileDraftRow, listInboxDrafts as inboxRows, DraftError } from "./drafts.ts";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
-import { createNote as createNoteRow, listNotebooks as notebookRows } from "./notes.ts";
+import { createNote as createNoteRow, NoteError, listNotebooks as notebookRows } from "./notes.ts";
 
 export { maxCreatesPerTurn };
 
@@ -30,6 +33,8 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    listInboxDrafts(userId) { return inboxRows(userId, db); },
+    fileDraft(userId, input) { return fileDraftRow(userId, input, db); },
     setMood(userId, input) { return setMoodRow(userId, input, db); },
     appendJournal(userId, input) { return appendJournalRow(userId, input, db); },
     listNotebooks(userId) { return notebookRows(userId, db); },
@@ -149,6 +154,34 @@ export function coachTools(data: CoachData) {
   let scheduledThisTurn = 0;
   let updatedThisTurn = 0;
   return {
+    listInboxDrafts: tool({
+      description: listInboxDrafts.description,
+      inputSchema: listInboxDrafts.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        try { return await listInboxDrafts.run(input, { ...context, toolCallId, data }); }
+        catch (error) { logToolError("listInboxDrafts", toolCallId, error); throw new Error("Couldn't read your Inbox drafts."); }
+      },
+    }),
+    fileDraft: tool({
+      description: fileDraft.description,
+      inputSchema: fileDraft.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`);
+        createdThisTurn += 1;
+        if (input.destination.kind === "journal") {
+          const day = input.destination.day === undefined || input.destination.day === "today" ? context.today : input.destination.day;
+          if (!context.today || !isJournalDay(context.today)) throw new Error("Supply the browser's Today as a real YYYY-MM-DD calendar day, then retry.");
+          if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
+        }
+        try { return await fileDraft.run(input, { ...context, toolCallId, data }); }
+        catch (error) {
+          logToolError("fileDraft", toolCallId, error);
+          throw new Error(error instanceof DraftError || error instanceof JournalError || error instanceof NoteError ? error.message : "Couldn't file that draft.");
+        }
+      },
+    }),
     appendJournal: tool({
       description: appendJournal.description,
       inputSchema: appendJournal.inputSchema,
@@ -306,6 +339,8 @@ export function coachTools(data: CoachData) {
 }
 
 export const coachToolNames = [
+  "fileDraft",
+  "listInboxDrafts",
   "appendJournal",
   "setMood",
   "listNotebooks",

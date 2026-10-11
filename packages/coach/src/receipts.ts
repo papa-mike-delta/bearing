@@ -24,6 +24,25 @@ type Line = { line: string; href?: string };
 
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
+  if (part.type === "tool-listInboxDrafts") {
+    if (pending(part.state)) return { line: "Reading your Inbox drafts…" };
+    const rows = (part.output as { drafts?: unknown } | undefined)?.drafts;
+    return { line: part.state === "output-available" && Array.isArray(rows) ? `Read your Inbox drafts (${rows.length})` : "Couldn't read your Inbox drafts" };
+  }
+  if (part.type === "tool-fileDraft") {
+    if (pending(part.state)) return { line: "Filing draft…" };
+    const output = part.output as { kind?: unknown; id?: unknown; name?: unknown; notebookId?: unknown; day?: unknown; href?: unknown } | undefined;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && uuid.test(output.id)) {
+      if (output.kind === "task" && typeof output.name === "string" && output.href === "/") return { line: `Filed draft as Task '${output.name}'`, href: "/" };
+      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && uuid.test(output.notebookId)) {
+        const href = noteHref(output.notebookId, output.id);
+        if (output.href === href) return { line: `Filed draft as Note '${output.name}'`, href };
+      }
+      if (output.kind === "journal" && typeof output.day === "string" && isCalendarDay(output.day) && output.href === `/journal/${output.day}`) return { line: `Appended draft to journal for ${output.day}`, href: `/journal/${output.day}` };
+    }
+    return { line: "Couldn't file that draft" };
+  }
   if (part.type === "tool-setMood") {
     if (pending(part.state)) return { line: "Setting mood…" };
     const output = part.output as { day?: unknown; mood?: unknown } | undefined;

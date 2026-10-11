@@ -11,6 +11,7 @@ import { getJournalDay, saveJournalDay } from "./journal.ts";
 import { after, before, describe, mock, test } from "node:test";
 import {
   coachMessages,
+  drafts,
   createDb,
   notebooks,
   noteOperations,
@@ -32,6 +33,7 @@ import {
   receipt,
   shownParts,
 } from "@repo/coach";
+import { captureDraft, fileDraft, fileDraftAsTask, fileDraftAsJournal, inboxDrafts } from "./drafts.ts";
 import { noteHref } from "@repo/domain";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
@@ -42,7 +44,7 @@ import {
   maxReplyTokens,
 } from "./coach-turn.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
-import { createNotebook, listNotes } from "./notes.ts";
+import { createNotebook, fileDraftAsNote, getNote, listNotes, saveNote } from "./notes.ts";
 import {
   addTask,
   changePriority,
@@ -70,6 +72,8 @@ function writeToolsOffered(
     "createNote",
     "appendJournal",
     "setMood",
+    "fileDraft",
+    "listInboxDrafts",
     "scheduleTask",
     "updateTask",
   ]) {
@@ -232,6 +236,8 @@ type Step =
   | { createTask: string; toolCallId?: string }
   | { createNote: string; toolCallId?: string }
   | { appendJournal: string; toolCallId?: string }
+  | { fileDraft: string; toolCallId?: string }
+  | { listInboxDrafts: string; toolCallId?: string }
   | { setMood: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
@@ -275,7 +281,11 @@ function scripted(...steps: Step[]) {
                     ? { name: "appendJournal" as const, input: step.appendJournal, id: step.toolCallId }
                     : "setMood" in step
                       ? { name: "setMood" as const, input: step.setMood, id: step.toolCallId }
-                      : null;
+                      : "fileDraft" in step
+                        ? { name: "fileDraft" as const, input: step.fileDraft, id: step.toolCallId }
+                        : "listInboxDrafts" in step
+                          ? { name: "listInboxDrafts" as const, input: step.listInboxDrafts, id: step.toolCallId }
+                          : null;
       const chunks = [
         ...(tool
           ? [
@@ -443,6 +453,299 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await db.$client.end();
     await admin.query(`drop database if exists "${database}"`);
     await admin.end();
+  });
+
+  test("filing one Inbox draft as a Task archives only it and reloads its receipt", async () => {
+    const c = await account();
+    await captureDraft(c, "Call dentist\nAsk about appointment", db);
+    await captureDraft(c, "Leave this in Inbox", db);
+    const draft = (await inboxDrafts(c, db)).find((row) => row.body.startsWith("Call dentist"))!;
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("File Call dentist as a task"), scripted(
+      { fileDraft: JSON.stringify({ draftId: draft.id, destination: { kind: "task" } }) },
+      { text: "Filed." },
+    ));
+    assert.deepEqual((await openTasks(c, db)).map((row) => row.name), ["Call dentist"]);
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.body), ["Leave this in Inbox"]);
+    const saved = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+    const filed = saved.find((p) => "receipt" in p && p.receipt === "Filed draft as Task 'Call dentist'");
+    assert.ok(filed && "href" in filed);
+    assert.equal(filed.href, "/");
+  });
+
+  test("filing a draft as a Note preserves its body and reloads the Note link", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Reflections", db);
+    const body = "Meeting\n\n**Keep this markdown**\n";
+    await captureDraft(c, body, db);
+    const [draft] = await inboxDrafts(c, db);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("File Meeting as a note in Reflections"), scripted(
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "note", notebook: "reflections" } }) },
+      { text: "Filed." },
+    ));
+    const [note] = await listNotes(c, book.id, db);
+    assert.ok(note);
+    assert.equal((await db.select().from(notes).where(eq(notes.id, note.id)))[0]!.body, body);
+    assert.deepEqual(await inboxDrafts(c, db), []);
+    const filed = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts)).find((p) => "receipt" in p && p.receipt === "Filed draft as Note 'Meeting'");
+    assert.ok(filed && "href" in filed);
+    assert.equal(filed.href, noteHref(book.id, note.id));
+  });
+
+  test("filing a draft to today's Journal appends its entire body and reloads the day link", async () => {
+    const c = await account();
+    const body = "My reflection\n\n**Whole text**\n";
+    await captureDraft(c, body, db);
+    const [draft] = await inboxDrafts(c, db);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Append this draft to today's Journal"), scripted(
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day: "today" } }) },
+      { text: "Filed." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, body);
+    assert.deepEqual(await inboxDrafts(c, db), []);
+    const filed = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts)).find((p) => "receipt" in p && p.receipt === "Appended draft to journal for 2026-10-09");
+    assert.ok(filed && "href" in filed);
+    assert.equal(filed.href, "/journal/2026-10-09");
+  });
+
+  test("listInboxDrafts exposes at most twenty owned Inbox excerpts, never bodies", async () => {
+    const c = await account();
+    const d = await account();
+    await db.insert(drafts).values([
+      ...Array.from({ length: 25 }, (_, i) => ({ userId: c, body: `Draft ${i} ` + "x".repeat(300) })),
+      { userId: c, body: "ARCHIVED SECRET", workspace: "archive" },
+      { userId: d, body: "FOREIGN SECRET" },
+    ]);
+    const info = mock.method(console, "info", () => {});
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Show my Inbox choices"), scripted({ listInboxDrafts: "{}" }, { text: "Choose one." }));
+    const part = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-listInboxDrafts") as unknown as { output: { drafts: { id: string; excerpt: string; createdAt: string }[] } };
+    assert.ok(part?.output);
+    assert.equal(part.output.drafts.length, 20);
+    const owned = new Set((await inboxDrafts(c, db)).map((row) => row.id));
+    for (const row of part.output.drafts) {
+      assert.ok(owned.has(row.id));
+      assert.deepEqual(Object.keys(row).sort(), ["createdAt", "excerpt", "id"]);
+      assert.ok(row.excerpt.length <= 200);
+      assert.ok(!Number.isNaN(Date.parse(row.createdAt)));
+    }
+    assert.ok(!JSON.stringify(part.output).includes("SECRET"));
+    const log = JSON.parse(String([...info.mock.calls].reverse().find((call) => String(call.arguments[0]).includes("coach.turn"))!.arguments[0]));
+    assert.equal(log.toolCalls.listInboxDrafts, 1);
+    info.mock.restore();
+  });
+
+  test("mass-file and vague requests refuse missing, all, arrays, and multiple destinations without filing anything", async () => {
+    const c = await account();
+    await captureDraft(c, "Keep this draft", db);
+    const [draft] = await inboxDrafts(c, db);
+    const thread = await coachThread(c, db);
+    const invalid = [
+      {}, { destination: { kind: "task" } }, { draftId: "all", destination: { kind: "task" } },
+      { draftId: [draft!.id], destination: { kind: "task" } },
+      { draftIds: [draft!.id], destination: { kind: "task" } },
+      { draftId: draft!.id }, { draftId: draft!.id, destination: [{ kind: "task" }] },
+      { draftId: draft!.id, destination: { kind: "task", notebook: "Extra destination" } },
+      { draftId: draft!.id, destination: { kind: "task" }, draftIds: [draft!.id] },
+    ];
+    for (const input of invalid) {
+      await turn(c, thread, userMessage("File everything and close my day"), scripted({ fileDraft: JSON.stringify(input) }, { text: "Choose one draft and destination." }));
+      await assert.rejects(fileDraft(c, { ...input, today: "2026-10-09" } as never, db));
+    }
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.id), [draft!.id]);
+    assert.deepEqual(await openTasks(c, db), []);
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+    assert.ok(!receiptsOf(await threadMessages(c, thread, db))!.some((line) => line.startsWith("Filed draft") || line.startsWith("Appended draft")));
+  });
+
+  test("committed Task, Note and Journal filings replay their original result after edits, with no second write", async () => {
+    for (const kind of ["task", "note", "journal"] as const) {
+      const c = await account();
+      const book = await createNotebook(c, "Reflections", db);
+      await captureDraft(c, "Original title\nOriginal draft body", db);
+      const [draft] = await inboxDrafts(c, db);
+      const destination = kind === "note" ? { kind, notebookId: book.id } : kind === "journal" ? { kind, day: "2026-10-08" } : { kind };
+      const input = { draftId: draft!.id, destination, today: "2026-10-09" };
+      const data = coachData(db, "2026-10-09");
+      const original = await data.fileDraft!(c, input);
+      if (original.kind === "note") {
+        const note = (await getNote(c, original.id, db))!;
+        await saveNote(c, original.id, { title: "Edited title", body: "Edited body", pinned: false, revision: note.revision }, db);
+      } else if (original.kind === "journal") {
+        const entry = (await getJournalDay(c, original.day, db))!;
+        await saveJournalDay(c, original.day, "Edited Journal body", entry.revision, input.today, db);
+      } else {
+        await db.update(tasks).set({ name: "Edited task title" }).where(eq(tasks.id, original.id));
+      }
+      const results = await Promise.all([data.fileDraft!(c, input), data.fileDraft!(c, input)]);
+      assert.deepEqual(results, [original, original]);
+      assert.equal((await openTasks(c, db)).length, kind === "task" ? 1 : 0);
+      assert.equal((await listNotes(c, book.id, db)).length, kind === "note" ? 1 : 0);
+      assert.deepEqual(await inboxDrafts(c, db), []);
+      if (kind === "journal") assert.equal((await getJournalDay(c, "2026-10-08", db))!.body, "Edited Journal body");
+      const thread = await coachThread(c, db);
+      await turn(c, thread, userMessage("Retry that filing"), scripted({ fileDraft: JSON.stringify({ draftId: draft!.id, destination }) }, { text: "Already filed." }));
+      const saved = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+      assert.ok(saved.some((part) => "receipt" in part && (kind === "journal" ? part.receipt === "Appended draft to journal for 2026-10-08" : part.receipt === `Filed draft as ${kind === "task" ? "Task" : "Note"} 'Original title'`) && Boolean(part.href)));
+    }
+  });
+
+  test("already-filed drafts refuse every different destination, including another Notebook or Journal day", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Reflections", db);
+    const otherBook = await createNotebook(c, "Other", db);
+    for (const destination of [{ kind: "task" }, { kind: "note", notebookId: book.id }, { kind: "journal", day: "2026-10-08" }] as const) {
+      await captureDraft(c, "Chosen draft", db);
+      const [draft] = await inboxDrafts(c, db);
+      await fileDraft(c, { draftId: draft!.id, destination, today: "2026-10-09" }, db);
+      for (const other of [{ kind: "task", name: "Different task" }, { kind: "note", notebookId: otherBook.id }, { kind: "journal", day: "2026-10-07" }] as const) {
+        await assert.rejects(fileDraft(c, { draftId: draft!.id, destination: other, today: "2026-10-09" }, db), /different destination|different day/);
+      }
+    }
+    assert.equal((await openTasks(c, db)).length, 1);
+    assert.equal((await listNotes(c, book.id, db)).length, 1);
+    assert.deepEqual(await listNotes(c, otherBook.id, db), []);
+    assert.equal((await getJournalDay(c, "2026-10-08", db))!.body, "Chosen draft");
+    assert.equal(await getJournalDay(c, "2026-10-07", db), null);
+  });
+
+  test("screen filings replay through the Coach without creating another destination", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Reflections", db);
+    for (const kind of ["task", "note", "journal"] as const) {
+      await captureDraft(c, "Screen filing", db);
+      const [draft] = await inboxDrafts(c, db);
+      if (kind === "task") assert.ok(await fileDraftAsTask(c, draft!.id, db, { today: "2026-10-09" }));
+      else if (kind === "note") await fileDraftAsNote(c, draft!.id, { notebookId: book.id, title: "Screen title" }, db);
+      else await fileDraftAsJournal(c, draft!.id, { day: "2026-10-08", today: "2026-10-09" }, db);
+      const destination = kind === "note" ? { kind, notebookId: book.id } : kind === "journal" ? { kind, day: "2026-10-08" } : { kind };
+      const result = await fileDraft(c, { draftId: draft!.id, destination, today: "2026-10-09" }, db);
+      assert.equal(result.kind, kind);
+      if (result.kind === "note") assert.equal(result.name, "Screen title");
+    }
+    assert.equal((await openTasks(c, db)).length, 1);
+    assert.equal((await listNotes(c, book.id, db)).length, 1);
+    assert.equal((await getJournalDay(c, "2026-10-08", db))!.body, "Screen filing");
+  });
+
+  test("future days, invalid browser days, foreign drafts and foreign Notebooks refuse without archiving", async () => {
+    const c = await account();
+    const d = await account();
+    const foreignBook = await createNotebook(d, "Private", db);
+    await captureDraft(c, "My draft", db);
+    await captureDraft(d, "Foreign draft", db);
+    const [mine] = await inboxDrafts(c, db);
+    const [foreign] = await inboxDrafts(d, db);
+    const thread = await coachThread(c, db);
+    for (const [draftId, destination, today] of [
+      [mine!.id, { kind: "journal", day: "2026-10-10" }, "2026-10-09"],
+      [mine!.id, { kind: "journal" }, ""],
+      [mine!.id, { kind: "journal" }, "2026-02-31"],
+      [mine!.id, { kind: "note", notebookId: foreignBook.id }, "2026-10-09"],
+      ...["task", "note", "journal"].map((kind) => [foreign!.id, kind === "note" ? { kind, notebookId: foreignBook.id } : { kind }, "2026-10-09"]),
+    ] as [string, unknown, string][]) {
+      await turn(c, thread, userMessage("File this draft"), scripted({ fileDraft: JSON.stringify({ draftId, destination }) }, { text: "Refused." }), today);
+    }
+    await assert.rejects(fileDraft(c, { draftId: foreign!.id, destination: { kind: "task" }, today: "2026-10-09" }, db), /Draft not found/);
+    assert.equal((await inboxDrafts(c, db)).length, 1);
+    assert.equal((await inboxDrafts(d, db)).length, 1);
+    assert.deepEqual(await openTasks(c, db), []);
+    assert.deepEqual(await listNotes(d, foreignBook.id, db), []);
+    assert.equal(await getJournalDay(c, "2026-10-10", db), null);
+    assert.ok(!receiptsOf(await threadMessages(c, thread, db))!.some((line) => line.startsWith("Filed draft") || line.startsWith("Appended draft")));
+  });
+
+  test("a lost filing response resends to the original browser day after midnight", async () => {
+    const c = await account();
+    await captureDraft(c, "Before midnight", db);
+    const [draft] = await inboxDrafts(c, db);
+    const input = { draftId: draft!.id, destination: { kind: "journal", day: "today" } };
+    const message = userMessage("Append Before midnight to today's Journal");
+    const thread = await coachThread(c, db);
+    await turn(c, thread, message, failingAfterWrite("fileDraft", input));
+    await turn(c, thread, message, scripted({ fileDraft: JSON.stringify(input), toolCallId: "resent" }, { text: "Already saved." }), "2026-10-10");
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Before midnight");
+    assert.equal(await getJournalDay(c, "2026-10-10", db), null);
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended draft to journal for 2026-10-09"));
+  });
+
+  test("parallel fileDraft calls share the cap with Task, Note, Journal and Mood writes before awaiting", async () => {
+    for (const fileFirst of [false, true]) {
+      const c = await account();
+      const book = await createNotebook(c, "Reflections", db);
+      await captureDraft(c, "Chosen draft", db);
+      const [draft] = await inboxDrafts(c, db);
+      const thread = await coachThread(c, db);
+      const file = ["fileDraft", { draftId: draft!.id, destination: { kind: "task" } }] as const;
+      const calls = fileFirst ? [
+        file,
+        ["createNote", { notebook: "Reflections", title: "Note", body: "Note body" }],
+        ["setMood", { mood: "Good" }],
+        ["createTask", { name: "Fourth task" }],
+      ] : [
+        ["createTask", { name: "One" }],
+        ["appendJournal", { text: "Reflection" }],
+        ["setMood", { mood: "Good" }],
+        file,
+      ];
+      let step = 0;
+      const model = new MockLanguageModelV4({ doStream: async () => {
+        if (step++ > 0) return { stream: simulateReadableStream({ chunks: [
+          { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Capped." }, { type: "text-end", id: "t" }, finish,
+        ] }) };
+        return { stream: simulateReadableStream({ chunks: [
+          ...calls.map(([toolName, input], i) => ({ type: "tool-call" as const, toolCallId: `parallel_${i}`, toolName: toolName as string, input: JSON.stringify(input) })),
+          { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+        ] }) };
+      } });
+      const info = mock.method(console, "info", () => {});
+      try { await turn(c, thread, userMessage("File the chosen draft and save these other things"), model); }
+      finally { info.mock.restore(); }
+      assert.deepEqual((await openTasks(c, db)).map((row) => row.name), [fileFirst ? "Chosen draft" : "One"]);
+      assert.equal((await inboxDrafts(c, db)).length, fileFirst ? 0 : 1);
+      assert.equal((await listNotes(c, book.id, db)).length, fileFirst ? 1 : 0);
+      assert.equal((await getJournalDay(c, "2026-10-09", db))?.body ?? null, fileFirst ? null : "Reflection");
+      assert.equal(await getMood(c, "2026-10-09", db), "Good");
+      assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes(fileFirst ? "Couldn't create that task" : "Couldn't file that draft"));
+      const log = JSON.parse(String(info.mock.calls.find((call) => String(call.arguments[0]).includes("coach.turn"))!.arguments[0]));
+      assert.equal(log.toolCalls.fileDraft, 1);
+    }
+  });
+
+  test("concurrent initial filings to different destinations commit exactly one result", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Reflections", db);
+    await captureDraft(c, "Race draft", db);
+    const [draft] = await inboxDrafts(c, db);
+    const results = await Promise.allSettled([
+      fileDraft(c, { draftId: draft!.id, destination: { kind: "task" }, today: "2026-10-09" }, db),
+      fileDraft(c, { draftId: draft!.id, destination: { kind: "note", notebookId: book.id }, today: "2026-10-09" }, db),
+      fileDraft(c, { draftId: draft!.id, destination: { kind: "journal" }, today: "2026-10-09" }, db),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal((await openTasks(c, db)).length + (await listNotes(c, book.id, db)).length + Number(Boolean(await getJournalDay(c, "2026-10-09", db))), 1);
+    assert.deepEqual(await inboxDrafts(c, db), []);
+  });
+
+  test("failed Task conversion and an oversized Journal append keep the chosen draft in Inbox", async () => {
+    const c = await account();
+    await captureDraft(c, "x".repeat(501), db);
+    const [taskDraft] = await inboxDrafts(c, db);
+    const data = coachData(db, "2026-10-09");
+    await assert.rejects(data.fileDraft!(c, { draftId: taskDraft!.id, destination: { kind: "task" }, today: "2026-10-09" }));
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.id), [taskDraft!.id]);
+    // A person-provided name can correct the refused Task conversion.
+    const task = await data.fileDraft!(c, { draftId: taskDraft!.id, destination: { kind: "task", name: "Short name" }, today: "2026-10-09" });
+    assert.ok(task.kind === "task");
+    assert.equal(task.name, "Short name");
+    await saveJournalDay(c, "2026-10-09", "x".repeat(100_000), 0, "2026-10-09", db);
+    await captureDraft(c, "Too much for the existing Journal", db);
+    const [journalDraft] = await inboxDrafts(c, db);
+    await assert.rejects(data.fileDraft!(c, { draftId: journalDraft!.id, destination: { kind: "journal" }, today: "2026-10-09" }));
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.id), [journalDraft!.id]);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body.length, 100_000);
   });
 
   test("an explicit append preserves the text and reloads a linked Journal receipt", async () => {
@@ -2100,6 +2403,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         steps,
         toolCalls: {
           listArea,
+          listInboxDrafts: 0,
+          fileDraft: 0,
           listNotebooks: 0,
           createTask: 0,
           createNote: 0,

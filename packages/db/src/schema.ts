@@ -175,6 +175,18 @@ export const drafts = pgTable("drafts", {
     .$onUpdate(() => new Date()),
 });
 
+// Original filing results survive edits or removal of their destinations.
+export const draftFilings = pgTable("draft_filings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull(),
+  destinationKey: text("destination_key").notNull(),
+  kind: text("kind").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  name: text("name").notNull(),
+  notebookId: uuid("notebook_id"),
+}, (t) => [uniqueIndex("draft_filings_user_draft_unique").on(t.userId, t.draftId)]);
+
 export const notebooks = pgTable("notebooks", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
