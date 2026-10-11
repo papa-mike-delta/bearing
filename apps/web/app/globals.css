@@ -576,6 +576,7 @@
     flex-direction: column;
     gap: 1.25rem;
     margin: 0 0 1.5rem;
+    padding-bottom: 1rem;
     list-style: none;
   }
 
@@ -633,7 +634,6 @@
     border-top: 1px solid var(--border);
     border-radius: 0;
     background: var(--background);
-    box-shadow: 0 -1rem 0 0 var(--background);
   }
 
   form.composer input {

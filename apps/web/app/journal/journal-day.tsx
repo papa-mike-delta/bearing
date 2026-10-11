@@ -50,6 +50,7 @@ function DayField({ day, today }: { day: string; today: string }) {
   }}>
     <label className="sr-only" htmlFor="journal-day">Journal date</label>
     <Input className="w-auto" id="journal-day" name="day" type="date" min="0001-01-01" max={today} defaultValue={day} required onChange={(event) => open(event.target.value)} />
+    <Button type="submit" variant="outline" size="sm">Open</Button>
   </form>;
 }
 
