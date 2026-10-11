@@ -223,6 +223,19 @@ export const journalEntries = pgTable("journal_entries", {
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [uniqueIndex("journal_entries_user_day_unique").on(t.userId, t.day)]);
 
+// Durable append receipts live apart from editable bodies. No entry FK: removing
+// a result must never let an old operation recreate or append it again.
+export const journalOperations = pgTable("journal_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  operationId: text("operation_id").notNull(),
+  source: text("source").notNull(),
+  day: date("day").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  entryId: uuid("entry_id").notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("journal_operations_source_unique").on(t.userId, t.source, t.operationId)]);
+
 // Coach threads. Phase 2 opens one per person, but nothing stops more.
 export const coachThreads = pgTable(
   "coach_threads",

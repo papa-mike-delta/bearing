@@ -44,6 +44,12 @@ Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign k
 
 Each person has one private markdown document per day. Viewing an empty day creates nothing. The first nonempty **Save** creates an entry; later saves update it with a revision check. Empty or whitespace-only saves write nothing, including on an existing entry. The Notes editor, safe preview, 100,000-character bound, save status, conflict handling, and unsaved-work guard are shared. A conflict preserves the unsaved text for comparison. Migration `0008_journal_entries` adds the table, unique person/day index, and cascading user foreign key. Journal persistence tests apply migrations to an isolated temporary Postgres database using `TEST_POSTGRES_URL`.
 
+### Append an Inbox draft
+
+**Append to journal** in the Inbox defaults to the browser's Today and can target an earlier calendar day. Success archives the entire draft and shows a link to that day. Existing text is preserved with two newlines before the draft; invalid or future days, an already filed draft, or a result over 100,000 characters leave the Inbox unchanged.
+
+`apps/web/lib/journal.ts` owns the shared `appendJournal` mutation. Append, draft archive, and durable provenance commit together. Migration `0009_journal_operations` stores receipts and payload hashes apart from editable journal bodies: a retry returns the original day and entry even after a hand edit; changed text or day under the same operation conflicts. SQL appends preserve concurrent additions, and revision checks reject stale full-page saves. The Postgres append tests cover these cases using `TEST_POSTGRES_URL`.
+
 ## Scripts
 
 ```sh

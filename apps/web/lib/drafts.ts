@@ -3,6 +3,7 @@ import { draftToTask } from "@repo/domain";
 import { and, desc, eq, TransactionRollbackError } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 import { addTask } from "./tasks.ts";
+import { appendJournal, JournalError } from "./journal.ts";
 
 // Every query here takes the session user.
 
@@ -20,6 +21,14 @@ export async function inboxDrafts(userId: string, db: Db = defaultDb) {
     .from(drafts)
     .where(and(eq(drafts.userId, userId), eq(drafts.workspace, "inbox")))
     .orderBy(desc(drafts.createdAt), desc(drafts.id));
+}
+
+export async function fileDraftAsJournal(userId: string, draftId: string, input: { day: string; today: string }, db: Db = defaultDb) {
+  if (!isUuid(draftId)) throw new JournalError("That item is unavailable. Refresh and try again.");
+  const [draft] = await db.select({ body: drafts.body }).from(drafts)
+    .where(and(eq(drafts.id, draftId), eq(drafts.userId, userId)));
+  if (!draft) throw new JournalError("That item is unavailable. Refresh and try again.");
+  return appendJournal(userId, { ...input, text: draft.body, source: "draft", operationId: draftId }, db);
 }
 
 // Archives the Draft and creates its task, or neither. Returns false when the
