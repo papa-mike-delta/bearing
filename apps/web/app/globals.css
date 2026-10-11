@@ -1,4 +1,23 @@
 /* Bearing app styles. */
+.note-filing { flex-direction: column; align-items: stretch; padding-block: 1rem; }
+.drafts > li:has(.note-filing), .drafts > li:has(details) { flex-wrap: wrap; }
+.markdown-preview { min-height: 20rem; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+.markdown-preview > * + * { margin-top: 1rem; }
+.markdown-preview :is(ul, ol) { padding-left: 1.5rem; list-style: revert; }
+.markdown-preview h3 { font-size: 1rem; text-transform: none; letter-spacing: normal; }
+.markdown-preview a { text-decoration: underline; color: var(--primary); }
+.markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-preview :is(th, td) { border: 1px solid var(--border); padding: .5rem; }
+.markdown-preview pre { overflow-x: auto; background: var(--muted); color: var(--foreground); padding: 1rem; }
+.markdown-preview img { max-width: 100%; height: auto; }
+.markdown-preview mark { background: var(--accent); color: var(--accent-foreground); }
+.markdown-preview blockquote { padding-left: 1rem; border-left: 2px solid var(--border); }
+.markdown-preview hr { border-color: var(--border); }
+.markdown-preview :is(.hljs-keyword, .hljs-title, .hljs-built_in) { color: var(--primary); font-weight: 600; }
+.markdown-preview :is(.hljs-comment, .hljs-quote) { color: var(--muted-foreground); font-style: italic; }
+.markdown-preview :is(.hljs-string, .hljs-number, .hljs-literal) { color: var(--foreground); text-decoration: underline dotted; }
+@media (max-width: 640px) { .app-header-inner { flex-wrap: wrap; height: auto; min-height: 3.5rem; padding-block: .5rem; } .app-nav { flex-wrap: wrap; } }
+
 @layer base {
   * {
     box-sizing: border-box;

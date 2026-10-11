@@ -11,6 +11,8 @@ export type ListedTask = {
 };
 
 export type CoachData = {
+  listNotebooks?(userId: string): Promise<{ id: string; name: string }[]>;
+  createNote?(userId: string, input: { notebookId: string; title: string; body: string }, from: { source: "coach"; sourceId: string }): Promise<{ id: string; notebookId: string; title: string }>;
   // Open Tasks from every Area, hidden ones included, in Area order and then
   // that Area's order. isNext is the bold Next of that Task's own Area.
   listOpenTasks(userId: string): Promise<ListedTask[]>;

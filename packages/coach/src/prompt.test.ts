@@ -45,7 +45,12 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} createTask calls per reply.`,
+      `At most ${maxCreatesPerTurn} creation calls per reply across createTask and createNote combined.`,
+    ),
+  );
+  assert.ok(
+    coachSystemPrompt().includes(
+      "If the destination is missing or ambiguous, ask which one, rather than guessing.",
     ),
   );
   assert.ok(
