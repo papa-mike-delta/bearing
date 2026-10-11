@@ -40,14 +40,16 @@ export function JournalDay({ day, entry, settings, mood }: { day: string; entry:
 
 function DayField({ day, today }: { day: string; today: string }) {
   const router = useRouter();
+  const open = (chosen: unknown) => {
+    if (isJournalDay(chosen) && chosen !== day && chosen <= localToday()) router.push(`/journal/${chosen}`);
+  };
+  // Choosing a complete date opens it; Enter still submits the field.
   return <form className="flex flex-row items-center gap-2" onSubmit={(event) => {
     event.preventDefault();
-    const chosen = new FormData(event.currentTarget).get("day");
-    if (isJournalDay(chosen) && chosen <= localToday()) router.push(`/journal/${chosen}`);
+    open(new FormData(event.currentTarget).get("day"));
   }}>
     <label className="sr-only" htmlFor="journal-day">Journal date</label>
-    <Input className="w-auto" id="journal-day" name="day" type="date" min="0001-01-01" max={today} defaultValue={day} required />
-    <Button type="submit" variant="outline">Open</Button>
+    <Input className="w-auto" id="journal-day" name="day" type="date" min="0001-01-01" max={today} defaultValue={day} required onChange={(event) => open(event.target.value)} />
   </form>;
 }
 

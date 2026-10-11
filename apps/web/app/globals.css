@@ -9,10 +9,13 @@
 .mood-choice svg { color: var(--mood-color); }
 /* Dark themes: keep every face at least as visible as muted text. */
 .dark .mood-choice svg { color: color-mix(in oklch, var(--mood-color) 60%, var(--foreground)); }
+.dark .mood-choice:is([data-mood="Good"], [data-mood="Very good"]) svg { color: color-mix(in oklch, var(--mood-color) 45%, var(--foreground)); }
 .mood-choice[aria-pressed="true"] { border-color: var(--foreground); background: var(--accent); }
 .note-filing { flex-direction: column; align-items: stretch; padding-block: 1rem; }
 .drafts > li:has(.note-filing), .drafts > li:has(details) { flex-wrap: wrap; }
 .markdown-preview { min-height: 20rem; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+/* Coach replies use the renderer inside the message card, without the preview box. */
+.markdown-preview.coach-reply { min-height: 0; border: 0; border-radius: 0; padding: 0; margin-top: 4px; }
 .markdown-preview > * + * { margin-top: 1rem; }
 .markdown-preview :is(ul, ol) { padding-left: 1.5rem; list-style: disc; }
 .markdown-preview ol { list-style: decimal; }

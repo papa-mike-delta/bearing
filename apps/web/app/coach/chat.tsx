@@ -119,7 +119,7 @@ export function Chat({
                     )}
                   </p>
                 ) : message.role === "assistant" ? (
-                  <div key={part.key} className="markdown-preview">{renderMarkdownPreview(part.text).content}</div>
+                  <div key={part.key} className="markdown-preview coach-reply">{renderMarkdownPreview(part.text).content}</div>
                 ) : (
                   <p key={part.key}>{part.text}</p>
                 ),
