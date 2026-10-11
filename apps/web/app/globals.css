@@ -43,7 +43,7 @@
   .app-header-inner { flex-wrap: nowrap; align-items: center; gap: 0.25rem; height: 3.5rem; padding-inline: 0.5rem; }
   .brand { flex: none; }
   .app-nav { flex-wrap: nowrap; gap: 0; min-width: 0; }
-  .app-nav a { padding: 0.35rem 0.3rem; white-space: nowrap; }
+  .app-nav a { padding: 0.35rem 0.25rem; white-space: nowrap; font-size: 0.8rem; }
 }
 
 @layer base {

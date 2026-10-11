@@ -57,6 +57,13 @@
       "when": 1791688138326,
       "tag": "0007_notes_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791738788041,
+      "tag": "0008_journal_entries",
+      "breakpoints": true
     }
   ]
 }

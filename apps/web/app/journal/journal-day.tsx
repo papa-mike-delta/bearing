@@ -1,0 +1,76 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { maxNoteBodyLength } from "@repo/domain";
+import { Button } from "@repo/ui/components/button";
+import { Input } from "@repo/ui/components/input";
+import { MarkdownEditor } from "../../components/markdown-editor";
+import { useUnsavedChanges } from "../../components/use-unsaved-changes";
+import { isJournalDay, shiftJournalDay } from "../../lib/journal-day";
+import { localToday } from "../../lib/today";
+import { useBrowserToday } from "../browser-today";
+import { updateJournalDay } from "./actions";
+
+type Entry = { body: string; revision: number };
+
+export function JournalDay({ day, entry }: { day: string; entry: Entry | null }) {
+  const today = useBrowserToday();
+  const previous = shiftJournalDay(day, -1);
+  const next = shiftJournalDay(day, 1);
+  if (!today) return <p role="status">Checking the browser’s calendar day…</p>;
+  return <>
+    <nav aria-label="Journal days" className="mb-6 flex flex-wrap items-center gap-3">
+      {previous ? <Link href={`/journal/${previous}`}>Previous</Link> : <span aria-disabled="true">Previous</span>}
+      <DayField key={day} day={day} today={today} />
+      {next && next <= today ? <Link href={`/journal/${next}`}>Next</Link> : <span aria-disabled="true">Next</span>}
+      <Link href="/journal">Today</Link>
+    </nav>
+    {day > today ? <p>This day is not open yet.</p> : <JournalEditor day={day} entry={entry} />}
+  </>;
+}
+
+function DayField({ day, today }: { day: string; today: string }) {
+  const router = useRouter();
+  return <form className="flex-row items-center" onSubmit={(event) => {
+    event.preventDefault();
+    const chosen = new FormData(event.currentTarget).get("day");
+    if (isJournalDay(chosen) && chosen <= localToday()) router.push(`/journal/${chosen}`);
+  }}>
+    <label className="sr-only" htmlFor="journal-day">Journal date</label>
+    <Input className="w-auto" id="journal-day" name="day" type="date" min="0001-01-01" max={today} defaultValue={day} required />
+    <Button type="submit" variant="outline">Open</Button>
+  </form>;
+}
+
+function JournalEditor({ day, entry }: { day: string; entry: Entry | null }) {
+  const [saved, setSaved] = useState(entry ?? { body: "", revision: 0 });
+  const [body, setBody] = useState(saved.body);
+  const [error, setError] = useState("");
+  const [pending, start] = useTransition();
+  const dirty = body !== saved.body;
+  useUnsavedChanges(dirty, "Journal");
+  const tooLong = body.length > maxNoteBodyLength;
+  return <form data-journal-editor onSubmit={(event) => {
+    event.preventDefault();
+    start(async () => {
+      setError("");
+      try {
+        const result = await updateJournalDay(day, body, saved.revision, localToday());
+        if ("error" in result) setError(result.error);
+        else if ("empty" in result) setError("An empty reflection is not saved. Your saved entry is kept.");
+        else setSaved({ body, revision: result.revision });
+      } catch { setError("Could not save. Your text is kept here; please retry."); }
+    });
+  }}>
+    <MarkdownEditor value={body} onChange={setBody} disabled={pending} />
+    {tooLong && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
+    {error && <p role="alert">{error}</p>}
+    <div className="flex flex-wrap items-center gap-3">
+      <span role="status">{pending ? "Saving…" : dirty ? "Unsaved changes" : saved.revision ? "Saved" : "No saved entry"}</span>
+      <Button type="submit" disabled={pending || !dirty || tooLong || !body.trim()}>Save</Button>
+    </div>
+    {dirty && !body.trim() && <p>An empty reflection writes nothing; the saved entry is kept.</p>}
+  </form>;
+}

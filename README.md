@@ -38,6 +38,12 @@ A Goal belongs to one Area. Its name is unique in that Area, ignoring case. A Ta
 
 Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign keys. Deleting a user cascades to that user's Notes and Notebooks. Deleting a Notebook can leave its Notes with no Notebook (`ON DELETE SET NULL`). Before those keys are added, the migration deletes Notes and Notebooks whose user is missing, and clears `notebook_id` on Notes whose Notebook is missing.
 
+## Journal
+
+`/journal` opens the browser's Today at `/journal/YYYY-MM-DD`. Previous, the date field, and Next navigate calendar days; Next stops at Today. Future days say **This day is not open yet** and have no editor or Save. Impossible dates return not-found. Today refreshes at local midnight and when the browser regains focus; an open dated entry keeps its original day.
+
+Each person has one private markdown document per day. Viewing an empty day creates nothing. The first nonempty **Save** creates an entry; later saves update it with a revision check. Empty or whitespace-only saves write nothing, including on an existing entry. The Notes editor, safe preview, 100,000-character bound, save status, conflict handling, and unsaved-work guard are shared. A conflict preserves the unsaved text for comparison. Migration `0008_journal_entries` adds the table, unique person/day index, and cascading user foreign key. Journal persistence tests apply migrations to an isolated temporary Postgres database using `TEST_POSTGRES_URL`.
+
 ## Scripts
 
 ```sh

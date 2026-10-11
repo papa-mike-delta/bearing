@@ -212,6 +212,17 @@ export const noteOperations = pgTable("note_operations", {
   noteId: uuid("note_id").notNull(),
 }, (t) => [uniqueIndex("note_operations_source_unique").on(t.userId, t.source, t.sourceId)]);
 
+// One markdown document per owned calendar day. Merely viewing a day creates nothing.
+export const journalEntries = pgTable("journal_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  body: text("body").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [uniqueIndex("journal_entries_user_day_unique").on(t.userId, t.day)]);
+
 // Coach threads. Phase 2 opens one per person, but nothing stops more.
 export const coachThreads = pgTable(
   "coach_threads",
