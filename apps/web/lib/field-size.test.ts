@@ -40,7 +40,7 @@ function mediaBody(css: string, query: string): string | undefined {
   const re = /@media\s*\(([^)]*)\)\s*\{/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(css))) {
-    if (!match[1].includes(query)) continue;
+    if (!match[1]!.includes(query)) continue;
     const start = match.index + match[0].length;
     let depth = 1;
     let j = start;
@@ -56,7 +56,7 @@ function mediaBody(css: string, query: string): string | undefined {
 function classTokens(source: string): string[] {
   const match = source.match(/className=\{cn\(\s*"([^"]*)"/);
   assert.ok(match, "kit class string");
-  return match[1].split(/\s+/);
+  return match[1]!.split(/\s+/);
 }
 
 // A bare text-sm is the utility itself, not a variant such as md:text-sm.
