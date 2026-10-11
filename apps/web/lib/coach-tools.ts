@@ -1,10 +1,12 @@
 import {
+  appendJournal,
   completeTask,
   createNote,
   listNotebooks,
   createTask,
   listArea,
   maxCreatesPerTurn,
+  setMood,
   scheduleTask,
   updateTask,
   type CoachData,
@@ -12,6 +14,9 @@ import {
 import { db as defaultDb } from "@repo/db";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
+import { setMood as setMoodRow, MoodError } from "./mood.ts";
+import { isJournalDay } from "./journal-day.ts";
+import { appendJournal as appendJournalRow, JournalError } from "./journal.ts";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
@@ -25,6 +30,8 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    setMood(userId, input) { return setMoodRow(userId, input, db); },
+    appendJournal(userId, input) { return appendJournalRow(userId, input, db); },
     listNotebooks(userId) { return notebookRows(userId, db); },
     async createNote(userId, input, from) {
       const note = await createNoteRow(userId, input, from, db);
@@ -51,7 +58,7 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
 
 // Session user + the person's message id (stable across resends) reach each
 // tool only through typed context, checked on every call.
-const toolContext = z.object({ userId: z.uuid(), messageId: z.uuid() });
+const toolContext = z.object({ userId: z.uuid(), messageId: z.uuid(), today: z.string().optional(), messageCreatedAt: z.number().int().nonnegative().optional() });
 
 type ToolRun = {
   userId: string;
@@ -142,6 +149,41 @@ export function coachTools(data: CoachData) {
   let scheduledThisTurn = 0;
   let updatedThisTurn = 0;
   return {
+    appendJournal: tool({
+      description: appendJournal.description,
+      inputSchema: appendJournal.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`);
+        createdThisTurn += 1;
+        // Validation errors are safe and recoverable; never expose database errors.
+        const day = input.day === undefined || input.day === "today" ? context.today : input.day;
+        if (!context.today || !isJournalDay(context.today)) throw new Error("Supply the browser's Today as a real YYYY-MM-DD calendar day, then retry.");
+        if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
+        try { return await appendJournal.run(input, { ...context, toolCallId, data }); }
+        catch (error) {
+          logToolError("appendJournal", toolCallId, error);
+          throw new Error(error instanceof JournalError ? error.message : "Couldn't append to that Journal day.");
+        }
+      },
+    }),
+    setMood: tool({
+      description: setMood.description,
+      inputSchema: setMood.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`);
+        createdThisTurn += 1;
+        const day = input.day === undefined || input.day === "today" ? context.today : input.day;
+        if (!context.today || !isJournalDay(context.today)) throw new Error("Supply the browser's Today as a real YYYY-MM-DD calendar day, then retry.");
+        if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
+        try { return await setMood.run(input, { ...context, toolCallId, data }); }
+        catch (error) {
+          logToolError("setMood", toolCallId, error);
+          throw new Error(error instanceof MoodError ? error.message : "Couldn't set that mood.");
+        }
+      },
+    }),
     listNotebooks: tool({
       description: listNotebooks.description,
       inputSchema: listNotebooks.inputSchema,
@@ -159,7 +201,7 @@ export function coachTools(data: CoachData) {
         // Count before awaiting so parallel calls in one step share the cap.
         if (createdThisTurn >= maxCreatesPerTurn) {
           throw new Error(
-            `You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`,
+            `You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`,
           );
         }
         createdThisTurn += 1;
@@ -191,7 +233,7 @@ export function coachTools(data: CoachData) {
         // Count before awaiting so parallel calls in one step share the cap.
         if (createdThisTurn >= maxCreatesPerTurn) {
           throw new Error(
-            `You can add only ${maxCreatesPerTurn} Tasks per reply.`,
+            `You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`,
           );
         }
         createdThisTurn += 1;
@@ -264,6 +306,8 @@ export function coachTools(data: CoachData) {
 }
 
 export const coachToolNames = [
+  "appendJournal",
+  "setMood",
   "listNotebooks",
   "createNote",
   "listArea",
@@ -273,13 +317,15 @@ export const coachToolNames = [
   "updateTask",
 ] as const;
 
-export function coachToolsContext(userId: string, messageId: string) {
+export function coachToolsContext(userId: string, messageId: string, today = "", messageCreatedAt?: number) {
   return Object.fromEntries(
-    coachToolNames.map((name) => [name, { userId, messageId }]),
+    coachToolNames.map((name) => [name, { userId, messageId, today, messageCreatedAt }]),
   ) as {
     [Name in (typeof coachToolNames)[number]]: {
       userId: string;
       messageId: string;
+      today: string;
+      messageCreatedAt?: number;
     };
   };
 }

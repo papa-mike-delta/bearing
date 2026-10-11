@@ -289,6 +289,8 @@ export const coachMessages = pgTable(
       .references(() => coachThreads.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
     parts: jsonb("parts_json").notNull(),
+    // Browser day bound on first send; resends keep it, including missing/invalid context.
+    browserToday: text("browser_today"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),

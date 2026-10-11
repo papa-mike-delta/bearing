@@ -4,6 +4,10 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { getMood, setMood } from "./mood.ts";
+import { getJournalDay, saveJournalDay } from "./journal.ts";
 import { after, before, describe, mock, test } from "node:test";
 import {
   coachMessages,
@@ -37,7 +41,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
-import { coachTools } from "./coach-tools.ts";
+import { coachData, coachTools } from "./coach-tools.ts";
 import { createNotebook, listNotes } from "./notes.ts";
 import {
   addTask,
@@ -64,6 +68,8 @@ function writeToolsOffered(
     "listArea",
     "listNotebooks",
     "createNote",
+    "appendJournal",
+    "setMood",
     "scheduleTask",
     "updateTask",
   ]) {
@@ -225,6 +231,8 @@ type Step =
   | { listNotebooks: string; toolCallId?: string }
   | { createTask: string; toolCallId?: string }
   | { createNote: string; toolCallId?: string }
+  | { appendJournal: string; toolCallId?: string }
+  | { setMood: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
 function scripted(...steps: Step[]) {
@@ -263,7 +271,11 @@ function scripted(...steps: Step[]) {
                       input: step.completeTask,
                       id: step.toolCallId,
                     }
-                  : null;
+                  : "appendJournal" in step
+                    ? { name: "appendJournal" as const, input: step.appendJournal, id: step.toolCallId }
+                    : "setMood" in step
+                      ? { name: "setMood" as const, input: step.setMood, id: step.toolCallId }
+                      : null;
       const chunks = [
         ...(tool
           ? [
@@ -318,6 +330,17 @@ const failing = () =>
     },
   });
 
+function failingAfterWrite(toolName: string, input: unknown) {
+  let step = 0;
+  return new MockLanguageModelV4({ doStream: async () => {
+    if (step++ > 0) throw new Error("Gateway unavailable after write");
+    return { stream: simulateReadableStream({ chunks: [
+      { type: "tool-call", toolCallId: "call_committed", toolName, input: JSON.stringify(input) },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+    ] }) };
+  } });
+}
+
 const userMessage = (text: string, id: string = randomUUID()): UIMessage => ({
   id,
   role: "user",
@@ -331,7 +354,11 @@ const textOf = (messages: UIMessage[] | null) =>
   ]);
 
 describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
-  const db = createDb(url!);
+  const admin = createDb(url!).$client;
+  const database = `bearing_coach_${randomUUID().replaceAll("-", "")}`;
+  const connection = new URL(url ?? "postgres://localhost/test");
+  connection.pathname = `/${database}`;
+  const db = createDb(connection.toString());
   const ids: string[] = [];
   let a = "";
   let b = "";
@@ -354,6 +381,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     threadId: unknown,
     message: unknown,
     model: MockLanguageModelV4,
+    today = "2026-10-09",
+    data?: ReturnType<typeof coachData>,
   ) {
     const result = await coachTurn({
       userId,
@@ -361,7 +390,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       message,
       model,
       db,
-      today: "2026-10-09",
+      today,
+      data,
     });
     if ("refused" in result) return result;
     const chunks: { type: string }[] = [];
@@ -398,6 +428,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     (await db.select().from(coachMessages).where(eq(coachMessages.id, id)))[0];
 
   before(async () => {
+    await admin.query(`create database "${database}"`);
+    await migrate(db, { migrationsFolder: fileURLToPath(new URL("../../../packages/db/drizzle", import.meta.url)) });
     a = await account();
     b = await account();
   });
@@ -409,6 +441,194 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       await db.delete(users).where(inArray(users.id, ids));
     }
     await db.$client.end();
+    await admin.query(`drop database if exists "${database}"`);
+    await admin.end();
+  });
+
+  test("an explicit append preserves the text and reloads a linked Journal receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await saveJournalDay(c, "2026-10-09", "Earlier", 0, "2026-10-09", db);
+    await turn(c, thread, userMessage("Append this: My **reflection**\n"), scripted(
+      { appendJournal: JSON.stringify({ text: "My **reflection**\n" }) },
+      { text: "Saved." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Earlier\n\nMy **reflection**\n");
+    const saved = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+    const appended = saved.find((p) => "receipt" in p && p.receipt === "Appended to journal for 2026-10-09");
+    assert.equal(appended && "href" in appended ? appended.href : undefined, "/journal/2026-10-09");
+  });
+
+  test("explicit mood set and clear reload linked receipts without creating a Journal document", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("My mood is Good; save it for yesterday"), scripted(
+      { setMood: JSON.stringify({ day: "2026-10-08", mood: "Good" }) }, { text: "Saved." },
+    ));
+    assert.equal(await getMood(c, "2026-10-08", db), "Good");
+    await turn(c, thread, userMessage("Clear yesterday's mood"), scripted(
+      { setMood: JSON.stringify({ day: "2026-10-08", mood: null }) }, { text: "Cleared." },
+    ));
+    assert.equal(await getMood(c, "2026-10-08", db), null);
+    assert.equal(await getJournalDay(c, "2026-10-08", db), null);
+    const receipts = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts)).filter((p) => "receipt" in p && /mood/.test(p.receipt));
+    assert.deepEqual(receipts.map((p) => "receipt" in p ? [p.receipt, p.href] : []), [
+      ["Set mood Good for 2026-10-08", "/journal/2026-10-08"],
+      ["Cleared mood for 2026-10-08", "/journal/2026-10-08"],
+    ]);
+  });
+
+  test("a resend cannot change the text under the triggering message identity", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Append Original");
+    await turn(c, thread, message, failingAfterWrite("appendJournal", { text: "Original" }));
+    const retried = await turn(c, thread, userMessage("Append Changed", message.id), scripted(
+      { appendJournal: JSON.stringify({ text: "Changed" }) }, { text: "Saved." },
+    ));
+    assert.deepEqual(retried, { refused: 409 });
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Original");
+  });
+
+  test("a committed append resend keeps the original browser day across midnight and appends once", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Append My reflection today");
+    await turn(c, thread, message, failingAfterWrite("appendJournal", { day: "today", text: "My reflection" }));
+    const entry = (await getJournalDay(c, "2026-10-09", db))!;
+    await saveJournalDay(c, entry.day, "Edited later", entry.revision, "2026-10-10", db);
+    await turn(c, thread, message, scripted(
+      { appendJournal: JSON.stringify({ text: "My reflection" }), toolCallId: "new_call_on_resend" }, { text: "Already saved." },
+    ), "2026-10-10");
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Edited later");
+    assert.equal(await getJournalDay(c, "2026-10-10", db), null);
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"));
+  });
+
+  test("an older Mood resend cannot overwrite a newer choice or clear and keeps its day", async () => {
+    for (const newerMood of ["Very good", null] as const) {
+      const c = await account();
+      const thread = await coachThread(c, db);
+      const message = userMessage("Set my mood to Low today");
+      await turn(c, thread, message, failingAfterWrite("setMood", { mood: "Low" }));
+      assert.equal(await getMood(c, "2026-10-09", db), "Low");
+      await setMood(c, { day: "2026-10-09", today: "2026-10-10", mood: newerMood, setAt: Date.now() + 10_000 }, db);
+      await turn(c, thread, message, scripted(
+        { setMood: JSON.stringify({ day: "today", mood: "Low" }) }, { text: "The newer choice is kept." },
+      ), "2026-10-10");
+      assert.equal(await getMood(c, "2026-10-09", db), newerMood);
+      assert.equal(await getMood(c, "2026-10-10", db), null);
+    }
+  });
+
+  test("future or invalid target days and missing or invalid browser days fail recoverably with no success links", async () => {
+    for (const [today, day] of [
+      ["2026-10-09", "2026-10-10"], ["2026-10-09", "2026-02-30"],
+      ["", undefined], ["2026-02-29", undefined], ["", "2026-10-08"],
+    ]) {
+      const c = await account();
+      const thread = await coachThread(c, db);
+      const model = scripted(
+        { appendJournal: JSON.stringify({ day, text: "Refused reflection" }) },
+        { setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Please correct the day." },
+      );
+      await turn(c, thread, userMessage("Save reflection and mood"), model, today);
+      for (const target of ["2026-10-08", "2026-10-09", "2026-10-10"]) {
+        assert.equal(await getJournalDay(c, target, db), null);
+        assert.equal(await getMood(c, target, db), null);
+      }
+      const failed = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts)).filter((p) => "receipt" in p && p.receipt.startsWith("Couldn't"));
+      assert.equal(failed.length, 2);
+      for (const part of failed) assert.equal("href" in part, false);
+      const toolResults = JSON.stringify(model.doStreamCalls[2]!.prompt);
+      assert.match(toolResults, /error-text/);
+      if (!today || today === "2026-02-29") assert.match(toolResults, /browser's Today/);
+    }
+  });
+
+  test("Coach append operation conflicts on changed payload and stays scoped to its session owner", async () => {
+    const c = await account(), d = await account();
+    const data = coachData(db, "2026-10-09");
+    const input = { day: "2026-10-09", today: "2026-10-09", text: "Original", source: "coach" as const, operationId: randomUUID() };
+    const result = await data.appendJournal!(c, input);
+    await assert.rejects(data.appendJournal!(c, { ...input, text: "Changed" }), /Conflict/);
+    await assert.rejects(data.appendJournal!(c, { ...input, day: "2026-10-08" }), /Conflict/);
+    assert.deepEqual(await data.appendJournal!(c, input), result);
+    assert.equal((await getJournalDay(c, input.day, db))?.body, "Original");
+    assert.equal(await getJournalDay(d, input.day, db), null);
+    await data.appendJournal!(d, { ...input, text: "Other person's reflection" });
+    assert.equal((await getJournalDay(c, input.day, db))?.body, "Original");
+  });
+
+  test("Journal and Mood writes ignore model identity and cannot reach another person's day", async () => {
+    const c = await account(), d = await account();
+    const thread = await coachThread(c, db);
+    await saveJournalDay(d, "2026-10-09", "Private reflection", 0, "2026-10-09", db);
+    await setMood(d, { day: "2026-10-09", today: "2026-10-09", mood: "Low", setAt: 1 }, db);
+    const model = scripted(
+      { appendJournal: JSON.stringify({ text: "Mine", userId: d, messageId: randomUUID(), operationId: "forged", today: "2026-10-10" }) },
+      { setMood: JSON.stringify({ mood: "Good", userId: d, setAt: 253_402_300_799_999 }) }, { text: "Saved." },
+    );
+    await turn(c, thread, userMessage("Append Mine and set mood Good"), model);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Mine");
+    assert.equal(await getMood(c, "2026-10-09", db), "Good");
+    assert.equal((await getJournalDay(d, "2026-10-09", db))?.body, "Private reflection");
+    assert.equal(await getMood(d, "2026-10-09", db), "Low");
+    assert.ok(!promptText(model).includes("Private reflection"));
+    assert.deepEqual(await turn(d, thread, userMessage("Append"), model), { refused: 404 });
+  });
+
+  test("parallel Task, Journal and Mood calls share the three-write cap before awaiting", async () => {
+    for (const fourthTool of ["appendJournal", "setMood"]) {
+      const c = await account();
+      const thread = await coachThread(c, db);
+      let step = 0;
+      const calls = [
+        ["createTask", { name: "One" }],
+        ["appendJournal", { text: "Accepted reflection" }],
+        ["setMood", { mood: "Good" }],
+        [fourthTool, fourthTool === "appendJournal" ? { text: "Fourth reflection" } : { mood: "Low" }],
+      ] as const;
+      const model = new MockLanguageModelV4({ doStream: async () => {
+        if (step++ > 0) return { stream: simulateReadableStream({ chunks: [
+          { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Capped." }, { type: "text-end", id: "t" }, finish,
+        ] }) };
+        return { stream: simulateReadableStream({ chunks: [
+          ...calls.map(([toolName, input], i) => ({ type: "tool-call" as const, toolCallId: `parallel_${i}`, toolName, input: JSON.stringify(input) })),
+          { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+        ] }) };
+      } });
+      const info = mock.method(console, "info", () => {});
+      try { await turn(c, thread, userMessage("Save these four things"), model); }
+      finally { info.mock.restore(); }
+      assert.equal((await openTasks(c, db)).length, 1);
+      assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Accepted reflection");
+      assert.equal(await getMood(c, "2026-10-09", db), "Good");
+      assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes(fourthTool === "appendJournal" ? "Couldn't append to that Journal day" : "Couldn't set that mood"));
+      const log = JSON.parse(String(info.mock.calls.find((call) => String(call.arguments[0]).includes("coach.turn"))!.arguments[0]));
+      assert.equal(log.toolCalls.createTask, 1);
+      assert.equal(log.toolCalls.appendJournal, fourthTool === "appendJournal" ? 2 : 1);
+      assert.equal(log.toolCalls.setMood, fourthTool === "setMood" ? 2 : 1);
+    }
+  });
+
+  test("concurrent changed-message resends cannot reuse one identity for two reflections", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const id = randomUUID();
+    let reads = 0;
+    let release!: () => void;
+    const bothRead = new Promise<void>((resolve) => { release = resolve; });
+    const data = { ...coachData(db, "2026-10-09"), listOpenTasks: async () => {
+      if (++reads === 2) release();
+      await bothRead;
+      return [];
+    } };
+    const results = await Promise.all(["First", "Changed"].map((text) => turn(c, thread, userMessage(`Append ${text}`, id), scripted(
+      { appendJournal: JSON.stringify({ text }) }, { text: "Saved." },
+    ), "2026-10-09", data)));
+    assert.equal(results.filter((result) => "refused" in result && result.refused === 409).length, 1);
+    assert.ok(["First", "Changed"].includes((await getJournalDay(c, "2026-10-09", db))!.body));
   });
 
   test("a saved turn reloads, and the next turn sees the earlier ones", async () => {
@@ -1883,6 +2103,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
           listNotebooks: 0,
           createTask: 0,
           createNote: 0,
+          appendJournal: 0,
+          setMood: 0,
           completeTask: 0,
           scheduleTask: 0,
           updateTask: 0,

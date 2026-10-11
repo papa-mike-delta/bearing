@@ -45,7 +45,7 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} creation calls per reply across createTask and createNote combined.`,
+      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal and setMood combined.`,
     ),
   );
   assert.ok(
@@ -113,4 +113,12 @@ test("a valid today is named in the system prompt", () => {
   assert.ok(coachSystemPrompt("2026-10-09").includes("Today is 2026-10-09."));
   assert.equal(coachSystemPrompt("2026-02-31").includes("Today is"), false);
   assert.equal(coachSystemPrompt().includes("Today is"), false);
+});
+
+test("Journal writes require exact requested text and an explicitly stated mood", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("Append only the exact text they gave you"));
+  assert.ok(prompt.includes("Never infer a mood from prose"));
+  assert.ok(prompt.includes("Missing or invalid Today needs correction"));
+  assert.ok(prompt.includes("You cannot read the Journal"));
 });

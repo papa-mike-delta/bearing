@@ -638,3 +638,36 @@ test("parallel updateTask calls and an extra completeTask complete at most one T
   const refused = results.find((result) => !result.ok);
   assert.match(String(refused?.error), /only one Task per reply/);
 });
+
+test("Journal and Mood database failures expose fixed errors and log no private text", async () => {
+  const privateText = "PRIVATE REFLECTION AND DATABASE QUERY";
+  const data: CoachData = {
+    ...unusedWrites,
+    listOpenTasks: async () => [],
+    appendJournal: async () => { throw new Error(privateText); },
+    setMood: async () => { throw new Error(privateText); },
+  };
+  const model = new MockLanguageModelV4({ doStream: async () => ({
+    stream: simulateReadableStream({ chunks: [
+      { type: "tool-call", toolCallId: "append", toolName: "appendJournal", input: JSON.stringify({ text: privateText }) },
+      { type: "tool-call", toolCallId: "mood", toolName: "setMood", input: JSON.stringify({ mood: "Good" }) },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+    ] }),
+  }) });
+  const error = mock.method(console, "error", () => {});
+  const errors: string[] = [];
+  try {
+    const result = streamText({
+      model, prompt: "Save", tools: coachTools(data) as ToolSet,
+      toolsContext: coachToolsContext(randomUUID(), messageId, "2026-10-09", 1) as never,
+    });
+    for await (const part of result.stream) {
+      if (part.type === "tool-error") errors.push(String(part.error));
+    }
+  } finally { error.mock.restore(); }
+  assert.deepEqual(errors.sort(), ["Error: Couldn't append to that Journal day.", "Error: Couldn't set that mood."]);
+  const logs = error.mock.calls.map((call) => String(call.arguments[0])).join("\n");
+  assert.ok(!logs.includes(privateText));
+  assert.ok(logs.includes("appendJournal"));
+  assert.ok(logs.includes("setMood"));
+});

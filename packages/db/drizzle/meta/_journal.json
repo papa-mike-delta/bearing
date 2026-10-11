@@ -85,6 +85,13 @@
       "when": 1791740575814,
       "tag": "0011_day_scores",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791744771776,
+      "tag": "0012_coach_message_day",
+      "breakpoints": true
     }
   ]
 }

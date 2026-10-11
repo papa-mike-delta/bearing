@@ -2,6 +2,8 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
+import type { CoachMood } from "./moods.ts";
+
 export type ListedTask = {
   id: string;
   name: string;
@@ -11,8 +13,31 @@ export type ListedTask = {
 };
 
 export type CoachData = {
+  setMood?(
+    userId: string,
+    input: {
+      day: string;
+      today: string;
+      mood: CoachMood | null;
+      setAt: number;
+    },
+  ): Promise<{ day: string; mood: CoachMood | null }>;
+  appendJournal?(
+    userId: string,
+    input: {
+      day: string;
+      today: string;
+      text: string;
+      source: "coach";
+      operationId: string;
+    },
+  ): Promise<{ id: string; day: string }>;
   listNotebooks?(userId: string): Promise<{ id: string; name: string }[]>;
-  createNote?(userId: string, input: { notebookId: string; title: string; body: string }, from: { source: "coach"; sourceId: string }): Promise<{ id: string; notebookId: string; title: string }>;
+  createNote?(
+    userId: string,
+    input: { notebookId: string; title: string; body: string },
+    from: { source: "coach"; sourceId: string },
+  ): Promise<{ id: string; notebookId: string; title: string }>;
   // Open Tasks from every Area, hidden ones included, in Area order and then
   // that Area's order. isNext is the bold Next of that Task's own Area.
   listOpenTasks(userId: string): Promise<ListedTask[]>;
@@ -58,5 +83,7 @@ export type ToolRunContext = {
   userId: string;
   toolCallId: string;
   messageId: string;
+  today?: string;
+  messageCreatedAt?: number;
   data: CoachData;
 };
