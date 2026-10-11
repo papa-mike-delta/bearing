@@ -78,6 +78,13 @@
       "when": 1791740111074,
       "tag": "0010_journal_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791740575814,
+      "tag": "0011_day_scores",
+      "breakpoints": true
     }
   ]
 }

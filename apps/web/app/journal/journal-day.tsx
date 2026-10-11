@@ -10,13 +10,15 @@ import { MarkdownEditor } from "../../components/markdown-editor";
 import { useUnsavedChanges } from "../../components/use-unsaved-changes";
 import { isJournalDay, shiftJournalDay } from "../../lib/journal-day";
 import { localToday } from "../../lib/today";
+import type { Mood } from "../../lib/mood-values";
 import { useBrowserToday } from "../browser-today";
 import { updateJournalDay } from "./actions";
+import { MoodControl } from "./mood-control";
 
 type Entry = { body: string; revision: number };
 type Settings = { template: string; alwaysLoad: boolean };
 
-export function JournalDay({ day, entry, settings }: { day: string; entry: Entry | null; settings: Settings }) {
+export function JournalDay({ day, entry, settings, mood }: { day: string; entry: Entry | null; settings: Settings; mood: Mood | null }) {
   const today = useBrowserToday();
   const previous = shiftJournalDay(day, -1);
   const next = shiftJournalDay(day, 1);
@@ -28,7 +30,10 @@ export function JournalDay({ day, entry, settings }: { day: string; entry: Entry
       {next && next <= today ? <Link href={`/journal/${next}`}>Next</Link> : <span aria-disabled="true">Next</span>}
       <Link href="/journal">Today</Link>
     </nav>
-    {day > today ? <p>This day is not open yet.</p> : <JournalEditor day={day} entry={entry} settings={settings} />}
+    {day > today ? <p>This day is not open yet.</p> : <>
+      <MoodControl day={day} initialMood={mood} />
+      <JournalEditor day={day} entry={entry} settings={settings} />
+    </>}
   </>;
 }
 

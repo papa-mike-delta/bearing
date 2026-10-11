@@ -44,6 +44,12 @@ Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign k
 
 Each person has one private markdown document per day. Viewing an empty day creates nothing. The first nonempty **Save** creates an entry; later saves update it with a revision check. Empty or whitespace-only saves write nothing, including on an existing entry. The Notes editor, safe preview, 100,000-character bound, save status, conflict handling, and unsaved-work guard are shared. A conflict preserves the unsaved text for comparison. Migration `0008_journal_entries` adds the table, unique person/day index, and cascading user foreign key. Journal persistence tests apply migrations to an isolated temporary Postgres database using `TEST_POSTGRES_URL`.
 
+### Mood for the day
+
+Today and past Journal days offer five large, labeled Lucide faces: **Very low**, **Low**, **Okay**, **Good**, and **Very good**. Their colors follow the active theme. Buttons support keyboard focus and pressed state; **Clear** returns to **No mood set**. Future days have no mood controls. Mood saves independently of the editor, so a day can have a mood without a document or a document without a mood.
+
+`apps/web/lib/mood.ts` provides the shared, user-scoped `setMood` and read-only `getMood`. Migration `0011_day_scores` adds one nullable mood per user/day with a word CHECK and cascading user foreign key. Missing and cleared moods are `null`, never Okay or zero. Writes validate real days against the supplied browser Today and use client epoch milliseconds (`setAt`) for ordering; callers retain that timestamp on retries and issue later timestamps for new choices. Older and equal timestamps change nothing, including after a clear. The UI offers **Retry mood** with the original request after a failed response. Real Postgres tests cover persistence, document independence, validation before writes, replays, concurrency, ownership, constraints, and cascade deletion.
+
 ### Journal template
 
 **Edit template** in the Journal opens `/journal?template=edit`; it uses the shared markdown editor and safe preview. Each account starts with Gratitude, Best thing, and Hard part sections. Custom templates preserve exact text up to 10,000 characters; longer text is refused without truncation. **Always load template** defaults off and is stored independently of the template.

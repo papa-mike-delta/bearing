@@ -3,6 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
 import { JournalError, saveJournalDay, saveJournalTemplate, setAlwaysLoadTemplate } from "../../lib/journal";
+import { MoodError, setMood, type MoodInput } from "../../lib/mood";
+import type { Mood } from "../../lib/mood-values";
+
+export async function updateMood(input: MoodInput): Promise<{ mood: Mood | null; setAt: number } | { error: string }> {
+  const user = await requireUser();
+  try {
+    const score = await setMood(user.id, input);
+    revalidatePath(`/journal/${input.day}`);
+    return { mood: score.mood, setAt: score.moodSetAt.getTime() };
+  } catch (error) {
+    return { error: error instanceof MoodError ? error.message : "Could not save the mood. Please retry." };
+  }
+}
 
 export async function updateJournalDay(day: string, body: string, expectedRevision: number, today: string, loadedTemplate?: string): Promise<{ revision: number } | { empty: true } | { error: string }> {
   const user = await requireUser();

@@ -223,6 +223,21 @@ export const journalEntries = pgTable("journal_entries", {
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [uniqueIndex("journal_entries_user_day_unique").on(t.userId, t.day)]);
 
+// A mood belongs to the day independently of its optional journal document.
+// Keep clears as null with their set time so old replays cannot restore a mood.
+export const dayScores = pgTable("day_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  mood: text("mood"),
+  moodSetAt: timestamp("mood_set_at", { mode: "date", withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  uniqueIndex("day_scores_user_day_unique").on(t.userId, t.day),
+  check("day_scores_mood", sql`${t.mood} in ('Very low', 'Low', 'Okay', 'Good', 'Very good')`),
+]);
+
 // Account defaults are created only by an explicit settings change.
 export const journalSettings = pgTable("journal_settings", {
   userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
