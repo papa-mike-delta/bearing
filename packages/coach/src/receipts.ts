@@ -1,6 +1,8 @@
 // The one line a tool call shows as in the Coach thread. Takes a stored or
 // streamed tool part; null for parts that aren't a Coach tool call.
 
+import { noteHref } from "@repo/domain";
+
 type ToolPart = { type: string; state?: string; output?: unknown };
 
 const pending = (state: string | undefined) =>
@@ -39,8 +41,9 @@ function show(part: ToolPart): Line | null {
     const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const name = nameOf(part.output);
-    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && uuid.test(output.id) && typeof output.notebookId === "string" && uuid.test(output.notebookId)) {
-      const href = `/notes/${output.notebookId}/${output.id}`;
+    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && uuid.test(output.notebookId)) ? output.notebookId : undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && uuid.test(output.id) && notebookId !== undefined) {
+      const href = noteHref(notebookId, output.id);
       if (output.href === href) return { line: `Created Note '${name}'`, href };
     }
     return { line: "Couldn't create that Note" };

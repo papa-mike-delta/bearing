@@ -294,6 +294,15 @@ test("a createNote call reads as a one-line receipt and links to the Note", () =
   );
 });
 
+test("a createNote receipt with no notebook links under /notes/_", () => {
+  const href = `/notes/_/${noteId}`;
+  const output = { id: noteId, notebookId: null, name: "Loose", href };
+  assert.equal(receipt({ type: "tool-createNote", state: "output-available", output }), "Created Note 'Loose'");
+  assert.deepEqual(shownParts([createdNote("n4", output)]), [
+    { key: "n4", receipt: "Created Note 'Loose'", calls: 1, href },
+  ]);
+});
+
 test("two creates in a row stay two lines", () => {
   const output = { id: "t1", name: "Call dentist" };
   assert.deepEqual(shownParts([created("c1", output), created("c2", output)]), [

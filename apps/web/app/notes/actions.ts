@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { noteHref } from "@repo/domain";
 import { requireUser } from "../../auth";
-import { createNotebook, deleteNote, fileDraftAsNote, NoteError, saveNote } from "../../lib/notes";
+import { createNotebook, deleteNote, fileDraftAsNote, noteHref, NoteError, saveNote } from "../../lib/notes";
 
 function failure(error: unknown) {
   return { error: error instanceof NoteError ? error.message : "Could not save. Your text is kept here; please try again." };
@@ -42,6 +41,6 @@ export async function removeNote(id: string, revision: number) {
   try {
     const row = await deleteNote(user.id, id, revision);
     revalidatePath("/notes", "layout");
-    return { href: `/notes/${row.notebookId}` };
+    return { href: row.notebookId ? `/notes/${row.notebookId}` : "/notes" };
   } catch (error) { return failure(error); }
 }

@@ -26,7 +26,11 @@ const maxUpdatesPerTurn = 3;
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     listNotebooks(userId) { return notebookRows(userId, db); },
-    createNote(userId, input, from) { return createNoteRow(userId, input, from, db); },
+    async createNote(userId, input, from) {
+      const note = await createNoteRow(userId, input, from, db);
+      if (note.notebookId !== input.notebookId) throw new Error("Invalid Note result.");
+      return { id: note.id, notebookId: note.notebookId, title: note.title };
+    },
     async listOpenTasks(userId) {
       return listForCoach(userId, today, db);
     },

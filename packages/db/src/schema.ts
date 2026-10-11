@@ -177,23 +177,31 @@ export const drafts = pgTable("drafts", {
 
 export const notebooks = pgTable("notebooks", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
-export const notes = pgTable("notes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
-  notebookId: uuid("notebook_id").notNull(),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  pinned: boolean("pinned").notNull().default(false),
-  revision: integer("revision").notNull().default(1),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+export const notes = pgTable(
+  "notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notebookId: uuid("notebook_id").references(() => notebooks.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    pinned: boolean("pinned").notNull().default(false),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [index("notes_user_notebook_idx").on(t.userId, t.notebookId)],
+);
 
 // No Note foreign key: a deleted result must never allow an old operation to recreate it.
 export const noteOperations = pgTable("note_operations", {
