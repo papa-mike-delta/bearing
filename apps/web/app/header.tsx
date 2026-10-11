@@ -15,7 +15,7 @@ export function Header({ email }: { email?: string | null }) {
         </Link>
         <NavLinks />
         <span className="app-email">{email}</span>
-        <form action={signOutOfBearing}>
+        <form action={signOutOfBearing} className="app-sign-out">
           <Button type="submit" variant="ghost" size="sm">
             Sign out
           </Button>

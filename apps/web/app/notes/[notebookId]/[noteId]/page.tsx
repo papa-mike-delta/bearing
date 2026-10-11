@@ -11,7 +11,7 @@ export default async function NotePage({ params }: { params: Promise<{ notebookI
   const [book, note] = await Promise.all([getNotebook(user.id, notebookId), getNote(user.id, noteId)]);
   if (!book || !note || note.notebookId !== book.id) notFound();
   return <><Header email={user.email} /><main className="font-sans">
-    <Link href={`/notes/${book.id}`}>{book.name}</Link><h1>Edit Note</h1>
+    <Link href={`/notes/${book.id}`}>{book.name}</Link><h1>{note.title}</h1>
     <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision }} />
   </main></>;
 }

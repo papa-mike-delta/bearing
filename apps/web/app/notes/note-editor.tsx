@@ -39,10 +39,10 @@ export function NoteEditor({ note }: { note: Note }) {
     <label className="flex items-center gap-2"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} disabled={pending} />Pin this Note</label>
     {body.length > 100_000 && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
     {error && <p role="alert">{error}</p>}
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <span role="status">{pending ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</span>
       <Button type="submit" disabled={pending || !dirty || body.length > 100_000}>Save Note</Button>
-      <Button type="button" variant="destructive" disabled={pending} onClick={() => {
+      <Button type="button" variant="destructive" className="ml-auto" disabled={pending} onClick={() => {
         if (!window.confirm("Delete this Note permanently? Any unsaved changes will also be lost.")) return;
         start(async () => {
           try {
