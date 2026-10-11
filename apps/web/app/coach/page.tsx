@@ -9,13 +9,15 @@ export default async function Coach() {
   const messages = await threadMessages(user.id, threadId);
 
   return (
-    <main>
+    <>
       <Header email={user.email} />
-      <Chat
-        key={messages?.at(-1)?.id ?? "empty"}
-        threadId={threadId}
-        initialMessages={messages ?? []}
-      />
-    </main>
+      <main>
+        <Chat
+          key={messages?.at(-1)?.id ?? "empty"}
+          threadId={threadId}
+          initialMessages={messages ?? []}
+        />
+      </main>
+    </>
   );
 }
