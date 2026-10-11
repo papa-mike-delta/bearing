@@ -158,16 +158,11 @@ export type ShownPart =
 // stays its own line even when the next write looks the same. A receipt keeps
 // the tool-call id of its first call as its key. A successful create links to
 // the Priority List; a complete does not (the Task has left the list).
+// Every real failure keeps its receipt, even when a later call succeeds; a
+// Daily close refusal renders nothing (see show()).
 export function shownParts(parts: readonly Part[]): ShownPart[] {
   const shown: ShownPart[] = [];
   const lines = parts.map(show);
-  const failed = (part: Part, line: Line) => part.state === "output-error" || line.line.startsWith("Couldn't")
-    || flag(part.output, "refused") || flag(part.output, "invalidId") || flag(part.output, "notFound");
-  const lastSuccess = new Map<string, number>();
-  parts.forEach((part, i) => {
-    const line = lines[i];
-    if (line && part.state === "output-available" && !failed(part, line)) lastSuccess.set(part.type, i);
-  });
   let lastPart: Part | undefined;
   parts.forEach((part, i) => {
     if (part.type === "text") {
@@ -176,9 +171,6 @@ export function shownParts(parts: readonly Part[]): ShownPart[] {
     }
     const line = lines[i];
     if (!line) return;
-    // Recompute for both streaming and reload: a recovered call shouldn't
-    // leave an earlier failure receipt in this same assistant reply.
-    if (failed(part, line) && (lastSuccess.get(part.type) ?? -1) > i) return;
     const lastShown = shown.at(-1);
     const repeat =
       part.type === "tool-listArea" &&
