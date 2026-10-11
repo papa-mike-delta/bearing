@@ -223,6 +223,14 @@ export const journalEntries = pgTable("journal_entries", {
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [uniqueIndex("journal_entries_user_day_unique").on(t.userId, t.day)]);
 
+// Account defaults are created only by an explicit settings change.
+export const journalSettings = pgTable("journal_settings", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  template: text("template"),
+  alwaysLoad: boolean("always_load").notNull().default(false),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 // Durable append receipts live apart from editable bodies. No entry FK: removing
 // a result must never let an old operation recreate or append it again.
 export const journalOperations = pgTable("journal_operations", {

@@ -14,8 +14,9 @@ import { useBrowserToday } from "../browser-today";
 import { updateJournalDay } from "./actions";
 
 type Entry = { body: string; revision: number };
+type Settings = { template: string; alwaysLoad: boolean };
 
-export function JournalDay({ day, entry }: { day: string; entry: Entry | null }) {
+export function JournalDay({ day, entry, settings }: { day: string; entry: Entry | null; settings: Settings }) {
   const today = useBrowserToday();
   const previous = shiftJournalDay(day, -1);
   const next = shiftJournalDay(day, 1);
@@ -27,7 +28,7 @@ export function JournalDay({ day, entry }: { day: string; entry: Entry | null })
       {next && next <= today ? <Link href={`/journal/${next}`}>Next</Link> : <span aria-disabled="true">Next</span>}
       <Link href="/journal">Today</Link>
     </nav>
-    {day > today ? <p>This day is not open yet.</p> : <JournalEditor day={day} entry={entry} />}
+    {day > today ? <p>This day is not open yet.</p> : <JournalEditor day={day} entry={entry} settings={settings} />}
   </>;
 }
 
@@ -44,12 +45,16 @@ function DayField({ day, today }: { day: string; today: string }) {
   </form>;
 }
 
-function JournalEditor({ day, entry }: { day: string; entry: Entry | null }) {
+function JournalEditor({ day, entry, settings }: { day: string; entry: Entry | null; settings: Settings }) {
   const [saved, setSaved] = useState(entry ?? { body: "", revision: 0 });
-  const [body, setBody] = useState(saved.body);
+  // A prompt is an editor baseline, never a saved reflection. Initialize only
+  // when opening the day; refreshed settings must not replace local work.
+  const [baseline, setBaseline] = useState(() => saved.body || (settings.alwaysLoad ? settings.template : ""));
+  const [body, setBody] = useState(baseline);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  const dirty = body !== saved.body;
+  const dirty = body !== baseline;
+  const untouchedTemplate = !saved.body && body === settings.template;
   useUnsavedChanges(dirty, "Journal");
   const tooLong = body.length > maxNoteBodyLength;
   return <form data-journal-editor onSubmit={(event) => {
@@ -57,19 +62,24 @@ function JournalEditor({ day, entry }: { day: string; entry: Entry | null }) {
     start(async () => {
       setError("");
       try {
-        const result = await updateJournalDay(day, body, saved.revision, localToday());
+        const result = await updateJournalDay(day, body, saved.revision, localToday(), saved.revision === 0 ? baseline : undefined);
         if ("error" in result) setError(result.error);
-        else if ("empty" in result) setError("An empty reflection is not saved. Your saved entry is kept.");
-        else setSaved({ body, revision: result.revision });
+        else if ("empty" in result) setError("An empty reflection or untouched template is not saved. Your saved entry is kept.");
+        else { setSaved({ body, revision: result.revision }); setBaseline(body); }
       } catch { setError("Could not save. Your text is kept here; please retry."); }
     });
   }}>
+    {!saved.body && <Button type="button" variant="outline" disabled={pending || !!body.trim()} onClick={() => {
+      setBody(settings.template);
+      setBaseline(settings.template);
+      setError("");
+    }}>Insert template</Button>}
     <MarkdownEditor value={body} onChange={setBody} disabled={pending} />
     {tooLong && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="flex flex-wrap items-center gap-3">
       <span role="status">{pending ? "Saving…" : dirty ? "Unsaved changes" : saved.revision ? "Saved" : "No saved entry"}</span>
-      <Button type="submit" disabled={pending || !dirty || tooLong || !body.trim()}>Save</Button>
+      <Button type="submit" disabled={pending || !dirty || untouchedTemplate || tooLong || !body.trim()}>Save</Button>
     </div>
     {dirty && !body.trim() && <p>An empty reflection writes nothing; the saved entry is kept.</p>}
   </form>;

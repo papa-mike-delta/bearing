@@ -44,6 +44,12 @@ Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign k
 
 Each person has one private markdown document per day. Viewing an empty day creates nothing. The first nonempty **Save** creates an entry; later saves update it with a revision check. Empty or whitespace-only saves write nothing, including on an existing entry. The Notes editor, safe preview, 100,000-character bound, save status, conflict handling, and unsaved-work guard are shared. A conflict preserves the unsaved text for comparison. Migration `0008_journal_entries` adds the table, unique person/day index, and cascading user foreign key. Journal persistence tests apply migrations to an isolated temporary Postgres database using `TEST_POSTGRES_URL`.
 
+### Journal template
+
+**Edit template** in the Journal opens `/journal?template=edit`; it uses the shared markdown editor and safe preview. Each account starts with Gratitude, Best thing, and Hard part sections. Custom templates preserve exact text up to 10,000 characters; longer text is refused without truncation. **Always load template** defaults off and is stored independently of the template.
+
+An empty today or past day offers **Insert template**, or preloads the template when always-load is on. These prompts stay virtual and do not trigger the unsaved-work warning until edited. Save refuses an empty body or untouched template on both client and server. Existing days, future days, Inbox append, and Paul are unaffected; changing a template never rewrites a day. Viewing settings creates no row. Migration `0010_journal_settings` adds account storage with a cascading user foreign key; Postgres tests cover defaults, bounds, ownership, read-only viewing, and save behavior.
+
 ### Append an Inbox draft
 
 **Append to journal** in the Inbox defaults to the browser's Today and can target an earlier calendar day. Success archives the entire draft and shows a link to that day. Existing text is preserved with two newlines before the draft; invalid or future days, an already filed draft, or a result over 100,000 characters leave the Inbox unchanged.
