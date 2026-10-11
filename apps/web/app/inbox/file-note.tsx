@@ -13,7 +13,9 @@ export function FileNote({ draft, notebooks }: { draft: { id: string; body: stri
   const [notebookId, setNotebookId] = useState(notebooks[0]?.id ?? "");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  if (!notebooks.length) return <p className="basis-full"><Link href="/notes" className="text-primary underline">Create a notebook first</Link></p>;
+  if (!notebooks.length) return <details className="w-full"><summary>File as note</summary>
+    <p className="hint"><Link href="/notes" className="text-primary underline">Create a notebook first</Link></p>
+  </details>;
   return <details className="w-full"><summary>File as note</summary>
     <form className="note-filing" onSubmit={(event) => {
       event.preventDefault();

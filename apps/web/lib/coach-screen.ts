@@ -88,3 +88,16 @@ function isStoppedReply(
   }
   return false;
 }
+
+/** Whether a fresh Coach view should focus its composer: after a send from
+ * the composer or a Daily close button (the reply's refresh remounts the
+ * view), or when it opens a Daily close from the Journal. */
+export function focusComposerOnMount({
+  sentFromComposer,
+  openingClose,
+}: {
+  sentFromComposer: boolean;
+  openingClose: boolean;
+}): boolean {
+  return sentFromComposer || openingClose;
+}

@@ -1,7 +1,21 @@
 /* Bearing app styles. */
+/* Faces use the active theme's destructive, neutral, and strongest palette
+   colors. Words retain foreground contrast in every theme. */
+.mood-choice[data-mood="Very low"] { --mood-color: var(--destructive); }
+.mood-choice[data-mood="Low"] { --mood-color: color-mix(in oklch, var(--destructive) 60%, var(--muted-foreground)); }
+.mood-choice[data-mood="Okay"] { --mood-color: var(--muted-foreground); }
+.mood-choice[data-mood="Good"] { --mood-color: color-mix(in oklch, var(--chart-5) 65%, var(--muted-foreground)); }
+.mood-choice[data-mood="Very good"] { --mood-color: var(--chart-5); }
+.mood-choice svg { color: var(--mood-color); }
+/* Dark themes: keep every face at least as visible as muted text. */
+.dark .mood-choice svg { color: color-mix(in oklch, var(--mood-color) 60%, var(--foreground)); }
+.dark .mood-choice:is([data-mood="Good"], [data-mood="Very good"]) svg { color: color-mix(in oklch, var(--mood-color) 45%, var(--foreground)); }
+.mood-choice[aria-pressed="true"] { border-color: var(--foreground); background: var(--accent); }
 .note-filing { flex-direction: column; align-items: stretch; padding-block: 1rem; }
 .drafts > li:has(.note-filing), .drafts > li:has(details) { flex-wrap: wrap; }
 .markdown-preview { min-height: 20rem; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+/* Coach replies use the renderer inside the message card, without the preview box. */
+.markdown-preview.coach-reply { min-height: 0; border: 0; border-radius: 0; padding: 0; margin-top: 4px; }
 .markdown-preview > * + * { margin-top: 1rem; }
 .markdown-preview :is(ul, ol) { padding-left: 1.5rem; list-style: disc; }
 .markdown-preview ol { list-style: decimal; }
@@ -27,6 +41,7 @@
 .markdown-field .cm-content:focus { outline: none; }
 .markdown-preview h3 { font-size: 1rem; text-transform: none; letter-spacing: normal; }
 .markdown-preview a { text-decoration: underline; color: var(--primary); }
+.markdown-preview a.journal-link-unresolved { opacity: .5; }
 .markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .markdown-preview :is(th, td) { border: 1px solid var(--border); padding: .5rem; }
 .markdown-preview pre { overflow-x: auto; background: var(--muted); color: var(--foreground); padding: 1rem; }
@@ -43,7 +58,7 @@
   .app-header-inner { flex-wrap: nowrap; align-items: center; gap: 0.25rem; height: 3.5rem; padding-inline: 0.5rem; }
   .brand { flex: none; }
   .app-nav { flex-wrap: nowrap; gap: 0; min-width: 0; }
-  .app-nav a { padding: 0.35rem 0.3rem; white-space: nowrap; }
+  .app-nav a { padding: 0.35rem 0.25rem; white-space: nowrap; font-size: 0.8rem; }
 }
 
 @layer base {
@@ -561,6 +576,7 @@
     flex-direction: column;
     gap: 1.25rem;
     margin: 0 0 1.5rem;
+    padding-bottom: 1rem;
     list-style: none;
   }
 
@@ -618,7 +634,6 @@
     border-top: 1px solid var(--border);
     border-radius: 0;
     background: var(--background);
-    box-shadow: 0 -1rem 0 0 var(--background);
   }
 
   form.composer input {

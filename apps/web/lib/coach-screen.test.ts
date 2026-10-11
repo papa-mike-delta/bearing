@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shownThread, stoppedReplyMarker } from "./coach-screen.ts";
+import { focusComposerOnMount, shownThread, stoppedReplyMarker } from "./coach-screen.ts";
 
 const read = (open: number) => ({
   type: "tool-listArea",
@@ -156,4 +156,10 @@ test("a message sent right after Stop stays after that turn", () => {
       },
     ],
   );
+});
+
+test("composer gets focus after a send and when a Daily close opens", () => {
+  assert.equal(focusComposerOnMount({ sentFromComposer: true, openingClose: false }), true);
+  assert.equal(focusComposerOnMount({ sentFromComposer: false, openingClose: true }), true);
+  assert.equal(focusComposerOnMount({ sentFromComposer: false, openingClose: false }), false);
 });

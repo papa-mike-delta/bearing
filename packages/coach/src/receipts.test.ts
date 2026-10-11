@@ -125,6 +125,26 @@ test("parts that show nothing are left out", () => {
   assert.deepEqual(shownParts([step, { type: "reasoning", text: "Hmm" }]), []);
 });
 
+test("a real failure keeps its receipt when a later call succeeds", () => {
+  const filed = {
+    type: "tool-fileDraft", toolCallId: "filed", state: "output-available",
+    output: { kind: "journal", id: "00000000-0000-4000-8000-000000000001", day: "2026-10-09", href: "/journal/2026-10-09" },
+  };
+  assert.deepEqual(shownParts([{ type: "tool-fileDraft", toolCallId: "db-error", state: "output-error", errorText: "connection reset" }, filed]), [
+    { key: "db-error", receipt: "Couldn't file that draft", calls: 1 },
+    { key: "filed", receipt: "Appended draft to journal for 2026-10-09", calls: 1, href: "/journal/2026-10-09" },
+  ]);
+  const updated = { type: "tool-updateTask", toolCallId: "task-b", state: "output-available", output: { name: "Task B" } };
+  assert.deepEqual(shownParts([{ type: "tool-updateTask", toolCallId: "task-a", state: "output-available", output: { notFound: true } }, updated]), [
+    { key: "task-a", receipt: "Couldn't update that task", calls: 1 },
+    { key: "task-b", receipt: "Updated 'Task B'", calls: 1 },
+  ]);
+});
+
+test("a Daily close refusal renders no receipt", () => {
+  assert.deepEqual(shownParts([{ type: "tool-fileDraft", toolCallId: "r", state: "output-error", errorText: "Daily close refused: no offer" }]), []);
+});
+
 const created = (
   toolCallId: string,
   output?: unknown,

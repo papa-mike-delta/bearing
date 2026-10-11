@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     threadId: body?.threadId,
     message: body?.message,
     today: typeof body?.today === "string" ? body.today : "",
+    closeDay: body?.closeDay,
     model: coachModel(),
   });
   if ("refused" in turn) return new Response(null, { status: turn.refused });

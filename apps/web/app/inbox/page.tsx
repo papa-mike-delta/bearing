@@ -1,4 +1,5 @@
 import { Button } from "@repo/ui/components/button";
+import Link from "next/link";
 import { Textarea } from "@repo/ui/components/textarea";
 import { maxDraftLength, maxTaskNameLength } from "@repo/domain";
 import { requireUser } from "../../auth";
@@ -9,6 +10,8 @@ import { Header } from "../header";
 import { BrowserToday } from "../browser-today";
 import { listNotebooks } from "../../lib/notes";
 import { FileNote } from "./file-note";
+import { FileJournal } from "./file-journal";
+import { isJournalDay } from "../../lib/journal-day";
 
 const errors: Record<string, string> = {
   empty: "Nothing to capture.",
@@ -19,10 +22,10 @@ const errors: Record<string, string> = {
 export default async function Inbox({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; journalDay?: string }>;
 }) {
   const user = await requireUser();
-  const [drafts, loaded, { error }, notebooks] = await Promise.all([
+  const [drafts, loaded, { error, journalDay }, notebooks] = await Promise.all([
     inboxDrafts(user.id),
     loadAccount(user.id),
     searchParams,
@@ -35,6 +38,7 @@ export default async function Inbox({
       <Header email={user.email} />
       <main>
         <h1>Inbox</h1>
+        {isJournalDay(journalDay) && <p role="status">Draft appended to Journal. <Link href={`/journal/${journalDay}`} className="text-primary underline">Open Journal for {journalDay}</Link></p>}
         <form action={captureToInbox} className="panel">
           <Textarea
             name="body"
@@ -81,6 +85,7 @@ export default async function Inbox({
                   </Button>
                 </form>
                 <FileNote draft={draft} notebooks={notebooks} />
+                <FileJournal draftId={draft.id} />
               </li>
             ))}
           </ul>
