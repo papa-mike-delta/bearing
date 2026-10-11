@@ -152,10 +152,19 @@ export function coachTools(data: CoachData) {
       inputSchema: createNote.inputSchema,
       contextSchema: toolContext,
       execute: async (input, { context, toolCallId }) => {
-        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`);
+        // Count before awaiting so parallel calls in one step share the cap.
+        if (createdThisTurn >= maxCreatesPerTurn) {
+          throw new Error(
+            `You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`,
+          );
+        }
         createdThisTurn += 1;
-        try { return await createNote.run(input, { ...context, toolCallId, data }); }
-        catch (error) { logToolError("createNote", toolCallId, error); throw new Error("Couldn't create that Note."); }
+        try {
+          return await createNote.run(input, { ...context, toolCallId, data });
+        } catch (error) {
+          logToolError("createNote", toolCallId, error);
+          throw new Error("Couldn't create that Note.");
+        }
       },
     }),
     listArea: tool({

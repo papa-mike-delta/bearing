@@ -5,7 +5,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, mock, test } from "node:test";
-import { coachMessages, createDb, tasks, users } from "@repo/db";
+import {
+  coachMessages,
+  createDb,
+  notebooks,
+  noteOperations,
+  notes,
+  tasks,
+  users,
+} from "@repo/db";
 import {
   APICallError,
   convertToModelMessages,
@@ -18,7 +26,9 @@ import {
   coachCreateSourceId,
   maxCoachMessageLength,
   receipt,
+  shownParts,
 } from "@repo/coach";
+import { noteHref } from "@repo/domain";
 import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
 import {
@@ -28,6 +38,7 @@ import {
   maxReplyTokens,
 } from "./coach-turn.ts";
 import { coachTools } from "./coach-tools.ts";
+import { createNotebook, listNotes } from "./notes.ts";
 import {
   addTask,
   changePriority,
@@ -51,6 +62,8 @@ function writeToolsOffered(
     "createTask",
     "completeTask",
     "listArea",
+    "listNotebooks",
+    "createNote",
     "scheduleTask",
     "updateTask",
   ]) {
@@ -209,7 +222,9 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
   | { listArea: string; toolCallId?: string }
+  | { listNotebooks: string; toolCallId?: string }
   | { createTask: string; toolCallId?: string }
+  | { createNote: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
 function scripted(...steps: Step[]) {
@@ -224,19 +239,31 @@ function scripted(...steps: Step[]) {
               input: step.listArea,
               id: step.toolCallId,
             }
-          : "createTask" in step
+          : "listNotebooks" in step
             ? {
-                name: "createTask" as const,
-                input: step.createTask,
+                name: "listNotebooks" as const,
+                input: step.listNotebooks,
                 id: step.toolCallId,
               }
-            : "completeTask" in step
+            : "createTask" in step
               ? {
-                  name: "completeTask" as const,
-                  input: step.completeTask,
+                  name: "createTask" as const,
+                  input: step.createTask,
                   id: step.toolCallId,
                 }
-              : null;
+              : "createNote" in step
+                ? {
+                    name: "createNote" as const,
+                    input: step.createNote,
+                    id: step.toolCallId,
+                  }
+                : "completeTask" in step
+                  ? {
+                      name: "completeTask" as const,
+                      input: step.completeTask,
+                      id: step.toolCallId,
+                    }
+                  : null;
       const chunks = [
         ...(tool
           ? [
@@ -375,7 +402,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     b = await account();
   });
   after(async () => {
-    if (ids.length) await db.delete(users).where(inArray(users.id, ids));
+    if (ids.length) {
+      await db.delete(notes).where(inArray(notes.userId, ids));
+      await db.delete(noteOperations).where(inArray(noteOperations.userId, ids));
+      await db.delete(notebooks).where(inArray(notebooks.userId, ids));
+      await db.delete(users).where(inArray(users.id, ids));
+    }
     await db.$client.end();
   });
 
@@ -1557,6 +1589,226 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     );
   });
 
+  test("createTask and createNote in one step share the per-turn cap", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Ideas", db);
+    const thread = await coachThread(c, db);
+    let step = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                ...["One", "Two"].map((name, i) => ({
+                  type: "tool-call" as const,
+                  toolCallId: `call_task_${i}`,
+                  toolName: "createTask",
+                  input: JSON.stringify({ name }),
+                })),
+                ...["Alpha", "Beta"].map((title, i) => ({
+                  type: "tool-call" as const,
+                  toolCallId: `call_note_${i}`,
+                  toolName: "createNote",
+                  input: JSON.stringify({
+                    notebook: "Ideas",
+                    title,
+                    body: title,
+                  }),
+                })),
+                {
+                  type: "finish" as const,
+                  finishReason: {
+                    unified: "tool-calls" as const,
+                    raw: undefined,
+                  },
+                  usage,
+                },
+              ],
+            }),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "text-start" as const, id: "t" },
+              { type: "text-delta" as const, id: "t", delta: "Capped." },
+              { type: "text-end" as const, id: "t" },
+              {
+                type: "finish" as const,
+                finishReason: { unified: "stop" as const, raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        };
+      },
+    });
+    await turn(c, thread, userMessage("Add four"), model);
+    const open = (await openTasks(c, db)).map((t) => t.name).sort();
+    const saved = (await listNotes(c, book.id, db)).map((n) => n.title).sort();
+    assert.equal(open.length + saved.length, 3);
+    assert.deepEqual(open, ["One", "Two"]);
+    assert.deepEqual(saved, ["Alpha"]);
+    const receipts = receiptsOf(await threadMessages(c, thread, db))!;
+    assert.equal(
+      receipts.filter(
+        (r) => r.startsWith("Created task") || r.startsWith("Created Note"),
+      ).length,
+      3,
+    );
+    assert.ok(receipts.includes("Couldn't create that Note"));
+  });
+
+  test("a resend after a failed turn does not duplicate a Coach-created Note", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Ideas", db);
+    const thread = await coachThread(c, db);
+    const message = userMessage("Save meeting notes");
+    const input = JSON.stringify({
+      notebook: "Ideas",
+      title: "Meeting",
+      body: "Talked.",
+    });
+    let step = 0;
+    const failingAfterCreate = new MockLanguageModelV4({
+      doStream: async () => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                {
+                  type: "tool-call",
+                  toolCallId: "call_first",
+                  toolName: "createNote",
+                  input,
+                },
+                {
+                  type: "finish",
+                  finishReason: { unified: "tool-calls", raw: undefined },
+                  usage,
+                },
+              ],
+            }),
+          };
+        }
+        throw new Error("Gateway unavailable");
+      },
+    });
+    await turn(c, thread, message, failingAfterCreate);
+    assert.equal((await listNotes(c, book.id, db)).length, 1);
+    await turn(
+      c,
+      thread,
+      message,
+      scripted(
+        { createNote: input, toolCallId: "call_resend" },
+        { text: "Already there." },
+      ),
+    );
+    assert.equal((await listNotes(c, book.id, db)).length, 1);
+    assert.ok(
+      receiptsOf(await threadMessages(c, thread, db))!.includes(
+        "Created Note 'Meeting'",
+      ),
+    );
+  });
+
+  test("unknown and ambiguous Notebook names are refused and write no Note", async () => {
+    const c = await account();
+    const ideas = await createNotebook(c, "Ideas", db);
+    const clash = await createNotebook(c, "ideas", db);
+    const thread = await coachThread(c, db);
+    for (const [label, notebook] of [
+      ["unknown", "Missing"],
+      ["ambiguous", "Ideas"],
+    ] as const) {
+      await turn(
+        c,
+        thread,
+        userMessage(`Save in ${label}`),
+        scripted(
+          {
+            createNote: JSON.stringify({
+              notebook,
+              title: label,
+              body: "",
+            }),
+            toolCallId: `call_${label}`,
+          },
+          { text: "Which notebook?" },
+        ),
+      );
+    }
+    assert.equal((await listNotes(c, ideas.id, db)).length, 0);
+    assert.equal((await listNotes(c, clash.id, db)).length, 0);
+    const reloaded = await threadMessages(c, thread, db);
+    const receipts = receiptsOf(reloaded)!;
+    assert.equal(
+      receipts.filter((r) => r === "Couldn't create that Note").length,
+      2,
+    );
+    const failed = reloaded!
+      .flatMap((m) => shownParts(m.parts))
+      .filter(
+        (p) => "receipt" in p && p.receipt === "Couldn't create that Note",
+      );
+    assert.equal(failed.length, 2);
+    for (const part of failed) {
+      assert.equal("href" in part, false);
+    }
+  });
+
+  test("a successful createNote receipt links to the Note after reload", async () => {
+    const c = await account();
+    const book = await createNotebook(c, "Ideas", db);
+    const thread = await coachThread(c, db);
+    const info = mock.method(console, "info", () => {});
+    try {
+      await turn(
+        c,
+        thread,
+        userMessage("Save meeting notes"),
+        scripted(
+          { listNotebooks: "{}", toolCallId: "call_books" },
+          {
+            createNote: JSON.stringify({
+              notebook: "ideas",
+              title: "Meeting",
+              body: "Talked.",
+            }),
+            toolCallId: "call_note",
+          },
+          { text: "Saved." },
+        ),
+      );
+    } finally {
+      info.mock.restore();
+    }
+    const [note] = await listNotes(c, book.id, db);
+    assert.equal(note?.title, "Meeting");
+    const reloaded = await threadMessages(c, thread, db);
+    assert.ok(
+      receiptsOf(reloaded)!.includes("Created Note 'Meeting'"),
+    );
+    const created = reloaded!.flatMap((m) => shownParts(m.parts)).find(
+      (p) => "receipt" in p && p.receipt === "Created Note 'Meeting'",
+    );
+    assert.equal(
+      created && "href" in created ? created.href : undefined,
+      noteHref(book.id, note!.id),
+    );
+    const lines = info.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((line) => line.includes("coach.turn"));
+    assert.equal(lines.length, 1);
+    const entry = JSON.parse(lines[0]!);
+    assert.equal(entry.toolCalls.listNotebooks, 1);
+    assert.equal(entry.toolCalls.createNote, 1);
+  });
+
   test("the last model step is not offered tools", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
@@ -1628,7 +1880,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         steps,
         toolCalls: {
           listArea,
+          listNotebooks: 0,
           createTask: 0,
+          createNote: 0,
           completeTask: 0,
           scheduleTask: 0,
           updateTask: 0,
