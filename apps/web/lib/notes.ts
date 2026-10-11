@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { db as defaultDb, drafts, notebooks, noteOperations, notes } from "@repo/db";
-import { noteName, validNoteBody } from "@repo/domain";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { noteHref, noteName, validNoteBody } from "@repo/domain";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
+
+export { noteHref };
 
 export class NoteError extends Error {}
 const unavailable = "That item is unavailable. Refresh and try again.";
@@ -30,6 +32,18 @@ export async function listNotes(userId: string, notebookId: string, db: Db = def
   return db.select({ id: notes.id, title: notes.title, pinned: notes.pinned, updatedAt: notes.updatedAt }).from(notes)
     .where(and(eq(notes.userId, userId), eq(notes.notebookId, notebookId)))
     .orderBy(desc(notes.pinned), desc(notes.updatedAt), asc(notes.id));
+}
+
+export async function listLooseNotes(userId: string, db: Db = defaultDb) {
+  return db.select({ id: notes.id, title: notes.title, pinned: notes.pinned, updatedAt: notes.updatedAt }).from(notes)
+    .where(and(eq(notes.userId, userId), isNull(notes.notebookId)))
+    .orderBy(desc(notes.pinned), desc(notes.updatedAt), asc(notes.id));
+}
+
+export async function countNotes(userId: string, notebookId: string, db: Db = defaultDb) {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(notes)
+    .where(and(eq(notes.userId, userId), eq(notes.notebookId, notebookId)));
+  return Number(row?.n ?? 0);
 }
 
 export async function getNote(userId: string, id: string, db: Db = defaultDb) {
@@ -105,4 +119,18 @@ export async function deleteNote(userId: string, id: string, revision: number, d
     .returning({ notebookId: notes.notebookId });
   if (!deleted) throw new NoteError("The Note is unavailable or has changed. Reload before deleting.");
   return deleted;
+}
+
+export async function deleteNotebook(db: Db, userId: string, notebookId: string, mode: "delete-notes" | "move-notes") {
+  if (!isUuid(notebookId)) return false;
+  return db.transaction(async (tx) => {
+    const [book] = await tx.select({ id: notebooks.id }).from(notebooks)
+      .where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, userId))).for("update");
+    if (!book) return false;
+    const owned = and(eq(notes.userId, userId), eq(notes.notebookId, notebookId));
+    if (mode === "delete-notes") await tx.delete(notes).where(owned);
+    else await tx.update(notes).set({ notebookId: null }).where(owned);
+    await tx.delete(notebooks).where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, userId)));
+    return true;
+  });
 }

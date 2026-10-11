@@ -26,7 +26,11 @@ const maxUpdatesPerTurn = 3;
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     listNotebooks(userId) { return notebookRows(userId, db); },
-    createNote(userId, input, from) { return createNoteRow(userId, input, from, db); },
+    async createNote(userId, input, from) {
+      const note = await createNoteRow(userId, input, from, db);
+      if (note.notebookId !== input.notebookId) throw new Error("Invalid Note result.");
+      return { id: note.id, notebookId: note.notebookId, title: note.title };
+    },
     async listOpenTasks(userId) {
       return listForCoach(userId, today, db);
     },
@@ -152,10 +156,19 @@ export function coachTools(data: CoachData) {
       inputSchema: createNote.inputSchema,
       contextSchema: toolContext,
       execute: async (input, { context, toolCallId }) => {
-        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`);
+        // Count before awaiting so parallel calls in one step share the cap.
+        if (createdThisTurn >= maxCreatesPerTurn) {
+          throw new Error(
+            `You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`,
+          );
+        }
         createdThisTurn += 1;
-        try { return await createNote.run(input, { ...context, toolCallId, data }); }
-        catch (error) { logToolError("createNote", toolCallId, error); throw new Error("Couldn't create that Note."); }
+        try {
+          return await createNote.run(input, { ...context, toolCallId, data });
+        } catch (error) {
+          logToolError("createNote", toolCallId, error);
+          throw new Error("Couldn't create that Note.");
+        }
       },
     }),
     listArea: tool({

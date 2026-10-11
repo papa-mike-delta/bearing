@@ -3,13 +3,19 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { createDb, drafts, notebooks, notes, noteOperations, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
-import { createNotebook, createNote, deleteNote, fileDraftAsNote, getNote, getNotebook, listNotebooks, listNotes, saveNote } from "./notes.ts";
+import { countNotes, createNotebook, createNote, deleteNotebook, deleteNote, fileDraftAsNote, getNote, getNotebook, listLooseNotes, listNotebooks, listNotes, noteHref, saveNote } from "./notes.ts";
 import { captureDraft, fileDraftAsTask, inboxDrafts } from "./drafts.ts";
 import { createArea } from "./areas.ts";
 import { openTasks } from "./tasks.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Notes database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
+
+test("a note with no notebook links under /notes/_", () => {
+  const noteId = "11111111-1111-4111-8111-111111111111";
+  assert.equal(noteHref(null, noteId), `/notes/_/${noteId}`);
+  assert.equal(noteHref("22222222-2222-4222-8222-222222222222", noteId), `/notes/22222222-2222-4222-8222-222222222222/${noteId}`);
+});
 
 describe("Notes persistence", { skip: !url && "TEST_POSTGRES_URL missing" }, () => {
   const db = createDb(url!);
@@ -91,5 +97,52 @@ describe("Notes persistence", { skip: !url && "TEST_POSTGRES_URL missing" }, () 
       assert.equal((await db.select().from(drafts).where(eq(drafts.id, draft.id)))[0]?.workspace, "inbox");
     }
     assert.equal((await createNote(a, { ...input(), body: "" }, operation(), db)).body, "");
+  });
+  test("deleteNotebook removes notes or leaves them loose, and never crosses accounts", async () => {
+    const doomed = await createNotebook(a, "Doomed", db);
+    const removed = await createNote(a, { notebookId: doomed.id, title: "Gone", body: "x" }, operation(), db);
+    assert.equal(await countNotes(a, doomed.id, db), 1);
+    assert.equal(await deleteNotebook(db, b, doomed.id, "delete-notes"), false);
+    assert.equal(await deleteNotebook(db, b, doomed.id, "move-notes"), false);
+    assert.equal(await deleteNotebook(db, a, "not-a-uuid", "delete-notes"), false);
+    assert.equal((await getNote(a, removed.id, db))?.title, "Gone");
+    assert.equal(await deleteNotebook(db, a, doomed.id, "delete-notes"), true);
+    assert.equal(await getNotebook(a, doomed.id, db), null);
+    assert.equal(await getNote(a, removed.id, db), null);
+    assert.equal(await countNotes(a, doomed.id, db), 0);
+
+    const moved = await createNotebook(a, "Moving", db);
+    const loose = await createNote(a, { notebookId: moved.id, title: "Loose", body: "kept" }, operation(), db);
+    assert.deepEqual(await listLooseNotes(a, db), []);
+    assert.equal(await deleteNotebook(db, a, moved.id, "move-notes"), true);
+    assert.equal(await getNotebook(a, moved.id, db), null);
+    const kept = await getNote(a, loose.id, db);
+    assert.equal(kept?.notebookId, null);
+    assert.equal(kept?.body, "kept");
+    assert.deepEqual((await listLooseNotes(a, db)).map((note) => note.id), [loose.id]);
+    assert.deepEqual(await listLooseNotes(b, db), []);
+
+    const privateNote = await createNote(b, { notebookId: foreignBook, title: "Stay", body: "b" }, operation(), db);
+    assert.equal(await deleteNotebook(db, a, foreignBook, "delete-notes"), false);
+    assert.equal(await deleteNotebook(db, a, foreignBook, "move-notes"), false);
+    assert.equal((await getNotebook(b, foreignBook, db))?.name, "Private");
+    assert.equal((await getNote(b, privateNote.id, db))?.notebookId, foreignBook);
+    assert.equal((await listNotes(b, foreignBook, db)).some((note) => note.id === privateNote.id), true);
+  });
+  test("deleting a user cascades notes and notebooks", async () => {
+    const id = randomUUID();
+    await db.insert(users).values({ id, email: `${id}@test.invalid`, passwordHash: "-" });
+    try {
+      const owned = (await createNotebook(id, "Gone", db)).id;
+      const note = await createNote(id, { notebookId: owned, title: "Gone", body: "x" }, operation(), db);
+      await db.delete(users).where(eq(users.id, id));
+      assert.equal((await db.select().from(notebooks).where(eq(notebooks.id, owned))).length, 0);
+      assert.equal((await db.select().from(notes).where(eq(notes.id, note.id))).length, 0);
+    } finally {
+      await db.delete(noteOperations).where(eq(noteOperations.userId, id));
+      await db.delete(notes).where(eq(notes.userId, id));
+      await db.delete(notebooks).where(eq(notebooks.userId, id));
+      await db.delete(users).where(eq(users.id, id));
+    }
   });
 });

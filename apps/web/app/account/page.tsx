@@ -16,6 +16,7 @@ import {
   changeAccountPassword,
   chooseAccountTheme,
   importAccountTheme,
+  signOutOfBearing,
 } from "../actions";
 import { Header } from "../header";
 import { ClearParam } from "./clear-param";
@@ -148,6 +149,16 @@ export default async function Account({
             ) : null}
             {message ? <FormMessage role="alert" message={message} /> : null}
             <ChangePasswordButton />
+          </form>
+        </section>
+        <section className="panel" aria-labelledby="sign-out-title">
+          <h2 id="sign-out-title" className="panel-title">
+            Sign out
+          </h2>
+          <form action={signOutOfBearing}>
+            <Button type="submit" variant="outline" className="self-start">
+              Sign out
+            </Button>
           </form>
         </section>
       </main>

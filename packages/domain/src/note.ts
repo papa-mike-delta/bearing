@@ -15,6 +15,6 @@ export function draftNoteTitle(body: string): string {
   return body.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
 }
 
-export function noteHref(notebookId: string, noteId: string) {
-  return `/notes/${notebookId}/${noteId}` as const;
+export function noteHref(notebookId: string | null, noteId: string) {
+  return `/notes/${notebookId ?? "_"}/${noteId}` as const;
 }

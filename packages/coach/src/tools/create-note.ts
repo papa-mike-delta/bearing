@@ -23,7 +23,7 @@ export function coachNoteSourceId(messageId: string, notebookId: string, title: 
 }
 
 export const createNote = {
-  description: "Create a markdown Note only when the person explicitly asks. notebook must be the exact Notebook name. Ambiguous or absent names require clarification; never create a Notebook. Ordinary capture belongs in Inbox. Returns a stable local Note link.",
+  description: "Create a markdown Note only when the person explicitly asks. notebook must be the Notebook name, ignoring case. Ambiguous or absent names require clarification; never create a Notebook. Ordinary capture belongs in Inbox. Returns a stable local Note link.",
   inputSchema,
   async run(input: z.infer<typeof inputSchema>, { userId, messageId, data }: ToolRunContext) {
     if (!data.listNotebooks || !data.createNote) throw new Error("Notes are unavailable.");

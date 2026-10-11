@@ -13,8 +13,9 @@ export function FileNote({ draft, notebooks }: { draft: { id: string; body: stri
   const [notebookId, setNotebookId] = useState(notebooks[0]?.id ?? "");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
+  if (!notebooks.length) return <p className="basis-full"><Link href="/notes" className="text-primary underline">Create a notebook first</Link></p>;
   return <details className="w-full"><summary>File as note</summary>
-    {notebooks.length ? <form className="note-filing" onSubmit={(event) => {
+    <form className="note-filing" onSubmit={(event) => {
       event.preventDefault();
       start(async () => {
         try {
@@ -31,9 +32,9 @@ export function FileNote({ draft, notebooks }: { draft: { id: string; body: stri
       </Field><Field><FieldLabel htmlFor={`title-${draft.id}`}>Note title</FieldLabel>
         <Input id={`title-${draft.id}`} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={pending} />
       </Field></FieldGroup>
-      <p>The full draft is preserved as the Note body.</p>
+      <p className="hint">The full draft is preserved as the Note body.</p>
       {error && <p role="alert">{error}</p>}
       <Button type="submit" disabled={pending}>{pending ? "Filing…" : "File and open Note"}</Button>
-    </form> : <p><Link href="/notes">Create a notebook</Link> before filing a Note.</p>}
+    </form>
   </details>;
 }

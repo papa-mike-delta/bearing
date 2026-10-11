@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { noteHref } from "@repo/domain";
 import { requireUser } from "../../../auth";
-import { getNotebook, listNotes } from "../../../lib/notes";
+import { countNotes, getNotebook, listNotes } from "../../../lib/notes";
 import { Header } from "../../header";
+import { DeleteNotebook } from "../delete-notebook";
 
 export default async function NotebookPage({ params }: { params: Promise<{ notebookId: string }> }) {
   const user = await requireUser();
   const { notebookId } = await params;
+  if (notebookId === "_") redirect("/notes");
   const book = await getNotebook(user.id, notebookId);
   if (!book) notFound();
-  const notes = await listNotes(user.id, notebookId);
+  const [notes, noteCount] = await Promise.all([listNotes(user.id, notebookId), countNotes(user.id, notebookId)]);
   return <><Header email={user.email} /><main className="font-sans">
     <Link href="/notes">All notebooks</Link><h1>{book.name}</h1>
     <p><Link href="/inbox">Capture in Inbox</Link> to add a Note here.</p>
@@ -19,5 +21,6 @@ export default async function NotebookPage({ params }: { params: Promise<{ noteb
         <span className="min-w-0 break-words">{note.title}</span>{note.pinned && <span className="text-muted-foreground">Pinned</span>}
       </Link></li>)}
     </ul> : <p className="empty-state">This notebook is empty. File a draft from Inbox to keep it here.</p>}
+    <DeleteNotebook notebookId={book.id} noteCount={noteCount} />
   </main></>;
 }

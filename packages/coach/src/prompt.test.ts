@@ -50,6 +50,12 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
+      "resolve the person's chosen Notebook by its name, ignoring case",
+    ),
+  );
+  assert.equal(coachSystemPrompt().includes("by its exact name"), false);
+  assert.ok(
+    coachSystemPrompt().includes(
       "If the destination is missing or ambiguous, ask which one, rather than guessing.",
     ),
   );
