@@ -43,6 +43,13 @@
       "when": 1791587991479,
       "tag": "0005_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791684274227,
+      "tag": "0006_tired_the_phantom",
+      "breakpoints": true
     }
   ]
 }

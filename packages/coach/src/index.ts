@@ -9,6 +9,7 @@ export {
 } from "./prompt.ts";
 export { receipt, shownParts, type ShownPart } from "./receipts.ts";
 export { completeTask } from "./tools/complete-task.ts";
+export { createNote, listNotebooks, coachNoteSourceId } from "./tools/create-note.ts";
 export { coachCreateSourceId, createTask } from "./tools/create-task.ts";
 export { listArea, maxListedTasks } from "./tools/list-area.ts";
 export { scheduleTask } from "./tools/schedule-task.ts";

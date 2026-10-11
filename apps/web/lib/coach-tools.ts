@@ -1,5 +1,7 @@
 import {
   completeTask,
+  createNote,
+  listNotebooks,
   createTask,
   listArea,
   maxCreatesPerTurn,
@@ -13,6 +15,8 @@ import { z } from "zod";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
+import { createNote as createNoteRow, listNotebooks as notebookRows } from "./notes.ts";
+
 export { maxCreatesPerTurn };
 
 const maxSchedulesPerTurn = 3;
@@ -21,6 +25,8 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    listNotebooks(userId) { return notebookRows(userId, db); },
+    createNote(userId, input, from) { return createNoteRow(userId, input, from, db); },
     async listOpenTasks(userId) {
       return listForCoach(userId, today, db);
     },
@@ -132,6 +138,26 @@ export function coachTools(data: CoachData) {
   let scheduledThisTurn = 0;
   let updatedThisTurn = 0;
   return {
+    listNotebooks: tool({
+      description: listNotebooks.description,
+      inputSchema: listNotebooks.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        try { return await listNotebooks.run(input, { ...context, toolCallId, data }); }
+        catch (error) { logToolError("listNotebooks", toolCallId, error); throw new Error("Couldn't read your notebooks."); }
+      },
+    }),
+    createNote: tool({
+      description: createNote.description,
+      inputSchema: createNote.inputSchema,
+      contextSchema: toolContext,
+      execute: async (input, { context, toolCallId }) => {
+        if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can add only ${maxCreatesPerTurn} Tasks or Notes per reply.`);
+        createdThisTurn += 1;
+        try { return await createNote.run(input, { ...context, toolCallId, data }); }
+        catch (error) { logToolError("createNote", toolCallId, error); throw new Error("Couldn't create that Note."); }
+      },
+    }),
     listArea: tool({
       description: listArea.description,
       inputSchema: listArea.inputSchema,
@@ -225,6 +251,8 @@ export function coachTools(data: CoachData) {
 }
 
 export const coachToolNames = [
+  "listNotebooks",
+  "createNote",
   "listArea",
   "createTask",
   "completeTask",
