@@ -1,8 +1,9 @@
 "use server";
 
+import { db } from "@repo/db";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { createNotebook, deleteNote, fileDraftAsNote, noteHref, NoteError, saveNote } from "../../lib/notes";
+import { createNotebook, deleteNote, deleteNotebook, fileDraftAsNote, noteHref, NoteError, saveNote } from "../../lib/notes";
 
 function failure(error: unknown) {
   return { error: error instanceof NoteError ? error.message : "Could not save. Your text is kept here; please try again." };
@@ -43,4 +44,15 @@ export async function removeNote(id: string, revision: number) {
     revalidatePath("/notes", "layout");
     return { href: row.notebookId ? `/notes/${row.notebookId}` : "/notes" };
   } catch (error) { return failure(error); }
+}
+
+export async function removeNotebook(notebookId: string, mode: string): Promise<{ href: string } | { error: string }> {
+  const user = await requireUser();
+  if (mode !== "delete-notes" && mode !== "move-notes") return { error: "That item is unavailable. Refresh and try again." };
+  try {
+    const removed = await deleteNotebook(db, user.id, notebookId, mode);
+    if (!removed) return { error: "That item is unavailable. Refresh and try again." };
+    revalidatePath("/notes", "layout");
+    return { href: "/notes" };
+  } catch { return { error: "Could not delete. Please try again." }; }
 }
