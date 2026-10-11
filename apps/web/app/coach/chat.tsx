@@ -8,9 +8,14 @@ import { APICallError, DefaultChatTransport, type UIMessage } from "ai";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { shownThread } from "../../lib/coach-screen";
+import { focusComposerOnMount, shownThread } from "../../lib/coach-screen";
 import { renderMarkdownPreview } from "../../lib/markdown";
 import { localToday } from "../../lib/today";
+
+// Set when the person sends from this view. The page keys Chat by its last
+// message, so the refresh after a reply remounts it; the new mount reads this
+// to put focus back in the composer instead of leaving it on the page top.
+let sentFromComposer = false;
 
 export function Chat({
   threadId,
@@ -31,6 +36,18 @@ export function Chat({
   const [stoppedUserIds, setStoppedUserIds] = useState<string[]>([]);
   const router = useRouter();
   const closeDay = useRef(initialCloseDay);
+  const composer = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focus = focusComposerOnMount({ sentFromComposer, openingClose });
+    sentFromComposer = false;
+    if (focus) composer.current?.focus({ preventScroll: true });
+  }, [openingClose]);
+  const send = (text: string) => {
+    following.current = true;
+    sentFromComposer = true;
+    sendMessage({ text });
+    composer.current?.focus({ preventScroll: true });
+  };
   const { messages, sendMessage, status, stop, error, regenerate } = useChat({
     id: threadId,
     messages: initialMessages,
@@ -99,8 +116,8 @@ export function Chat({
     <>
       {initialCloseDay && <section aria-label="Daily close" className="mb-6 flex flex-wrap items-center gap-3">
         <p>Daily close · {initialCloseDay}. Skip any question or cancel.</p>
-        {openingClose && <Button type="button" disabled={replying} onClick={() => sendMessage({ text: "Start Daily close" })}>Start Daily close</Button>}
-        <Button type="button" variant="outline" disabled={replying} onClick={() => sendMessage({ text: "Cancel Daily close" })}>Cancel Daily close</Button>
+        {openingClose && <Button type="button" disabled={replying} onClick={() => send("Start Daily close")}>Start Daily close</Button>}
+        <Button type="button" variant="outline" disabled={replying} onClick={() => send("Cancel Daily close")}>Cancel Daily close</Button>
       </section>}
       {shown.length === 0 ? (
         <p>No messages yet.</p>
@@ -146,19 +163,22 @@ export function Chat({
         onSubmit={(event) => {
           event.preventDefault();
           if (!input.trim() || replying) return;
-          following.current = true;
-          sendMessage({ text: input });
+          send(input);
           setInput("");
         }}
       >
         <Input
+          ref={composer}
           className="w-auto"
           aria-label="Message the Coach"
           placeholder="Message the Coach"
           value={input}
           maxLength={maxCoachMessageLength}
           onChange={(event) => setInput(event.target.value)}
-          disabled={replying}
+          // Read-only, not disabled, while replying: a disabled input drops
+          // focus to the page top.
+          readOnly={replying}
+          aria-busy={replying}
         />
         {replying ? (
           <Button
