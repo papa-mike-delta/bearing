@@ -125,6 +125,24 @@ test("parts that show nothing are left out", () => {
   assert.deepEqual(shownParts([step, { type: "reasoning", text: "Hmm" }]), []);
 });
 
+test("a later success hides only earlier failures of the same tool in a reply", () => {
+  const success = {
+    type: "tool-fileDraft", toolCallId: "filed", state: "output-available",
+    output: { kind: "journal", id: "00000000-0000-4000-8000-000000000001", day: "2026-10-09", href: "/journal/2026-10-09" },
+  };
+  for (const failure of [
+    { type: "tool-fileDraft", state: "output-error" },
+    { type: "tool-fileDraft", state: "output-available", output: { refused: true } },
+  ]) {
+    const parts = shownParts([failure, read("db-error", 0, "output-error"), success, { ...failure, toolCallId: "later-error" }]);
+    assert.deepEqual(parts, [
+      { key: "db-error", receipt: "Couldn't read your list", calls: 1 },
+      { key: "filed", receipt: "Appended draft to journal for 2026-10-09", calls: 1, href: "/journal/2026-10-09" },
+      { key: "later-error", receipt: "Couldn't file that draft", calls: 1 },
+    ]);
+  }
+});
+
 const created = (
   toolCallId: string,
   output?: unknown,

@@ -447,6 +447,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     }
     assert.equal((await getJournalDay(c, day, db))!.body, "This daily close helped me reflect.\n\nSkipping lunch was hard.");
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+    const next = replying("Anything else?");
+    await turn(c, thread, userMessage("What's saved?"), next);
+    assert.match(promptText(next), /Answers appended: 2\./);
   });
 
   test("Daily close bare commands block writes, while opening turns stay blocked on resend", async () => {
@@ -537,7 +540,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const thread = await coachThread(c, db);
     const book = await createNotebook(c, "Reflections", db);
     await createNotebook(other, "Private notebook", db);
-    const model = scripted({ listNotebooks: "{}" }, { text: "Use Reflections?" });
+    await captureDraft(c, "A quiet evening", db);
+    const [draft] = await inboxDrafts(c, db);
+    const model = scripted({ listNotebooks: "{}" }, { listInboxDrafts: "{}" }, { text: 'File "A quiet evening" as a Note in Reflections?' });
     await turn(c, thread, userMessage("Daily close"), model);
     assert.ok(model.doStreamCalls[0]!.tools?.some((tool) => tool.name === "listNotebooks"));
     const part = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-listNotebooks" && "output" in p);
@@ -546,6 +551,10 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(output.includes(book.id));
     assert.ok(output.includes("Reflections"));
     assert.ok(!output.includes("Private notebook"));
+    await turn(c, thread, userMessage("Yes"), scripted({ fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "note", notebook: "Reflections" } }) }, { text: "Filed." }));
+    const progress = replying("Anything else?");
+    await turn(c, thread, userMessage("What's saved?"), progress);
+    assert.ok(promptText(progress).includes(`Drafts filed: ${JSON.stringify([{ draftId: draft!.id, kind: "note", notebookId: book.id }])}.`));
   });
 
   test("Daily close files only the particular offered draft after agreement, and refuses mass filing", async () => {
@@ -572,7 +581,9 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     ));
     assert.deepEqual((await inboxDrafts(c, db)).map((draft) => draft.id), [two.id]);
     assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "A walk with Sam");
-    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended draft to journal for 2026-10-09"));
+    const finalReceipts = receiptsOf([(await threadMessages(c, thread, db))!.at(-1)!])!;
+    assert.ok(finalReceipts.includes("Appended draft to journal for 2026-10-09"));
+    assert.ok(!finalReceipts.includes("Couldn't file that draft"));
   });
 
   test("Daily close supplies the saved template or starter and a citable knowledge article", async () => {
@@ -661,10 +672,17 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await turn(c, thread, message, failingAfterWrite("fileDraft", input));
     assert.equal((await inboxDrafts(c, db)).length, 0);
     assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "A quiet evening");
-    await turn(c, thread, message, scripted({ fileDraft: JSON.stringify(input), toolCallId: "changed_retry_call" }, { text: "Already filed." }), "2026-10-10", undefined, null);
+    const retry = scripted({ fileDraft: JSON.stringify(input), toolCallId: "changed_retry_call" }, { text: "Already filed." });
+    await turn(c, thread, message, retry, "2026-10-10", undefined, null);
+    assert.ok(promptText(retry).includes(`Drafts filed: ${JSON.stringify([{ draftId: draft!.id, kind: "journal", day: "2026-10-09" }])}.`));
     assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "A quiet evening");
     const parts = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
     assert.ok(parts.some((p) => "receipt" in p && p.receipt === "Appended draft to journal for 2026-10-09" && p.href === "/journal/2026-10-09"));
+    const cancelMessage = userMessage("cancel daily close");
+    await turn(c, thread, cancelMessage, failing());
+    const cancelRetry = replying("Stopped; your draft is saved.");
+    await turn(c, thread, cancelMessage, cancelRetry);
+    assert.ok(promptText(cancelRetry).includes(`Drafts filed: ${JSON.stringify([{ draftId: draft!.id, kind: "journal", day: "2026-10-09" }])}.`));
   });
 
   // #85 D4 repro (failing until fixed). a/d: the model must see committed close
@@ -676,12 +694,16 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await turn(c, thread, userMessage("Close the day"), replying("How was your mood?"), "2026-10-09", undefined, day);
     await turn(c, thread, userMessage("Good"), scripted({ setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Thanks." }), "2026-10-09", undefined, day);
     assert.equal(await getMood(c, day, db), "Good");
-    const next = replying("Anything else?");
-    await turn(c, thread, userMessage("What's left?"), next, "2026-10-09", undefined, day);
-    assert.match(promptText(next), /mood[^\n]{0,80}(?:set|recorded|already)[^\n]{0,40}Good/i);
+    const next = scripted({ setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Anything else?" });
+    await turn(c, thread, userMessage("What's left?"), next, "2026-10-09", {
+      ...coachData(db, "2026-10-09"),
+      async setMood() { throw new Error("An already recorded mood needs no write."); },
+    }, day);
+    assert.match(promptText(next), /Close progress \(data\) for 2026-10-08:\nMood: Good \(recorded\)\./);
+    assert.ok(receiptsOf([(await threadMessages(c, thread, db))!.at(-1)!])!.includes("Set mood Good for 2026-10-08"));
     const cancel = replying("Stopped.");
     await turn(c, thread, userMessage("cancel daily close"), cancel);
-    assert.match(promptText(cancel), /mood[^\n]{0,80}(?:set|recorded|already)[^\n]{0,40}Good/i);
+    assert.match(promptText(cancel), /Close progress \(data\) for 2026-10-08:\nMood: Good \(recorded\)\./);
   });
 
   // b: a refused write must be visible to the model on the next turn, so it can't deny it.
@@ -692,10 +714,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await turn(c, thread, userMessage("Close the day"), replying("How was your mood?"), "2026-10-09", undefined, day);
     await turn(c, thread, userMessage("Pretty great day honestly"), scripted({ setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Which mood?" }), "2026-10-09", undefined, day);
     assert.equal(await getMood(c, day, db), null);
-    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.some((r) => /Couldn.t set that mood/.test(r)));
+    const refused = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.ok(refused.parts.some((part) => part.type === "tool-setMood" && part.state === "output-error"));
+    assert.ok(!receiptsOf([refused])!.includes("Couldn't set that mood"));
     const next = replying("Okay.");
     await turn(c, thread, userMessage("Did you set it?"), next, "2026-10-09", undefined, day);
-    assert.match(promptText(next), /(?:Couldn.t set|refused|not set)[^\n]{0,40}mood|mood[^\n]{0,40}(?:refused|not set)/i);
+    assert.match(promptText(next), /Mood: not recorded\.\nAnswers appended: 0\.\nDrafts filed: \[\]\.\nRefused last turn: setMood \(no explicit mood\)\./);
   });
 
   // c: a reply whose filing committed must not also carry a failure receipt for that same filing.
@@ -711,18 +735,28 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await turn(c, thread, userMessage("Daily close"), scripted({ listInboxDrafts: "{}" }, { text: 'Would you like to file "A walk with Sam" in the Journal for 2026-10-09?' }));
     await turn(c, thread, userMessage("Yes"), scripted({ fileDraft: file(two.id) }, { fileDraft: file(one.id) }, { text: "Filed." }));
     const last = (await threadMessages(c, thread, db))!.at(-1)!;
-    const receipts = receiptsOf([last])!;
+    const receipts = shownParts(last.parts).flatMap((part) => "receipt" in part ? [part.receipt] : []);
     assert.ok(receipts.includes("Appended draft to journal for 2026-10-09"));
-    assert.ok(!receipts.some((r) => /Couldn.t file that draft/.test(r)), receipts.join(" | "));
+    assert.ok(!receipts.includes("Couldn't file that draft"), receipts.join(" | "));
   });
 
   // e: the close prompt must offer only what closeTools can do.
   test("D4e: the Daily close prompt does not offer Task filing, and a Task filing is refused", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
+    await captureDraft(c, "Buy a notebook", db);
+    const [draft] = await inboxDrafts(c, db);
     const model = replying("What are you grateful for?");
     await turn(c, thread, userMessage("Daily close"), model);
+    assert.match(promptText(model), /Offer only Note in an existing named Notebook, or this Journal day\./);
     assert.doesNotMatch(promptText(model), /Offer Task/);
+    await turn(c, thread, userMessage("Show my draft"), scripted({ listInboxDrafts: "{}" }, { text: 'File "Buy a notebook" as a Task?' }));
+    await turn(c, thread, userMessage("Yes"), scripted({ fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "task" } }) }, { text: "Choose Note or Journal." }));
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.id), [draft!.id]);
+    assert.deepEqual(await openTasks(c, db), []);
+    const last = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.ok(last.parts.some((part) => part.type === "tool-fileDraft" && part.state === "output-error" && part.errorText === "Daily close refused: choose Note or this Journal day"));
+    assert.ok(!receiptsOf([last])!.includes("Couldn't file that draft"));
   });
 
   test("Daily close retains the shared write cap, separate receipts, and model step cap", async () => {

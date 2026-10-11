@@ -8,6 +8,7 @@ import {
   createTask,
   listArea,
   maxCreatesPerTurn,
+  CloseRefusal,
   setMood,
   scheduleTask,
   updateTask,
@@ -184,6 +185,7 @@ export function coachTools(data: CoachData) {
         }
         try { return await fileDraft.run(input, { ...context, toolCallId, data }); }
         catch (error) {
+          if (error instanceof CloseRefusal) throw error;
           logToolError("fileDraft", toolCallId, error);
           throw new Error(error instanceof DraftError || error instanceof JournalError || error instanceof NoteError ? error.message : "Couldn't file that draft.");
         }
@@ -205,6 +207,7 @@ export function coachTools(data: CoachData) {
         if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
         try { return await appendJournal.run(input, { ...context, toolCallId, data, appendOrdinal }); }
         catch (error) {
+          if (error instanceof CloseRefusal) throw error;
           logToolError("appendJournal", toolCallId, error);
           throw new Error(error instanceof JournalError ? error.message : "Couldn't append to that Journal day.");
         }
@@ -222,6 +225,7 @@ export function coachTools(data: CoachData) {
         if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
         try { return await setMood.run(input, { ...context, toolCallId, data }); }
         catch (error) {
+          if (error instanceof CloseRefusal) throw error;
           logToolError("setMood", toolCallId, error);
           throw new Error(error instanceof MoodError ? error.message : "Couldn't set that mood.");
         }

@@ -3,8 +3,9 @@
 
 import { coachMoods } from "./moods.ts";
 import { isCalendarDay, noteHref } from "@repo/domain";
+import { closeRefusalPrefix } from "./daily-close.ts";
 
-type ToolPart = { type: string; state?: string; output?: unknown };
+type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
 
 const receiptId =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,6 +28,7 @@ type Line = { line: string; href?: string };
 
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
+  if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
   if (part.type === "tool-readJournalingArticle") {
     if (pending(part.state)) return { line: "Reading journaling knowledge…" };
     return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
@@ -158,14 +160,25 @@ export type ShownPart =
 // the Priority List; a complete does not (the Task has left the list).
 export function shownParts(parts: readonly Part[]): ShownPart[] {
   const shown: ShownPart[] = [];
+  const lines = parts.map(show);
+  const failed = (part: Part, line: Line) => part.state === "output-error" || line.line.startsWith("Couldn't")
+    || flag(part.output, "refused") || flag(part.output, "invalidId") || flag(part.output, "notFound");
+  const lastSuccess = new Map<string, number>();
+  parts.forEach((part, i) => {
+    const line = lines[i];
+    if (line && part.state === "output-available" && !failed(part, line)) lastSuccess.set(part.type, i);
+  });
   let lastPart: Part | undefined;
   parts.forEach((part, i) => {
     if (part.type === "text") {
       shown.push({ key: `text-${i}`, text: part.text ?? "" });
       return;
     }
-    const line = show(part);
+    const line = lines[i];
     if (!line) return;
+    // Recompute for both streaming and reload: a recovered call shouldn't
+    // leave an earlier failure receipt in this same assistant reply.
+    if (failed(part, line) && (lastSuccess.get(part.type) ?? -1) > i) return;
     const lastShown = shown.at(-1);
     const repeat =
       part.type === "tool-listArea" &&
