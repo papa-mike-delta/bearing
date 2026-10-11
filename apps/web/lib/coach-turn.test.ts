@@ -667,6 +667,64 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(parts.some((p) => "receipt" in p && p.receipt === "Appended draft to journal for 2026-10-09" && p.href === "/journal/2026-10-09"));
   });
 
+  // #85 D4 repro (failing until fixed). a/d: the model must see committed close
+  // state on later turns, from the database, not from its own memory.
+  test("D4a/d: after Set mood, the next close turn and the cancel turn know the mood is recorded", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Close the day"), replying("How was your mood?"), "2026-10-09", undefined, day);
+    await turn(c, thread, userMessage("Good"), scripted({ setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Thanks." }), "2026-10-09", undefined, day);
+    assert.equal(await getMood(c, day, db), "Good");
+    const next = replying("Anything else?");
+    await turn(c, thread, userMessage("What's left?"), next, "2026-10-09", undefined, day);
+    assert.match(promptText(next), /mood[^\n]{0,80}(?:set|recorded|already)[^\n]{0,40}Good/i);
+    const cancel = replying("Stopped.");
+    await turn(c, thread, userMessage("cancel daily close"), cancel);
+    assert.match(promptText(cancel), /mood[^\n]{0,80}(?:set|recorded|already)[^\n]{0,40}Good/i);
+  });
+
+  // b: a refused write must be visible to the model on the next turn, so it can't deny it.
+  test("D4b: a refused setMood is visible to the model on the next turn", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Close the day"), replying("How was your mood?"), "2026-10-09", undefined, day);
+    await turn(c, thread, userMessage("Pretty great day honestly"), scripted({ setMood: JSON.stringify({ day, mood: "Good" }) }, { text: "Which mood?" }), "2026-10-09", undefined, day);
+    assert.equal(await getMood(c, day, db), null);
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.some((r) => /Couldn.t set that mood/.test(r)));
+    const next = replying("Okay.");
+    await turn(c, thread, userMessage("Did you set it?"), next, "2026-10-09", undefined, day);
+    assert.match(promptText(next), /(?:Couldn.t set|refused|not set)[^\n]{0,40}mood|mood[^\n]{0,40}(?:refused|not set)/i);
+  });
+
+  // c: a reply whose filing committed must not also carry a failure receipt for that same filing.
+  test("D4c: a refused fileDraft call followed by the committed one shows only the success receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await captureDraft(c, "A walk with Sam", db);
+    await captureDraft(c, "Buy a notebook", db);
+    const rows = await inboxDrafts(c, db);
+    const one = rows.find((draft) => draft.body === "A walk with Sam")!;
+    const two = rows.find((draft) => draft.body === "Buy a notebook")!;
+    const file = (id: string) => JSON.stringify({ draftId: id, destination: { kind: "journal", day: "2026-10-09" } });
+    await turn(c, thread, userMessage("Daily close"), scripted({ listInboxDrafts: "{}" }, { text: 'Would you like to file "A walk with Sam" in the Journal for 2026-10-09?' }));
+    await turn(c, thread, userMessage("Yes"), scripted({ fileDraft: file(two.id) }, { fileDraft: file(one.id) }, { text: "Filed." }));
+    const last = (await threadMessages(c, thread, db))!.at(-1)!;
+    const receipts = receiptsOf([last])!;
+    assert.ok(receipts.includes("Appended draft to journal for 2026-10-09"));
+    assert.ok(!receipts.some((r) => /Couldn.t file that draft/.test(r)), receipts.join(" | "));
+  });
+
+  // e: the close prompt must offer only what closeTools can do.
+  test("D4e: the Daily close prompt does not offer Task filing, and a Task filing is refused", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = replying("What are you grateful for?");
+    await turn(c, thread, userMessage("Daily close"), model);
+    assert.doesNotMatch(promptText(model), /Offer Task/);
+  });
+
   test("Daily close retains the shared write cap, separate receipts, and model step cap", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
