@@ -6,6 +6,9 @@ import { isCalendarDay, noteHref } from "@repo/domain";
 
 type ToolPart = { type: string; state?: string; output?: unknown };
 
+const receiptId =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const pending = (state: string | undefined) =>
   state === "input-streaming" || state === "input-available";
 
@@ -45,10 +48,9 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-fileDraft") {
     if (pending(part.state)) return { line: "Filing draft…" };
     const output = part.output as { kind?: unknown; id?: unknown; name?: unknown; notebookId?: unknown; day?: unknown; href?: unknown } | undefined;
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && uuid.test(output.id)) {
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id)) {
       if (output.kind === "task" && typeof output.name === "string" && output.href === "/") return { line: `Filed draft as Task '${output.name}'`, href: "/" };
-      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && uuid.test(output.notebookId)) {
+      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && receiptId.test(output.notebookId)) {
         const href = noteHref(output.notebookId, output.id);
         if (output.href === href) return { line: `Filed draft as Note '${output.name}'`, href };
       }
@@ -67,7 +69,7 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-appendJournal") {
     if (pending(part.state)) return { line: "Appending to journal…" };
     const output = part.output as { day?: unknown; id?: unknown } | undefined;
-    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && typeof output.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(output.id)) {
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && typeof output.id === "string" && receiptId.test(output.id)) {
       return { line: `Appended to journal for ${output.day}`, href: `/journal/${output.day}` };
     }
     return { line: "Couldn't append to that Journal day" };
@@ -88,10 +90,9 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-createNote") {
     if (pending(part.state)) return { line: "Creating a Note…" };
     const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const name = nameOf(part.output);
-    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && uuid.test(output.notebookId)) ? output.notebookId : undefined;
-    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && uuid.test(output.id) && notebookId !== undefined) {
+    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && receiptId.test(output.notebookId)) ? output.notebookId : undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && receiptId.test(output.id) && notebookId !== undefined) {
       const href = noteHref(notebookId, output.id);
       if (output.href === href) return { line: `Created Note '${name}'`, href };
     }
