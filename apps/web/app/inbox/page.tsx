@@ -28,61 +28,63 @@ export default async function Inbox({
   const areas = orderedAreas(loaded);
 
   return (
-    <main>
+    <>
       <Header email={user.email} />
-      <h1>Inbox</h1>
-      <form action={captureToInbox} className="panel">
-        <Textarea
-          name="body"
-          aria-label="Capture"
-          rows={4}
-          // The kit field does not resize. A capture stays resizable, as it was.
-          className="field-sizing-fixed resize"
-          maxLength={maxDraftLength}
-          required
-        />
-        {error && Object.hasOwn(errors, error) ? (
-          <p role="alert">{errors[error]}</p>
+      <main>
+        <h1>Inbox</h1>
+        <form action={captureToInbox} className="panel">
+          <Textarea
+            name="body"
+            aria-label="Capture"
+            rows={4}
+            // The kit field does not resize. A capture stays resizable, as it was.
+            className="field-sizing-fixed resize"
+            maxLength={maxDraftLength}
+            required
+          />
+          {error && Object.hasOwn(errors, error) ? (
+            <p role="alert">{errors[error]}</p>
+          ) : null}
+          <Button type="submit" className="self-end">
+            Capture
+          </Button>
+        </form>
+        {drafts.length === 0 ? (
+          <p className="empty-state">Inbox is empty.</p>
+        ) : (
+          <ul className="drafts">
+            {drafts.map((draft) => (
+              <li key={draft.id}>
+                <span>{draft.body}</span>
+                <form action={fileDraft}>
+                  <input type="hidden" name="id" value={draft.id} />
+                  <BrowserToday />
+                  {areas.length > 1 ? (
+                    <select
+                      className="choice"
+                      name="area"
+                      aria-label="Area"
+                      required
+                    >
+                      {areas.map((area) => (
+                        <option key={area.id} value={area.name}>
+                          {area.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <Button type="submit" variant="outline">
+                    File as task
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        {areas.length === 0 && drafts.length > 0 ? (
+          <p>Name an area before filing.</p>
         ) : null}
-        <Button type="submit" className="self-end">
-          Capture
-        </Button>
-      </form>
-      {drafts.length === 0 ? (
-        <p className="empty-state">Inbox is empty.</p>
-      ) : (
-        <ul className="drafts">
-          {drafts.map((draft) => (
-            <li key={draft.id}>
-              <span>{draft.body}</span>
-              <form action={fileDraft}>
-                <input type="hidden" name="id" value={draft.id} />
-                <BrowserToday />
-                {areas.length > 1 ? (
-                  <select
-                    className="choice"
-                    name="area"
-                    aria-label="Area"
-                    required
-                  >
-                    {areas.map((area) => (
-                      <option key={area.id} value={area.name}>
-                        {area.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <Button type="submit" variant="outline">
-                  File as task
-                </Button>
-              </form>
-            </li>
-          ))}
-        </ul>
-      )}
-      {areas.length === 0 && drafts.length > 0 ? (
-        <p>Name an area before filing.</p>
-      ) : null}
-    </main>
+      </main>
+    </>
   );
 }

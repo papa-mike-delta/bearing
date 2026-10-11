@@ -127,7 +127,7 @@ Other task behavior, from docs and shortcuts:
 - Pomodoro-style timer: `F` starts 25 minutes on the selected task, `Q` cancels.
 - Work-in-progress limit, warning only, per workflow.
 - Recurring tasks. Docs distinguish them from habits: tasks have richer recurrence ("every month on the last day", "every three weeks on Tuesday") and no streaks. Completion should spawn the next occurrence. Page fetch failed; treat recurrence rules as a gap to confirm in-app before coding the edge cases.
-- Email-in per area: subject becomes name, body becomes note. SendGrid receives, then they encrypt. Inbox-area pattern is their own recommendation.
+- Email-in per user: subject becomes name, body becomes note. SendGrid receives, then they encrypt. Inbox-area pattern is their own recommendation.
 
 ### 4.2 Scheduling and time blocking
 
@@ -204,7 +204,7 @@ Happy memories: a timeline on the person, also shown in the journal. Year-end re
 
 | Channel | Direction | Notes |
 | --- | --- | --- |
-| Email-in | in | per area, subject/body |
+| Email-in | in | per user, subject/body |
 | Browser extension | in | save page as task |
 | Zapier | in only | encryption blocks outbound |
 | iOS/Mac Shortcuts | in | |
@@ -362,14 +362,13 @@ Context the panel can attach: the open task, note, or person id, passed into the
 
 ## 9. Visual direction
 
-Lunatask's docs voice is emoji, sparkle, and "beautiful" grids. The user wants that gone.
+Lunatask's docs voice is emoji, sparkle, and "beautiful" grids. The user wants that just a little less... cartoony. Keep a unified color scheme, instead of the whole rainbow.
 
 Target references, not copies: Things 3 density, Linear chrome, Drafts' single text surface. No mascot, no illustrated empty states, no gradient blobs, no rounded habit pills in candy colors.
 
-- Type: a neutral grotesque for UI, a text face for editor and journal. 13–14px UI, 16–18px writing.
-- Color: one accent. Status is type and position, not a rainbow. Habit grid is ink on paper: empty, done, skipped, over-goal. Bad habits are a hairline, not red cartoon X.
+- Color: one-two accent(s). Status is type and position, not a rainbow. Habit grid is ink on paper: empty, done, skipped, over-goal. Bad habits are a hairline, not red cartoon X.
 - Hierarchy: areas in a left rail, list in the center, inspector on the right. Calendar is a column, not a toy.
-- Motion: almost none. Selection and the just-came-up strip are the only chrome that moves.
+- Motion: almost none for v1, this will change in the future. Selection and the just-came-up strip are the only chrome that moves.
 - Copy: short, no emoji in the product UI.
 
 ## 10. Competitors, only where they change the spec
