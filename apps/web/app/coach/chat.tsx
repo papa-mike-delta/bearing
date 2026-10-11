@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { shownThread } from "../../lib/coach-screen";
+import { renderMarkdownPreview } from "../../lib/markdown";
 import { localToday } from "../../lib/today";
 
 export function Chat({
@@ -117,6 +118,8 @@ export function Chat({
                       part.receipt
                     )}
                   </p>
+                ) : message.role === "assistant" ? (
+                  <div key={part.key} className="markdown-preview">{renderMarkdownPreview(part.text).content}</div>
                 ) : (
                   <p key={part.key}>{part.text}</p>
                 ),

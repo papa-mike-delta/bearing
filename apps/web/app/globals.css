@@ -7,6 +7,8 @@
 .mood-choice[data-mood="Good"] { --mood-color: color-mix(in oklch, var(--chart-5) 65%, var(--muted-foreground)); }
 .mood-choice[data-mood="Very good"] { --mood-color: var(--chart-5); }
 .mood-choice svg { color: var(--mood-color); }
+/* Dark themes: keep every face at least as visible as muted text. */
+.dark .mood-choice svg { color: color-mix(in oklch, var(--mood-color) 60%, var(--foreground)); }
 .mood-choice[aria-pressed="true"] { border-color: var(--foreground); background: var(--accent); }
 .note-filing { flex-direction: column; align-items: stretch; padding-block: 1rem; }
 .drafts > li:has(.note-filing), .drafts > li:has(details) { flex-wrap: wrap; }
