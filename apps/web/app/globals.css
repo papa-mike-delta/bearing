@@ -36,6 +36,7 @@
 .markdown-field .cm-content:focus { outline: none; }
 .markdown-preview h3 { font-size: 1rem; text-transform: none; letter-spacing: normal; }
 .markdown-preview a { text-decoration: underline; color: var(--primary); }
+.markdown-preview a.journal-link-unresolved { opacity: .5; }
 .markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .markdown-preview :is(th, td) { border: 1px solid var(--border); padding: .5rem; }
 .markdown-preview pre { overflow-x: auto; background: var(--muted); color: var(--foreground); padding: 1rem; }

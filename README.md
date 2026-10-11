@@ -44,6 +44,10 @@ Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign k
 
 Each person has one private markdown document per day. Viewing an empty day creates nothing. The first nonempty **Save** creates an entry; later saves update it with a revision check. Empty or whitespace-only saves write nothing, including on an existing entry. The Notes editor, safe preview, 100,000-character bound, save status, conflict handling, and unsaved-work guard are shared. A conflict preserves the unsaved text for comparison. Migration `0008_journal_entries` adds the table, unique person/day index, and cascading user foreign key. Journal persistence tests apply migrations to an isolated temporary Postgres database using `TEST_POSTGRES_URL`.
 
+### Links to Journal days
+
+In Notes and Journal previews, ordinary markdown links to exactly `/journal/YYYY-MM-DD` fade until that account has a saved Journal entry for the valid day. Preview resolves the first 100 distinct linked days with one session-owned, read-only query; additional days remain faded. Reference-style markdown links work too. Following a future link opens the not-open page; an empty today or past day opens its editor. Rendering and navigation create nothing, and stored markdown, external links, and URL safety rules stay unchanged. Saving an open Journal day refreshes its preview links.
+
 ### Mood for the day
 
 Today and past Journal days offer five large, labeled Lucide faces: **Very low**, **Low**, **Okay**, **Good**, and **Very good**. Their colors follow the active theme. Buttons support keyboard focus and pressed state; **Clear** returns to **No mood set**. Future days have no mood controls. Mood saves independently of the editor, so a day can have a mood without a document or a document without a mood.

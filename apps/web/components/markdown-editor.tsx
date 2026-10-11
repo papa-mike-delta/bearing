@@ -1,15 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import { Button } from "@repo/ui/components/button";
-import { markdownUrl, remarkHighlight } from "../lib/markdown";
+import { renderMarkdownPreview } from "../lib/markdown";
+import { resolveJournalLinks } from "../app/journal/actions";
 
 // Replaces the light fallback highlighter so markdown marks can read --md-meta.
 // Dark mode sets that to --muted-foreground; light keeps the previous grey.
@@ -44,10 +42,32 @@ const extensions = [markdown(), markdownHighlight, EditorView.lineWrapping, Edit
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--muted)" },
 })];
 
-export function MarkdownPreview({ value }: { value: string }) {
-  return <div className="markdown-preview"><Markdown skipHtml remarkPlugins={[remarkGfm, remarkHighlight]} rehypePlugins={[rehypeHighlight]} urlTransform={markdownUrl}
-    components={{ a: ({ children, href }) => <a href={href} rel="noreferrer noopener">{children}</a>, img: ({ src, alt }) => typeof src === "string" && src ? <RemoteImage key={src} src={src} alt={alt ?? ""} /> : <span>{alt || "Image unavailable"}</span> }}
-  >{value}</Markdown></div>;
+export function MarkdownPreview({ value, refreshKey }: { value: string; refreshKey?: number }) {
+  const [savedDays, setSavedDays] = useState<string[]>([]);
+  const lookup = useRef<{ key: string; result: Promise<string[]> } | null>(null);
+  const preview = useMemo(() => renderMarkdownPreview(value, savedDays, {
+    img: ({ src, alt }) => typeof src === "string" && src ? <RemoteImage key={src} src={src} alt={alt ?? ""} /> : <span>{alt || "Image unavailable"}</span>,
+  }), [value, savedDays]);
+  const daysKey = JSON.stringify(preview.journalDays);
+  useEffect(() => {
+    const days: string[] = JSON.parse(daysKey);
+    if (!days.length) return;
+    let active = true;
+    startTransition(async () => {
+      try {
+        // Strict Mode replays effects; share that request rather than query twice.
+        const key = JSON.stringify([daysKey, refreshKey]);
+        if (lookup.current?.key !== key) lookup.current = { key, result: resolveJournalLinks(days) };
+        const saved = await lookup.current.result;
+        if (active) setSavedDays(saved);
+      } catch {
+        // An unavailable lookup leaves links usable and conservatively faded.
+        if (active) setSavedDays([]);
+      }
+    });
+    return () => { active = false; };
+  }, [daysKey, refreshKey]);
+  return <div className="markdown-preview">{preview.content}</div>;
 }
 
 function RemoteImage({ src, alt }: { src: string; alt: string }) {
@@ -58,13 +78,13 @@ function RemoteImage({ src, alt }: { src: string; alt: string }) {
   return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
-export function MarkdownEditor({ value, onChange, disabled }: { value: string; onChange(value: string): void; disabled?: boolean }) {
+export function MarkdownEditor({ value, onChange, disabled, previewRefreshKey }: { value: string; onChange(value: string): void; disabled?: boolean; previewRefreshKey?: number }) {
   const [preview, setPreview] = useState(false);
   return <section className="flex min-w-0 flex-col gap-3" aria-label="Markdown editor">
     <div className="flex items-center justify-between">
       <span>Markdown body</span><Button type="button" variant="outline" aria-pressed={preview} onClick={() => setPreview(!preview)}>{preview ? "Edit source" : "Preview"}</Button>
     </div>
-    {preview ? <MarkdownPreview value={value} /> : <CodeMirror className="markdown-field" value={value} onChange={onChange} extensions={extensions} editable={!disabled} theme="none" basicSetup={{ lineNumbers: false, foldGutter: false }} />}
+    {preview ? <MarkdownPreview value={value} refreshKey={previewRefreshKey} /> : <CodeMirror className="markdown-field" value={value} onChange={onChange} extensions={extensions} editable={!disabled} theme="none" basicSetup={{ lineNumbers: false, foldGutter: false }} />}
     <details><summary>Markdown help</summary><p>Headings, lists, checklists, tables, fenced code, links and horizontal rules are supported. Use <code>==highlight==</code> for highlights and <code>{"![description](https://…)"}</code> for images. Raw HTML is disabled. Press Escape, then Tab to leave the editor.</p></details>
   </section>;
 }

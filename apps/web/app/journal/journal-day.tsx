@@ -79,7 +79,7 @@ function JournalEditor({ day, entry, settings }: { day: string; entry: Entry | n
       setBaseline(settings.template);
       setError("");
     }}>Insert template</Button>}
-    <MarkdownEditor value={body} onChange={setBody} disabled={pending} />
+    <MarkdownEditor value={body} onChange={setBody} disabled={pending} previewRefreshKey={saved.revision} />
     {tooLong && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="flex flex-wrap items-center gap-3">

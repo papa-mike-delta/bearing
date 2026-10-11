@@ -5,7 +5,10 @@ import { after, before, describe, test } from "node:test";
 import { createDb, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { getJournalDay, saveJournalDay } from "./journal.ts";
+import { getJournalDay, getSavedJournalDays, saveJournalDay } from "./journal.ts";
+import { createNote, createNotebook, getNote } from "./notes.ts";
+import { renderMarkdownPreview } from "./markdown.ts";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Journal database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
@@ -35,6 +38,42 @@ describe("Journal persistence", { skip: !url && "TEST_POSTGRES_URL missing" }, (
       assert.equal(await getJournalDay(a, "2026-10-10", tx), null);
     });
     assert.equal(await getJournalDay(a, "2026-10-10", db), null);
+  });
+  test("preview resolves only owned saved days; empty past, today, future and foreign days stay unresolved without writes", async () => {
+    await saveJournalDay(a, "2026-09-01", "Owned reflection", 0, "2026-10-11", db);
+    await saveJournalDay(b, "2026-09-02", "Private reflection", 0, "2026-10-11", db);
+    const days = ["2026-09-01", "2026-09-01", "2026-09-02", "2026-09-03", "2026-10-11", "2099-01-01"];
+    await db.transaction(async (tx) => {
+      await tx.execute("set transaction read only");
+      assert.deepEqual(await getSavedJournalDays(a, days, tx), ["2026-09-01"]);
+      assert.deepEqual(await getSavedJournalDays(b, days, tx), ["2026-09-02"]);
+    });
+    for (const day of ["2026-09-02", "2026-09-03", "2026-10-11", "2099-01-01"]) {
+      assert.equal(await getJournalDay(a, day, db), null);
+    }
+  });
+  test("preview lookup is bounded and accepts only real calendar days", async () => {
+    assert.deepEqual(await getSavedJournalDays(a, [], db), []);
+    assert.deepEqual(await getSavedJournalDays(a, ["2024-02-29"], db), []);
+    for (const days of [["2026-02-29"], ["/journal/2026-10-11"], Array(101).fill("2026-10-11"), null]) {
+      await assert.rejects(getSavedJournalDays(a, days as string[], db), /at most 100 real/);
+    }
+  });
+  test("resolving and rendering Notes and Journal previews preserves stored markdown exactly", async () => {
+    const body = "\n# Links\r\n\n[Saved](/journal/2026-08-30) [Empty](/journal/2026-09-03) [Future](/journal/2099-01-01) [External](https://example.com)\n";
+    await saveJournalDay(a, "2026-08-30", "Saved linked day", 0, "2026-10-11", db);
+    const book = await createNotebook(a, "Journal links", db);
+    const note = await createNote(a, { notebookId: book.id, title: "Journal links", body }, { source: "coach", sourceId: randomUUID() }, db);
+    await saveJournalDay(a, "2026-08-31", body, 0, "2026-10-11", db);
+    await db.transaction(async (tx) => {
+      await tx.execute("set transaction read only");
+      const days = renderMarkdownPreview(body).journalDays;
+      const saved = await getSavedJournalDays(a, days, tx);
+      const html = renderToStaticMarkup(renderMarkdownPreview(body, saved).content);
+      assert.equal((html.match(/journal-link-unresolved/g) ?? []).length, 2);
+      assert.equal((await getNote(a, note.id, tx))?.body, body);
+      assert.equal((await getJournalDay(a, "2026-08-31", tx))?.body, body);
+    });
   });
   test("first save creates one document and later saves preserve its id and exact markdown", async () => {
     const body = "\n# Reflection\n\nFull **markdown**\r\n";

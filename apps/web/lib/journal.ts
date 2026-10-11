@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db as defaultDb, drafts, journalEntries, journalOperations, journalSettings } from "@repo/db";
 import { validNoteBody } from "@repo/domain";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 import { isJournalDay } from "./journal-day.ts";
 
@@ -82,6 +82,18 @@ export async function getJournalDay(userId: string, day: string, db: Db = defaul
   const [entry] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.userId, userId), eq(journalEntries.day, day)));
   return entry ?? null;
+}
+
+// One bounded read for preview links. Return days only, never document contents.
+export async function getSavedJournalDays(userId: string, days: string[], db: Db = defaultDb): Promise<string[]> {
+  if (!Array.isArray(days) || days.length > 100 || !days.every(isJournalDay)) {
+    throw new JournalError("Use at most 100 real YYYY-MM-DD calendar days.");
+  }
+  const distinct = [...new Set(days)];
+  if (!distinct.length) return [];
+  const rows = await db.select({ day: journalEntries.day }).from(journalEntries)
+    .where(and(eq(journalEntries.userId, userId), inArray(journalEntries.day, distinct)));
+  return rows.map((row) => row.day);
 }
 
 // Revision zero represents an unsaved, virtual day.

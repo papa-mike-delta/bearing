@@ -2,9 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { JournalError, saveJournalDay, saveJournalTemplate, setAlwaysLoadTemplate } from "../../lib/journal";
+import { getSavedJournalDays, JournalError, saveJournalDay, saveJournalTemplate, setAlwaysLoadTemplate } from "../../lib/journal";
 import { MoodError, setMood, type MoodInput } from "../../lib/mood";
 import type { Mood } from "../../lib/mood-values";
+
+export async function resolveJournalLinks(days: string[]): Promise<string[]> {
+  const user = await requireUser();
+  return getSavedJournalDays(user.id, days);
+}
 
 export async function updateMood(input: MoodInput): Promise<{ mood: Mood | null; setAt: number } | { error: string }> {
   const user = await requireUser();
