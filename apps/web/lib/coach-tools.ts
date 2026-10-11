@@ -157,6 +157,7 @@ async function runUpdateTask(
 export function coachTools(data: CoachData) {
   let completedThisTurn = false;
   let createdThisTurn = 0;
+  let journalAppendsThisTurn = 0;
   let scheduledThisTurn = 0;
   let updatedThisTurn = 0;
   return {
@@ -195,11 +196,14 @@ export function coachTools(data: CoachData) {
       execute: async (input, { context, toolCallId }) => {
         if (createdThisTurn >= maxCreatesPerTurn) throw new Error(`You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`);
         createdThisTurn += 1;
+        // Count before awaiting so parallel calls in one step get distinct ordinals.
+        journalAppendsThisTurn += 1;
+        const appendOrdinal = journalAppendsThisTurn;
         // Validation errors are safe and recoverable; never expose database errors.
         const day = input.day === undefined || input.day === "today" ? context.today : input.day;
         if (!context.today || !isJournalDay(context.today)) throw new Error("Supply the browser's Today as a real YYYY-MM-DD calendar day, then retry.");
         if (!isJournalDay(day) || day > context.today) throw new Error("This day is not open yet.");
-        try { return await appendJournal.run(input, { ...context, toolCallId, data }); }
+        try { return await appendJournal.run(input, { ...context, toolCallId, data, appendOrdinal }); }
         catch (error) {
           logToolError("appendJournal", toolCallId, error);
           throw new Error(error instanceof JournalError ? error.message : "Couldn't append to that Journal day.");

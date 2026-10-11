@@ -1115,6 +1115,31 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"));
   });
 
+  test("a resend that changes the reflection by one character leaves the body and has no success receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Append: Long walk, felt calmer.");
+    await turn(c, thread, message, failingAfterWrite("appendJournal", { day: "today", text: "Long walk, felt calmer." }));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.");
+    await turn(c, thread, message, scripted(
+      { appendJournal: JSON.stringify({ text: "Long walk, felt calmer" }), toolCallId: "changed_one_character" },
+      { text: "Saved." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.");
+    assert.equal(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"), false);
+  });
+
+  test("two different appendJournal calls in one turn both save", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Save both reflections"), scripted(
+      { appendJournal: JSON.stringify({ text: "First reflection" }) },
+      { appendJournal: JSON.stringify({ text: "Second reflection" }) },
+      { text: "Saved both." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "First reflection\n\nSecond reflection");
+  });
+
   test("an older Mood resend cannot overwrite a newer choice or clear and keeps its day", async () => {
     for (const newerMood of ["Very good", null] as const) {
       const c = await account();

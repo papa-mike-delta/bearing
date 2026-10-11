@@ -1,4 +1,4 @@
-import { coachJournalOperationId, dailyCloseToolNames, type CoachData } from "@repo/coach";
+import { dailyCloseToolNames, type CoachData } from "@repo/coach";
 import { journalingArticle } from "@repo/coach/knowledge";
 import { tool, type UIMessage } from "ai";
 import { z } from "zod";
@@ -65,6 +65,7 @@ function namesMood(text: string, mood: string) {
 // These adapters still use the existing shared mutations and replay ids.
 export function closeData(data: CoachData, day: string, text: string, prior: UIMessage[], messageId: string, openingClose: boolean): CoachData {
   let filedThisTurn = false;
+  let journalReplayId: string | undefined;
   const noAnswer = openingClose || cancelsClose(text) || skipsClose(text);
   const permit = (targetDay?: string) => {
     if (noAnswer) throw new Error("Starting, skipping or cancelling Daily close writes nothing.");
@@ -77,9 +78,12 @@ export function closeData(data: CoachData, day: string, text: string, prior: UIM
       const answer = text.trim();
       if (!answer) throw new Error("Append only the person's exact answer from this turn.");
       if (!data.appendJournal) throw new Error("Journal append is unavailable.");
-      // Ignore the model's substring. Both payload and replay identity use the
-      // whole trimmed person message, even when a resend changes tool input.
-      return data.appendJournal(userId, { ...input, text: answer, operationId: coachJournalOperationId(messageId, day, answer) });
+      // Ignore the model's substring. The payload is the whole trimmed person
+      // message. Replay identity is the first appendJournal ordinal this turn
+      // (`messageId:day:n`); later calls write that same answer and reuse it.
+      if (!input.operationId.startsWith(`${messageId}:`)) throw new Error("Journal append is unavailable.");
+      journalReplayId ??= input.operationId;
+      return data.appendJournal(userId, { ...input, text: answer, operationId: journalReplayId });
     },
     async setMood(userId, input) {
       permit(input.day);
