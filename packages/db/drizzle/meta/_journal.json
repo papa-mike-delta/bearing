@@ -57,6 +57,55 @@
       "when": 1791688138326,
       "tag": "0007_notes_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791738788041,
+      "tag": "0008_journal_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791739577256,
+      "tag": "0009_journal_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791740111074,
+      "tag": "0010_journal_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791740575814,
+      "tag": "0011_day_scores",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791744771776,
+      "tag": "0012_coach_message_day",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791745249024,
+      "tag": "0013_draft_filings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791745920121,
+      "tag": "0014_daily_close_context",
+      "breakpoints": true
     }
   ]
 }

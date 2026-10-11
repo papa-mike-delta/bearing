@@ -1,7 +1,8 @@
 // The one line a tool call shows as in the Coach thread. Takes a stored or
 // streamed tool part; null for parts that aren't a Coach tool call.
 
-import { noteHref } from "@repo/domain";
+import { coachMoods } from "./moods.ts";
+import { isCalendarDay, noteHref } from "@repo/domain";
 
 type ToolPart = { type: string; state?: string; output?: unknown };
 
@@ -21,8 +22,56 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
 
 type Line = { line: string; href?: string };
 
-// `href` is set only when a create succeeded (a completed Task is off /).
+// Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
+  if (part.type === "tool-readJournalingArticle") {
+    if (pending(part.state)) return { line: "Reading journaling knowledge…" };
+    return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
+  }
+  if (part.type === "tool-readJournalDay") {
+    if (pending(part.state)) return { line: "Reading this Journal day…" };
+    const output = part.output as { day?: unknown } | undefined;
+    return part.state === "output-available" && typeof output?.day === "string" && isCalendarDay(output.day)
+      ? { line: `Read journal for ${output.day}`, href: `/journal/${output.day}` } : { line: "Couldn't read that Journal day" };
+  }
+  if (part.type === "tool-getJournalTemplate") {
+    return { line: pending(part.state) ? "Reading your Journal template…" : part.state === "output-available" ? "Read your Journal template" : "Couldn't read your Journal template" };
+  }
+  if (part.type === "tool-listInboxDrafts") {
+    if (pending(part.state)) return { line: "Reading your Inbox drafts…" };
+    const rows = (part.output as { drafts?: unknown } | undefined)?.drafts;
+    return { line: part.state === "output-available" && Array.isArray(rows) ? `Read your Inbox drafts (${rows.length})` : "Couldn't read your Inbox drafts" };
+  }
+  if (part.type === "tool-fileDraft") {
+    if (pending(part.state)) return { line: "Filing draft…" };
+    const output = part.output as { kind?: unknown; id?: unknown; name?: unknown; notebookId?: unknown; day?: unknown; href?: unknown } | undefined;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && uuid.test(output.id)) {
+      if (output.kind === "task" && typeof output.name === "string" && output.href === "/") return { line: `Filed draft as Task '${output.name}'`, href: "/" };
+      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && uuid.test(output.notebookId)) {
+        const href = noteHref(output.notebookId, output.id);
+        if (output.href === href) return { line: `Filed draft as Note '${output.name}'`, href };
+      }
+      if (output.kind === "journal" && typeof output.day === "string" && isCalendarDay(output.day) && output.href === `/journal/${output.day}`) return { line: `Appended draft to journal for ${output.day}`, href: `/journal/${output.day}` };
+    }
+    return { line: "Couldn't file that draft" };
+  }
+  if (part.type === "tool-setMood") {
+    if (pending(part.state)) return { line: "Setting mood…" };
+    const output = part.output as { day?: unknown; mood?: unknown } | undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && (output.mood === null || coachMoods.some((mood) => mood === output.mood))) {
+      return { line: output.mood === null ? `Cleared mood for ${output.day}` : `Set mood ${output.mood} for ${output.day}`, href: `/journal/${output.day}` };
+    }
+    return { line: "Couldn't set that mood" };
+  }
+  if (part.type === "tool-appendJournal") {
+    if (pending(part.state)) return { line: "Appending to journal…" };
+    const output = part.output as { day?: unknown; id?: unknown } | undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && typeof output.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(output.id)) {
+      return { line: `Appended to journal for ${output.day}`, href: `/journal/${output.day}` };
+    }
+    return { line: "Couldn't append to that Journal day" };
+  }
   if (part.type === "tool-listArea") {
     if (pending(part.state)) return { line: "Reading your list…" };
     const open = (part.output as { open?: unknown } | undefined)?.open;

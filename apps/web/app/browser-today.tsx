@@ -3,9 +3,28 @@
 import { useSyncExternalStore } from "react";
 import { localToday } from "../lib/today";
 
-function useBrowserToday() {
+function subscribe(listener: () => void) {
+  let timer: ReturnType<typeof setTimeout>;
+  const refresh = () => {
+    listener();
+    clearTimeout(timer);
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    timer = setTimeout(refresh, midnight.getTime() - now.getTime());
+  };
+  refresh();
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", refresh);
+  return () => {
+    clearTimeout(timer);
+    window.removeEventListener("focus", refresh);
+    document.removeEventListener("visibilitychange", refresh);
+  };
+}
+
+export function useBrowserToday() {
   return useSyncExternalStore(
-    () => () => {},
+    subscribe,
     () => localToday(),
     () => null,
   );

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db as defaultDb, drafts, notebooks, noteOperations, notes } from "@repo/db";
+import { db as defaultDb, draftFilings, drafts, notebooks, noteOperations, notes } from "@repo/db";
 import { noteHref, noteName, validNoteBody } from "@repo/domain";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
@@ -92,9 +92,13 @@ export async function fileDraftAsNote(userId: string, draftId: string, input: Om
     if (!draft) throw new NoteError(unavailable);
     const from = { source: "draft", sourceId: draftId } as const;
     const existing = await replay(userId, from, tx);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.notebookId !== input.notebookId) throw new NoteError("That draft was already filed to a different destination.");
+      return existing;
+    }
     if (draft.workspace !== "inbox" || !draft.body.trim()) throw new NoteError(unavailable);
     const note = await createNote(userId, { ...input, body: draft.body }, from, tx);
+    await tx.insert(draftFilings).values({ userId, draftId, destinationKey: JSON.stringify(["note", input.notebookId]), kind: "note", entityId: note.id, name: note.title, notebookId: input.notebookId });
     await tx.update(drafts).set({ workspace: "archive" }).where(and(eq(drafts.id, draftId), eq(drafts.userId, userId)));
     return note;
   });

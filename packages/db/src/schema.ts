@@ -175,6 +175,18 @@ export const drafts = pgTable("drafts", {
     .$onUpdate(() => new Date()),
 });
 
+// Original filing results survive edits or removal of their destinations.
+export const draftFilings = pgTable("draft_filings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull(),
+  destinationKey: text("destination_key").notNull(),
+  kind: text("kind").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  name: text("name").notNull(),
+  notebookId: uuid("notebook_id"),
+}, (t) => [uniqueIndex("draft_filings_user_draft_unique").on(t.userId, t.draftId)]);
+
 export const notebooks = pgTable("notebooks", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -212,6 +224,53 @@ export const noteOperations = pgTable("note_operations", {
   noteId: uuid("note_id").notNull(),
 }, (t) => [uniqueIndex("note_operations_source_unique").on(t.userId, t.source, t.sourceId)]);
 
+// One markdown document per owned calendar day. Merely viewing a day creates nothing.
+export const journalEntries = pgTable("journal_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  body: text("body").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [uniqueIndex("journal_entries_user_day_unique").on(t.userId, t.day)]);
+
+// A mood belongs to the day independently of its optional journal document.
+// Keep clears as null with their set time so old replays cannot restore a mood.
+export const dayScores = pgTable("day_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  mood: text("mood"),
+  moodSetAt: timestamp("mood_set_at", { mode: "date", withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  uniqueIndex("day_scores_user_day_unique").on(t.userId, t.day),
+  check("day_scores_mood", sql`${t.mood} in ('Very low', 'Low', 'Okay', 'Good', 'Very good')`),
+]);
+
+// Account defaults are created only by an explicit settings change.
+export const journalSettings = pgTable("journal_settings", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  template: text("template"),
+  alwaysLoad: boolean("always_load").notNull().default(false),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+// Durable append receipts live apart from editable bodies. No entry FK: removing
+// a result must never let an old operation recreate or append it again.
+export const journalOperations = pgTable("journal_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  operationId: text("operation_id").notNull(),
+  source: text("source").notNull(),
+  day: date("day").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  entryId: uuid("entry_id").notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("journal_operations_source_unique").on(t.userId, t.source, t.operationId)]);
+
 // Coach threads. Phase 2 opens one per person, but nothing stops more.
 export const coachThreads = pgTable(
   "coach_threads",
@@ -242,6 +301,10 @@ export const coachMessages = pgTable(
       .references(() => coachThreads.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
     parts: jsonb("parts_json").notNull(),
+    // Browser day bound on first send; resends keep it, including missing/invalid context.
+    browserToday: text("browser_today"),
+    // Daily close's selected day, bound at send time; null is ordinary Coach.
+    closeDay: text("close_day"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
