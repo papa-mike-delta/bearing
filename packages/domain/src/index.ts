@@ -3,6 +3,7 @@
 
 export * from "./areas.ts";
 export * from "./draft.ts";
+export * from "./note.ts";
 export * from "./priority-list.ts";
 export * from "./task.ts";
 

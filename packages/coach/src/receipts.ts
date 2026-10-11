@@ -1,6 +1,8 @@
 // The one line a tool call shows as in the Coach thread. Takes a stored or
 // streamed tool part; null for parts that aren't a Coach tool call.
 
+import { noteHref } from "@repo/domain";
+
 type ToolPart = { type: string; state?: string; output?: unknown };
 
 const pending = (state: string | undefined) =>
@@ -17,7 +19,7 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
   return (output as Record<string, unknown>)[key] === true;
 }
 
-type Line = { line: string; href?: "/" };
+type Line = { line: string; href?: string };
 
 // `href` is set only when a create succeeded (a completed Task is off /).
 function show(part: ToolPart): Line | null {
@@ -28,6 +30,23 @@ function show(part: ToolPart): Line | null {
       return { line: `Read your list (${open} open)` };
     }
     return { line: "Couldn't read your list" };
+  }
+  if (part.type === "tool-listNotebooks") {
+    if (pending(part.state)) return { line: "Reading your notebooks…" };
+    const books = (part.output as { notebooks?: unknown } | undefined)?.notebooks;
+    return { line: part.state === "output-available" && Array.isArray(books) ? `Read your notebooks (${books.length})` : "Couldn't read your notebooks" };
+  }
+  if (part.type === "tool-createNote") {
+    if (pending(part.state)) return { line: "Creating a Note…" };
+    const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const name = nameOf(part.output);
+    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && uuid.test(output.notebookId)) ? output.notebookId : undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && uuid.test(output.id) && notebookId !== undefined) {
+      const href = noteHref(notebookId, output.id);
+      if (output.href === href) return { line: `Created Note '${name}'`, href };
+    }
+    return { line: "Couldn't create that Note" };
   }
   if (part.type === "tool-createTask") {
     if (pending(part.state)) return { line: "Creating a task…" };
@@ -78,7 +97,7 @@ type Part = ToolPart & { toolCallId?: string; text?: string };
 
 export type ShownPart =
   | { key: string; text: string }
-  | { key: string; receipt: string; calls: number; href?: "/" };
+  | { key: string; receipt: string; calls: number; href?: string };
 
 // What a message shows: its text and its receipts, in order. A finished
 // listArea read with the same result as the receipt just before it (nothing

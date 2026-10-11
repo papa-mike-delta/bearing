@@ -244,6 +244,65 @@ test("a successful create links to the Priority List; a complete does not", () =
   );
 });
 
+const noteId = "11111111-1111-4111-8111-111111111111";
+const notebookId = "22222222-2222-4222-8222-222222222222";
+const noteHref = `/notes/${notebookId}/${noteId}`;
+const createdNote = (
+  toolCallId: string,
+  output?: unknown,
+  state = "output-available",
+) => ({
+  type: "tool-createNote",
+  toolCallId,
+  state,
+  ...(output !== undefined && { output }),
+});
+
+test("a createNote call reads as a one-line receipt and links to the Note", () => {
+  const part = { type: "tool-createNote" };
+  const output = {
+    id: noteId,
+    notebookId,
+    name: "Meeting notes",
+    href: noteHref,
+  };
+  assert.equal(
+    receipt({ ...part, state: "output-available", output }),
+    "Created Note 'Meeting notes'",
+  );
+  assert.deepEqual(shownParts([createdNote("n1", output)]), [
+    {
+      key: "n1",
+      receipt: "Created Note 'Meeting notes'",
+      calls: 1,
+      href: noteHref,
+    },
+  ]);
+  assert.equal(
+    receipt({ ...part, state: "input-available" }),
+    "Creating a Note…",
+  );
+  assert.deepEqual(
+    shownParts([
+      createdNote("n2", { refused: true }),
+      createdNote("n3", {}, "output-error"),
+    ]),
+    [
+      { key: "n2", receipt: "Couldn't create that Note", calls: 1 },
+      { key: "n3", receipt: "Couldn't create that Note", calls: 1 },
+    ],
+  );
+});
+
+test("a createNote receipt with no notebook links under /notes/_", () => {
+  const href = `/notes/_/${noteId}`;
+  const output = { id: noteId, notebookId: null, name: "Loose", href };
+  assert.equal(receipt({ type: "tool-createNote", state: "output-available", output }), "Created Note 'Loose'");
+  assert.deepEqual(shownParts([createdNote("n4", output)]), [
+    { key: "n4", receipt: "Created Note 'Loose'", calls: 1, href },
+  ]);
+});
+
 test("two creates in a row stay two lines", () => {
   const output = { id: "t1", name: "Call dentist" };
   assert.deepEqual(shownParts([created("c1", output), created("c2", output)]), [

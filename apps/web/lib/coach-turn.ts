@@ -137,6 +137,8 @@ export async function coachTurn({
       "scheduleTask",
       "updateTask",
       "listArea",
+      "listNotebooks",
+      "createNote",
     ],
     // Last model step is text only so the turn ends with an answer.
     prepareStep: ({ steps }) =>
@@ -274,7 +276,9 @@ function logTurn(
       steps: count("step-start"),
       toolCalls: {
         listArea: count("tool-listArea"),
+        listNotebooks: count("tool-listNotebooks"),
         createTask: count("tool-createTask"),
+        createNote: count("tool-createNote"),
         completeTask: count("tool-completeTask"),
         scheduleTask: count("tool-scheduleTask"),
         updateTask: count("tool-updateTask"),

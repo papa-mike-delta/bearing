@@ -7,6 +7,8 @@ import { inboxDrafts } from "../../lib/drafts";
 import { captureToInbox, fileDraft } from "../actions";
 import { Header } from "../header";
 import { BrowserToday } from "../browser-today";
+import { listNotebooks } from "../../lib/notes";
+import { FileNote } from "./file-note";
 
 const errors: Record<string, string> = {
   empty: "Nothing to capture.",
@@ -20,10 +22,11 @@ export default async function Inbox({
   searchParams: Promise<{ error?: string }>;
 }) {
   const user = await requireUser();
-  const [drafts, loaded, { error }] = await Promise.all([
+  const [drafts, loaded, { error }, notebooks] = await Promise.all([
     inboxDrafts(user.id),
     loadAccount(user.id),
     searchParams,
+    listNotebooks(user.id),
   ]);
   const areas = orderedAreas(loaded);
 
@@ -77,6 +80,7 @@ export default async function Inbox({
                     File as task
                   </Button>
                 </form>
+                <FileNote draft={draft} notebooks={notebooks} />
               </li>
             ))}
           </ul>
