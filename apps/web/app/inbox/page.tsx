@@ -30,7 +30,8 @@ export default async function Inbox({
   return (
     <main>
       <Header email={user.email} />
-      <form action={captureToInbox}>
+      <h1>Inbox</h1>
+      <form action={captureToInbox} className="panel">
         <Textarea
           name="body"
           aria-label="Capture"
@@ -43,12 +44,14 @@ export default async function Inbox({
         {error && Object.hasOwn(errors, error) ? (
           <p role="alert">{errors[error]}</p>
         ) : null}
-        <Button type="submit">Capture</Button>
+        <Button type="submit" className="self-end">
+          Capture
+        </Button>
       </form>
       {drafts.length === 0 ? (
-        <p>Inbox is empty.</p>
+        <p className="empty-state">Inbox is empty.</p>
       ) : (
-        <ul>
+        <ul className="drafts">
           {drafts.map((draft) => (
             <li key={draft.id}>
               <span>{draft.body}</span>

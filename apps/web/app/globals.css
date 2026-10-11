@@ -6,103 +6,129 @@
   }
 
   body {
+    min-height: 100dvh;
     color: var(--foreground);
     background: var(--background);
     font-family: var(--font-sans), system-ui, sans-serif;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
   main {
-    max-width: 40rem;
+    max-width: 44rem;
     margin: 0 auto;
-    padding: 3rem 1.5rem;
+    padding: 0 1.25rem 4rem;
   }
 
-  header {
+  /* App bar: full bleed, sticky, translucent over the page. */
+  header.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    margin: 0 calc(50% - 50vw) 2.5rem;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklch, var(--background) 82%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .app-header-inner {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding-bottom: 1rem;
-    margin-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
+    gap: 1.25rem;
+    max-width: 64rem;
+    height: 3.5rem;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--foreground);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+  }
+
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .app-nav {
+    display: flex;
+    gap: 0.25rem;
+    margin-right: auto;
+  }
+
+  .app-nav a {
+    padding: 0.35rem 0.7rem;
+    border-radius: calc(var(--radius) - 2px);
     color: var(--muted-foreground);
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      color 120ms,
+      background-color 120ms;
+  }
+
+  .app-nav a:hover {
+    color: var(--foreground);
+    background: var(--muted);
+  }
+
+  .app-nav a[aria-current="page"] {
+    color: var(--accent-foreground);
+    background: var(--accent);
+  }
+
+  .app-email {
+    color: var(--muted-foreground);
+    font-size: 0.8rem;
   }
 
   h1 {
-    font-size: 1.25rem;
+    font-family: var(--font-heading, var(--font-sans));
+    font-size: 1.75rem;
     font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
     margin-bottom: 1.5rem;
+    text-wrap: balance;
   }
 
   h2 {
     font-size: 1.05rem;
     font-weight: 600;
-    margin-bottom: 0.75rem;
+    letter-spacing: -0.01em;
   }
 
   h3 {
     margin-top: 1.25rem;
-    font-size: 0.85rem;
+    font-size: 0.7rem;
     font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--muted-foreground);
   }
 
   h3.stack-heading {
-    margin-top: 2rem;
-    margin-bottom: 0.5rem;
-  }
-
-  /* A heading after a form sits clear of the control above it. */
-  main > form + h1 {
-    margin-top: 2rem;
+    margin-top: 1.75rem;
+    margin-bottom: 0.25rem;
   }
 
   form {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    max-width: 20rem;
-  }
-
-  /* The theme chips are one labelled group. The legend floats so it lays
-     out like a normal 12px label above the chips. */
-  form.themes {
-    max-width: none;
-  }
-
-  form.themes fieldset {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    min-width: 0;
-  }
-
-  form.themes legend {
-    float: left;
-    width: 100%;
-    padding: 0;
-    margin-bottom: 0.5rem;
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  /* The six themes sit in a row and wrap, instead of a tall stack. */
-  form.themes .choices {
-    clear: both;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  main > form + form {
-    margin-top: 0.75rem;
-  }
-
-  /* 28px between the chip group and the preset field. */
-  main > form.themes + form {
-    margin-top: 1.75rem;
   }
 
   header form,
@@ -112,12 +138,10 @@
     align-items: center;
   }
 
-  /* 4px under the input. A shared stack, so the form's 0.75rem gap does
-     not separate the hint from the field. */
   main form .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
 
   main form p.hint {
@@ -126,38 +150,69 @@
   }
 
   main form p.hint a {
-    color: inherit;
+    color: var(--primary);
     text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
-  header nav {
-    display: flex;
-    gap: 1rem;
-    margin-right: auto;
+  [role="alert"] {
+    padding: 0.6rem 0.8rem;
+    border: 1px solid color-mix(in oklch, var(--destructive) 30%, transparent);
+    border-radius: calc(var(--radius) - 2px);
+    background: color-mix(in oklch, var(--destructive) 8%, transparent);
+    color: var(--destructive);
+    font-size: 0.85rem;
   }
 
-  header a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  [role="alert"],
   main > p {
     color: var(--muted-foreground);
   }
 
+  /* Surfaces: one rounded panel per block of content. */
+  .panel,
+  section.stack {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 1.25rem;
+    box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 5%, transparent);
+  }
+
+  .panel + .panel,
+  .panel + h1,
+  section.stack + section.stack {
+    margin-top: 1.25rem;
+  }
+
+  .panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .panel-description {
+    margin-top: 0.15rem;
+    margin-bottom: 1rem;
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+  }
+
   ul {
     list-style: none;
-    margin-top: 1.5rem;
-    border-top: 1px solid var(--border);
+    margin-top: 1rem;
   }
 
   li {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--border);
+  }
+
+  li:first-child {
+    border-top: 0;
   }
 
   li > span {
@@ -172,7 +227,57 @@
 
   li strong {
     color: var(--primary);
+    font-weight: 600;
+  }
+
+  /* Inbox drafts read as cards. */
+  ul.drafts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  ul.drafts > li {
+    flex-wrap: wrap;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+
+  .empty-state {
+    margin-top: 1rem;
+    padding: 2.5rem 1rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--muted-foreground);
+    text-align: center;
+  }
+
+  details > summary {
+    cursor: pointer;
+    color: var(--muted-foreground);
     font-weight: 500;
+    list-style-position: inside;
+  }
+
+  details > summary:hover {
+    color: var(--foreground);
+  }
+
+  details.manage-areas {
+    margin-top: 2rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  details.manage-areas[open] > summary {
+    margin-bottom: 0.5rem;
+  }
+
+  details.manage-areas .add-area {
+    margin-top: 1rem;
   }
 
   ul.manager > li,
@@ -182,6 +287,9 @@
   }
 
   ul.manager label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 0.75rem;
     color: var(--muted-foreground);
   }
@@ -196,8 +304,27 @@
     margin-left: auto;
   }
 
-  section.stack {
-    margin-top: 2.5rem;
+  section.stack > h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  section.stack > h2::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--primary);
+  }
+
+  section.stack > form {
+    flex-direction: row;
+    margin-top: 0.75rem;
+  }
+
+  section.stack > form > [data-slot="input"] {
+    flex: 1;
   }
 
   section.stack > p,
@@ -206,11 +333,19 @@
     margin-top: 0.75rem;
   }
 
+  p.warning {
+    padding: 0.5rem 0.75rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--accent);
+    color: var(--accent-foreground);
+    font-size: 0.85rem;
+  }
+
   select.choice {
-    height: 1.75rem;
-    font-size: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 0.375rem;
+    height: 2rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--input);
+    border-radius: calc(var(--radius) - 2px);
     background: var(--background);
     color: var(--foreground);
     padding: 0 0.5rem;
@@ -227,7 +362,6 @@
     margin-top: 0.75rem;
   }
 
-  /* Four columns from 480px up. Below that they stack, with no sideways scroll. */
   .board {
     display: grid;
     grid-template-columns: 1fr;
@@ -244,23 +378,34 @@
   .column {
     min-width: 0;
     min-height: 8rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--muted);
+    padding: 0.6rem;
     overflow-wrap: anywhere;
+    transition: box-shadow 120ms;
   }
 
   .column.over {
-    outline: 2px solid var(--primary);
+    box-shadow: inset 0 0 0 2px var(--primary);
   }
 
   .column h3 {
-    margin-top: 0;
-    margin-bottom: 0.5rem;
+    margin: 0.15rem 0.25rem 0.5rem;
   }
 
   .column ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
     margin-top: 0;
+  }
+
+  .column li {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--card);
+    box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 6%, transparent);
   }
 
   li.card,
@@ -278,7 +423,7 @@
   .card-title {
     display: flex;
     align-items: flex-start;
-    gap: 0.35rem;
+    gap: 0.4rem;
     min-width: 0;
     flex: 1;
     overflow-wrap: anywhere;
@@ -335,7 +480,6 @@
 
   li.card details > summary {
     font-size: 0.75rem;
-    color: var(--muted-foreground);
   }
 
   .next-title {
@@ -348,12 +492,15 @@
 
   section.stack > details {
     margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
   }
 
   .column p,
   .goals > p {
     color: var(--muted-foreground);
-    margin-top: 0.5rem;
+    margin: 0.25rem;
+    font-size: 0.8rem;
   }
 
   .handle {
@@ -367,18 +514,21 @@
     gap: 0.5rem;
   }
 
+  /* Coach thread. */
   .thread {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.25rem;
     margin: 0 0 1.5rem;
     list-style: none;
   }
 
   .thread li {
     display: block;
-    padding: 0;
-    border-bottom: none;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
   }
 
   .thread p {
@@ -387,11 +537,12 @@
 
   .thread small {
     color: var(--muted-foreground);
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  /* The text sits 4px under the label. A receipt is metadata, sized like the
-     label: 4px under it, 8px above the reply text that follows. */
   .thread small + p:not(.receipt) {
     margin-top: 4px;
   }
@@ -403,7 +554,7 @@
   }
 
   .thread p.receipt a {
-    color: inherit;
+    color: var(--primary);
     text-decoration: underline;
   }
 
@@ -411,29 +562,58 @@
     margin-top: 8px;
   }
 
-  /* Stays at the bottom of the screen on a long thread, so Stop and the
-     input are always in reach. */
   form.composer {
     position: sticky;
-    bottom: 0;
+    bottom: 1rem;
     flex-direction: row;
     max-width: none;
     gap: 0.5rem;
-    padding: 8px 0;
-    border-top: 1px solid var(--border);
-    background: var(--background);
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 4px);
+    background: var(--card);
+    box-shadow: 0 8px 24px
+      color-mix(in oklch, var(--foreground) 10%, transparent);
   }
 
   form.composer input {
     flex: 1;
   }
 
-  /* Phones: the email gives way so the header fits on one line.
-     Task and area rows wrap their controls under the name so a 393px
-     screen does not scroll sideways. */
+  /* Sign-in: a single centred card. */
+  main.auth {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: 2rem 1.25rem;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 24rem;
+  }
+
+  .auth-card .brand {
+    margin-bottom: 1.5rem;
+  }
+
+  .auth-card h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+  }
+
   @media (max-width: 480px) {
-    header > span {
+    .app-email,
+    .brand-name {
       display: none;
+    }
+
+    .app-header-inner {
+      gap: 0.5rem;
+    }
+
+    .app-nav a {
+      padding: 0.35rem 0.5rem;
     }
 
     section.stack li,
@@ -524,19 +704,36 @@ form.move select.choice {
   margin-top: 0.75rem;
 }
 
+.switcher {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.2rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--muted);
+}
+
 .switcher button,
 .task-menu-trigger {
   font: inherit;
+  font-size: 0.8rem;
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
+  border-radius: calc(var(--radius) - 4px);
   background: transparent;
   color: var(--foreground);
   padding: 0 0.5rem;
   cursor: pointer;
 }
 
+.switcher button {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  padding: 0.15rem 0.7rem;
+}
+
 .switcher button[aria-pressed="true"] {
-  color: var(--primary);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .switcher button,
@@ -552,9 +749,11 @@ button.hit,
   min-width: 10rem;
   padding: 0.25rem 0;
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--background);
-  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 10px 30px
+    color-mix(in oklch, var(--foreground) 14%, transparent);
 }
 
 .task-menu-label {
@@ -581,7 +780,8 @@ button.hit,
 }
 
 .task-menu-item[data-highlighted] {
-  background: var(--muted);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .task-menu-item[data-disabled] {
@@ -602,4 +802,28 @@ li[draggable="true"] {
 [data-slot]:focus-visible {
   outline: 2px solid var(--foreground);
   outline-offset: 2px;
+}
+
+/* Theme chips: a wrapping row inside the Theme panel. */
+form.themes fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+form.themes legend {
+  margin-bottom: 0.5rem;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+form.themes .choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+form.flex-row {
+  flex-direction: row;
 }

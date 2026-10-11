@@ -5,7 +5,12 @@ import { requireUser } from "../auth";
 import { loadAccount, orderedAreas } from "../lib/areas";
 import { createNamedArea, deleteNamedArea, saveArea } from "./actions";
 import { Header } from "./header";
-import { TaskStacks, type StackArea, type StackGoal, type StackTask } from "./task-stacks";
+import {
+  TaskStacks,
+  type StackArea,
+  type StackGoal,
+  type StackTask,
+} from "./task-stacks";
 
 const errors: Record<string, string> = {
   "area-name": `That name is empty, too long, or already an Area. Names can be ${maxAreaNameLength} characters.`,
@@ -62,7 +67,7 @@ export default async function Home({
         <p role="alert">{errors[error]}</p>
       ) : null}
       {managed.length === 0 ? (
-        <form action={createNamedArea}>
+        <form action={createNamedArea} className="panel">
           <h1>Name an area</h1>
           <Input
             name="name"
@@ -82,7 +87,7 @@ export default async function Home({
             goals={goals}
             hiddenAreaIds={loaded.hiddenAreaIds}
           />
-          <details>
+          <details className="manage-areas">
             <summary>Manage areas</summary>
             <ul className="manager">
               {managed.map((area) => (
@@ -155,8 +160,8 @@ export default async function Home({
                 </li>
               ))}
             </ul>
-            <div style={{ marginTop: 24 }}>
-              <form action={createNamedArea}>
+            <div className="add-area">
+              <form action={createNamedArea} className="flex-row">
                 <Input
                   name="name"
                   aria-label="New area name"

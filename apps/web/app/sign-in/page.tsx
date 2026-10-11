@@ -21,40 +21,51 @@ export default async function SignIn({
   const { error } = await searchParams;
 
   return (
-    <main>
-      <h1>Bearing</h1>
-      <form>
-        <div className="field">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-          />
+    <main className="auth">
+      <div className="auth-card panel">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            B
+          </span>
+          <span className="brand-name">Bearing</span>
         </div>
-        <div className="field">
-          <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            minLength={minPasswordLength}
-            required
+        <h1>Welcome back</h1>
+        <p className="panel-description">
+          Sign in, or create an account with a new email.
+        </p>
+        <form>
+          <div className="field">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+            />
+          </div>
+          <div className="field">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              minLength={minPasswordLength}
+              required
+            />
+          </div>
+          {error && Object.hasOwn(errors, error) ? (
+            <p role="alert" className="text-destructive">
+              {errors[error]}
+            </p>
+          ) : null}
+          <SubmitButtons
+            signIn={signInWithPassword}
+            createAccount={createAccount}
           />
-        </div>
-        {error && Object.hasOwn(errors, error) ? (
-          <p role="alert" className="text-destructive">
-            {errors[error]}
-          </p>
-        ) : null}
-        <SubmitButtons
-          signIn={signInWithPassword}
-          createAccount={createAccount}
-        />
-      </form>
+        </form>
+      </div>
     </main>
   );
 }
