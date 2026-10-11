@@ -3,8 +3,12 @@
 
 import { coachMoods } from "./moods.ts";
 import { isCalendarDay, noteHref } from "@repo/domain";
+import { closeRefusalPrefix } from "./daily-close.ts";
 
-type ToolPart = { type: string; state?: string; output?: unknown };
+type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
+
+const receiptId =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const pending = (state: string | undefined) =>
   state === "input-streaming" || state === "input-available";
@@ -24,6 +28,7 @@ type Line = { line: string; href?: string };
 
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
+  if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
   if (part.type === "tool-readJournalingArticle") {
     if (pending(part.state)) return { line: "Reading journaling knowledge…" };
     return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
@@ -45,10 +50,9 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-fileDraft") {
     if (pending(part.state)) return { line: "Filing draft…" };
     const output = part.output as { kind?: unknown; id?: unknown; name?: unknown; notebookId?: unknown; day?: unknown; href?: unknown } | undefined;
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && uuid.test(output.id)) {
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id)) {
       if (output.kind === "task" && typeof output.name === "string" && output.href === "/") return { line: `Filed draft as Task '${output.name}'`, href: "/" };
-      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && uuid.test(output.notebookId)) {
+      if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && receiptId.test(output.notebookId)) {
         const href = noteHref(output.notebookId, output.id);
         if (output.href === href) return { line: `Filed draft as Note '${output.name}'`, href };
       }
@@ -67,7 +71,7 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-appendJournal") {
     if (pending(part.state)) return { line: "Appending to journal…" };
     const output = part.output as { day?: unknown; id?: unknown } | undefined;
-    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && typeof output.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(output.id)) {
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.day === "string" && isCalendarDay(output.day) && typeof output.id === "string" && receiptId.test(output.id)) {
       return { line: `Appended to journal for ${output.day}`, href: `/journal/${output.day}` };
     }
     return { line: "Couldn't append to that Journal day" };
@@ -88,10 +92,9 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-createNote") {
     if (pending(part.state)) return { line: "Creating a Note…" };
     const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const name = nameOf(part.output);
-    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && uuid.test(output.notebookId)) ? output.notebookId : undefined;
-    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && uuid.test(output.id) && notebookId !== undefined) {
+    const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && receiptId.test(output.notebookId)) ? output.notebookId : undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && receiptId.test(output.id) && notebookId !== undefined) {
       const href = noteHref(notebookId, output.id);
       if (output.href === href) return { line: `Created Note '${name}'`, href };
     }
@@ -155,15 +158,18 @@ export type ShownPart =
 // stays its own line even when the next write looks the same. A receipt keeps
 // the tool-call id of its first call as its key. A successful create links to
 // the Priority List; a complete does not (the Task has left the list).
+// Every real failure keeps its receipt, even when a later call succeeds; a
+// Daily close refusal renders nothing (see show()).
 export function shownParts(parts: readonly Part[]): ShownPart[] {
   const shown: ShownPart[] = [];
+  const lines = parts.map(show);
   let lastPart: Part | undefined;
   parts.forEach((part, i) => {
     if (part.type === "text") {
       shown.push({ key: `text-${i}`, text: part.text ?? "" });
       return;
     }
-    const line = show(part);
+    const line = lines[i];
     if (!line) return;
     const lastShown = shown.at(-1);
     const repeat =

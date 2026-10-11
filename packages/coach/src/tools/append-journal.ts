@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isCalendarDay, maxNoteBodyLength } from "@repo/domain";
 import { z } from "zod";
 import type { ToolRunContext } from "../data.ts";
@@ -25,14 +24,14 @@ export function resolveCoachJournalDay(
   return resolved;
 }
 
+// Replay identity is the turn position, not the text. The Journal mutation
+// still hashes [day, text] and conflicts when a resend changes the payload.
 export function coachJournalOperationId(
   messageId: string,
   day: string,
-  text: string,
+  n: number,
 ) {
-  return `${messageId}:${createHash("sha256")
-    .update(JSON.stringify([day, text]))
-    .digest("hex")}`;
+  return `${messageId}:${day}:${n}`;
 }
 
 const inputSchema = z.object({
@@ -49,7 +48,13 @@ export const appendJournal = {
   inputSchema,
   async run(
     input: z.infer<typeof inputSchema>,
-    { userId, messageId, today, data }: ToolRunContext,
+    {
+      userId,
+      messageId,
+      today,
+      data,
+      appendOrdinal,
+    }: ToolRunContext & { appendOrdinal: number },
   ) {
     const parsed = inputSchema.parse(input);
     const day = resolveCoachJournalDay(parsed.day, today);
@@ -59,7 +64,7 @@ export const appendJournal = {
       today: today!,
       text: parsed.text,
       source: "coach",
-      operationId: coachJournalOperationId(messageId, day, parsed.text),
+      operationId: coachJournalOperationId(messageId, day, appendOrdinal),
     });
     if (result.day !== day || !z.uuid().safeParse(result.id).success)
       throw new Error("Invalid Journal result.");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shiftJournalDay } from "./journal-day.ts";
+import { formatJournalDay, shiftJournalDay } from "./journal-day.ts";
 
 test("day navigation crosses leap days, month/year boundaries, and DST without skipping", () => {
   assert.equal(shiftJournalDay("2024-03-01", -1), "2024-02-29");

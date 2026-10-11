@@ -87,6 +87,14 @@ describe("Journal persistence", { skip: !url && "TEST_POSTGRES_URL missing" }, (
     assert.ok(saved.updatedAt >= first.updatedAt);
     assert.equal((await getJournalDay(a, "2026-10-09", db))?.body, "Updated\n");
   });
+  test("typed line breaks round-trip exactly, and CRLF is stored unchanged", async () => {
+    const body = "a\nb\n\nc";
+    const saved = (await saveJournalDay(a, "2026-10-02", body, 0, "2026-10-11", db))!;
+    assert.equal((await getJournalDay(a, "2026-10-02", db))?.body, "a\nb\n\nc");
+    const crlf = "a\r\nb\r\n\r\nc";
+    await saveJournalDay(a, saved.day, crlf, saved.revision, "2026-10-11", db);
+    assert.equal((await getJournalDay(a, saved.day, db))?.body, "a\r\nb\r\n\r\nc");
+  });
   test("concurrent first saves and stale replacements report conflicts without overwriting", async () => {
     const firstSaves = await Promise.allSettled(["First", "Second"].map((body) => saveJournalDay(a, "2026-10-08", body, 0, "2026-10-11", db)));
     assert.equal(firstSaves.filter((result) => result.status === "fulfilled").length, 1);

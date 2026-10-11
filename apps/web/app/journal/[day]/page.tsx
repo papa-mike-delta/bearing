@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../auth";
 import { getJournalDay, getJournalTemplate } from "../../../lib/journal";
-import { isJournalDay } from "../../../lib/journal-day";
+import { formatJournalDay, isJournalDay } from "../../../lib/journal-day";
 import { getMood } from "../../../lib/mood";
 import { Header } from "../../header";
 import { JournalDay } from "../journal-day";
@@ -13,8 +13,8 @@ export default async function JournalDayPage({ params }: { params: Promise<{ day
   if (!isJournalDay(day)) notFound();
   const [entry, settings, mood] = await Promise.all([getJournalDay(user.id, day), getJournalTemplate(user.id), getMood(user.id, day)]);
   return <><Header email={user.email} /><main className="font-sans">
-    <h1>Journal · {day}</h1>
-    <JournalTemplateSettings settings={settings} />
+    <h1>Journal · {formatJournalDay(day)}</h1>
     <JournalDay key={day} day={day} entry={entry ? { body: entry.body, revision: entry.revision } : null} settings={settings} mood={mood} />
+    <JournalTemplateSettings settings={settings} />
   </main></>;
 }

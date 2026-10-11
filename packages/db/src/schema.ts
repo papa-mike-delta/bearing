@@ -185,6 +185,7 @@ export const draftFilings = pgTable("draft_filings", {
   entityId: uuid("entity_id").notNull(),
   name: text("name").notNull(),
   notebookId: uuid("notebook_id"),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("draft_filings_user_draft_unique").on(t.userId, t.draftId)]);
 
 export const notebooks = pgTable("notebooks", {
