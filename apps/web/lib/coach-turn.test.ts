@@ -401,7 +401,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
     assert.equal(await getMood(c, "2026-10-09", db), null);
     assert.deepEqual(model.doStreamCalls[0]!.tools?.map((tool) => tool.name).sort(), [
-      "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts", "readJournalDay", "readJournalingArticle", "setMood",
+      "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
     ]);
     assert.equal(readIn(await threadMessages(c, thread, db)), undefined);
   });
@@ -429,9 +429,123 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       { setMood: JSON.stringify({ day, mood: "Good" }) },
       { text: "Saved." },
     ), "2026-10-09", undefined, day);
-    assert.equal((await getJournalDay(c, day, db))?.body, "Tea with my friend.");
+    assert.equal((await getJournalDay(c, day, db))?.body, "Tea with my friend. Mood: Good.");
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
     assert.equal(await getMood(c, day, db), "Good");
+  });
+
+  test("Daily close appends whole reflections mentioning close or skipping, preserving its selected day", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Daily close"), replying("What was hard?"), "2026-10-09", undefined, day);
+    for (const text of ["This daily close helped me reflect.", "Skipping lunch was hard."]) {
+      await turn(c, thread, userMessage(`  ${text}  `), scripted(
+        { appendJournal: JSON.stringify({ day, text: "model-selected fragment" }) }, { text: "Saved." },
+      ));
+      assert.equal(await coachCloseDay(c, thread, db), day);
+    }
+    assert.equal((await getJournalDay(c, day, db))!.body, "This daily close helped me reflect.\n\nSkipping lunch was hard.");
+    assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+  });
+
+  test("Daily close bare commands block writes, while opening turns stay blocked on resend", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-09";
+    const message = userMessage("Daily close");
+    await turn(c, thread, message, failingAfterWrite("appendJournal", { text: "Daily close" }));
+    await turn(c, thread, message, scripted({ appendJournal: JSON.stringify({ text: "close" }) }, { text: "What went well?" }));
+    for (const text of ["skip", "skip this!", "next.", "cancel?", "stop", "end daily close."]) {
+      await turn(c, thread, userMessage(text), scripted(
+        { appendJournal: JSON.stringify({ text }) }, { setMood: JSON.stringify({ mood: "Good" }) }, { text: "Okay." },
+      ), day, undefined, day);
+      assert.equal(await getJournalDay(c, day, db), null);
+      assert.equal(await getMood(c, day, db), null);
+    }
+  });
+
+  test("Daily close resends with a different model substring append the whole message only once", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"));
+    const message = userMessage("  Tea with Sam. Then a walk.  ");
+    await turn(c, thread, message, failingAfterWrite("appendJournal", { text: "Tea with Sam." }));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Tea with Sam. Then a walk.");
+    await turn(c, thread, message, scripted(
+      { appendJournal: JSON.stringify({ text: "Then a walk." }), toolCallId: "changed_substring" }, { text: "Already saved." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Tea with Sam. Then a walk.");
+  });
+
+  test("Daily close accepts one explicit mood word and refuses corrections, mismatches and negation", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What mood?"));
+    for (const [text, mood] of [
+      ["Set Good as my mood", "Good"], ["I'd say good", "Good"],
+      ["Very good!", "Very good"], ["VERY LOW", "Very low"], ["Low", "Low"], ["Okay", "Okay"],
+      ["No lunch today. I'd say Good.", "Good"], ["Okay", "Okay"],
+    ]) {
+      await turn(c, thread, userMessage(text!), scripted({ setMood: JSON.stringify({ mood }) }, { text: "Saved." }));
+      assert.equal(await getMood(c, "2026-10-09", db), mood);
+    }
+    for (const [text, mood] of [
+      ["Mood: Good? No, Very low", "Good"], ["Mood: Good? No, Very low", "Very low"],
+      ["leave it unset", null], ["Mood: Good, leave it unset", "Good"],
+      ["Not good", "Good"], ["Don't set Good", "Good"], ["Good? No.", "Good"],
+      ["Don't set my mood to Good", "Good"], ["Good, do not set my mood", "Good"],
+      ["Very good", "Good"], ["goodness", "Good"], ["Do not clear my mood", null],
+    ]) {
+      await turn(c, thread, userMessage(text!), scripted({ setMood: JSON.stringify({ mood }) }, { text: "Please choose." }));
+      assert.equal(await getMood(c, "2026-10-09", db), "Okay", text!);
+    }
+    for (const text of ["clear my mood", "remove my mood", "unset my mood"]) {
+      await turn(c, thread, userMessage("Good"), scripted({ setMood: JSON.stringify({ mood: "Good" }) }, { text: "Saved." }));
+      await turn(c, thread, userMessage(text), scripted({ setMood: JSON.stringify({ mood: null }) }, { text: "Cleared." }));
+      assert.equal(await getMood(c, "2026-10-09", db), null);
+    }
+  });
+
+  test("Daily close files Rest and recovery on affirmative consent but refuses negation and destination changes", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await captureDraft(c, "Rest and recovery", db);
+    const [draft] = await inboxDrafts(c, db);
+    const offer = 'File "Rest and recovery" in the Journal for 2026-10-09?';
+    const file = (kind = "journal") => JSON.stringify({ draftId: draft!.id, destination: kind === "journal" ? { kind, day: "2026-10-09" } : { kind } });
+    await turn(c, thread, userMessage("Daily close"), scripted({ listInboxDrafts: "{}" }, { text: offer }));
+    for (const [text, kind] of [
+      ["Yes, but as a Task instead", "journal"], ["Yes, but as a Task instead", "task"],
+      ["Yes, do not file it", "journal"], ["Yes, don't file it", "journal"],
+      ["Yes, as a task", "journal"], ["No", "journal"],
+      ['File "Rest and recovery" in the Journal for 2026-10-09', "journal"],
+    ]) {
+      await turn(c, thread, userMessage(text!), scripted({ fileDraft: file(kind) }, { text: offer }));
+      assert.equal((await inboxDrafts(c, db)).length, 1, text!);
+      assert.equal(await getJournalDay(c, "2026-10-09", db), null);
+      assert.equal((await openTasks(c, db)).length, 0);
+    }
+    await turn(c, thread, userMessage("Yes, file Rest and recovery"), scripted({ fileDraft: file() }, { text: "Filed." }));
+    assert.equal((await inboxDrafts(c, db)).length, 0);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Rest and recovery");
+  });
+
+  test("Daily close offers the existing owned listNotebooks tool for destination discovery", async () => {
+    const c = await account();
+    const other = await account();
+    const thread = await coachThread(c, db);
+    const book = await createNotebook(c, "Reflections", db);
+    await createNotebook(other, "Private notebook", db);
+    const model = scripted({ listNotebooks: "{}" }, { text: "Use Reflections?" });
+    await turn(c, thread, userMessage("Daily close"), model);
+    assert.ok(model.doStreamCalls[0]!.tools?.some((tool) => tool.name === "listNotebooks"));
+    const part = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-listNotebooks" && "output" in p);
+    assert.ok(part && "output" in part);
+    const output = JSON.stringify(part.output);
+    assert.ok(output.includes(book.id));
+    assert.ok(output.includes("Reflections"));
+    assert.ok(!output.includes("Private notebook"));
   });
 
   test("Daily close files only the particular offered draft after agreement, and refuses mass filing", async () => {
@@ -528,10 +642,11 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     }
   });
 
-  test("Daily close never infers a mood from a reflection that mentions good news", async () => {
+  test("Daily close refuses a reflection without a named mood", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
-    await turn(c, thread, userMessage("Good news from my friend."), scripted({ setMood: JSON.stringify({ mood: "Good" }) }, { text: "What mood would you choose?" }), "2026-10-09", undefined, "2026-10-09");
+    await turn(c, thread, userMessage("Daily close"), replying("What mood?"));
+    await turn(c, thread, userMessage("News from my friend."), scripted({ setMood: JSON.stringify({ mood: "Good" }) }, { text: "What mood would you choose?" }), "2026-10-09", undefined, "2026-10-09");
     assert.equal(await getMood(c, "2026-10-09", db), null);
   });
 
@@ -555,6 +670,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
   test("Daily close retains the shared write cap, separate receipts, and model step cap", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"));
     await turn(c, thread, userMessage("One\nTwo\nThree\nMood: Good"), scripted(
       { appendJournal: JSON.stringify({ text: "One" }) },
       { setMood: JSON.stringify({ mood: "Good" }) },
@@ -562,7 +678,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       { appendJournal: JSON.stringify({ text: "Three" }) },
       { text: "Saved what I could." },
     ), "2026-10-09", undefined, "2026-10-09");
-    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "One\n\nTwo");
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "One\nTwo\nThree\nMood: Good");
     assert.equal(await getMood(c, "2026-10-09", db), "Good");
     const parts = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
     assert.equal(parts.filter((p) => "receipt" in p && p.href === "/journal/2026-10-09").length, 3);

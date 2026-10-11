@@ -18,7 +18,7 @@ import {
   type ToolSet,
   type UIMessage,
 } from "ai";
-import { coachCloseDay, coachMessageContext, saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachMessageContext, saveMessage, threadMessages } from "./coach-threads.ts";
 import { cancelsClose, closeData, closeTools } from "./coach-close.ts";
 import { isJournalDay } from "./journal-day.ts";
 import {
@@ -116,16 +116,21 @@ export async function coachTurn({
     parts: [{ type: "text", text: incoming.text }],
   };
   const thread = threadId as string;
+  const prior = resent === -1 ? earlier : earlier.slice(0, -1);
+  // Use the mode before this message, including on resend. Merely mentioning
+  // Daily close during a reflection must neither restart it nor switch days.
+  const previousPerson = [...prior].reverse().find((m) => m.role === "user");
+  const previousContext = previousPerson ? await coachMessageContext(userId, thread, previousPerson.id, db) : null;
+  const previousDay = previousPerson?.parts.some((part) => part.type === "text" && cancelsClose(part.text)) ? null : previousContext?.closeDay ?? null;
   const originalContext = resent === -1 ? null : await coachMessageContext(userId, thread, incoming.id, db);
   const browserToday = originalContext ? originalContext.today : today;
-  const startsClose = !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text);
+  const startsClose = !previousDay && !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text);
   const selectedDay = originalContext ? originalContext.closeDay
     : startsClose ? (typeof requestedCloseDay === "string" ? requestedCloseDay : incoming.text.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0] ?? browserToday)
     : requestedCloseDay !== undefined ? requestedCloseDay
-    : await coachCloseDay(userId, thread, db);
+    : previousDay;
   if (selectedDay !== null && (!isJournalDay(browserToday) || !isJournalDay(selectedDay) || selectedDay > browserToday)) return { refused: 400 } as const;
   const readData = suppliedData ?? coachData(db, browserToday);
-  const prior = resent === -1 ? earlier : earlier.slice(0, -1);
   // Read before saving, so a failed read writes nothing.
   const read = selectedDay ? {
     messages: [], receipt: new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>(),
@@ -138,7 +143,7 @@ export async function coachTurn({
   const context = await coachMessageContext(userId, thread, userMessage.id, db);
   if (!context) return { refused: 409 } as const;
   const baseData = suppliedData ?? coachData(db, context.today);
-  const data = context.closeDay ? closeData(baseData, context.closeDay, incoming.text, prior) : baseData;
+  const data = context.closeDay ? closeData(baseData, context.closeDay, incoming.text, prior, incoming.id, !previousDay) : baseData;
   const allTools = coachTools(data);
   // The SDK infers keyof a union as only the common names. Give its types
   // the combined vocabulary; the actual object contains only this mode's

@@ -1,4 +1,4 @@
-import { dailyCloseToolNames, type CoachData } from "@repo/coach";
+import { coachJournalOperationId, dailyCloseToolNames, type CoachData } from "@repo/coach";
 import { journalingArticle } from "@repo/coach/knowledge";
 import { tool, type UIMessage } from "ai";
 import { z } from "zod";
@@ -35,17 +35,37 @@ export function closeTools(tools: ReturnType<typeof coachTools>, data: CoachData
     setMood: tools.setMood,
     fileDraft: tools.fileDraft,
     listInboxDrafts: tools.listInboxDrafts,
+    listNotebooks: tools.listNotebooks,
     ...reads,
   } satisfies Record<(typeof dailyCloseToolNames)[number], unknown>;
 }
 
-export const cancelsClose = (text: string) => /^(?:cancel|stop|end)(?:\s+(?:daily close|the close|close))?[.!\s]*$/i.test(text.trim());
+export const cancelsClose = (text: string) => /^(?:cancel|stop|end)(?:\s+(?:daily close|the close|close))?[.!?,;:\s]*$/i.test(text.trim());
+
+const skipsClose = (text: string) => /^(?:skip(?:\s+this)?|next)[.!?,;:\s]*$/i.test(text.trim());
+const negation = /\b(?:not|no|don['’]t|leave\s+it\s+unset)\b/i;
+
+function namesMood(text: string, mood: string) {
+  // Match compound moods first, so Very good does not also count as Good.
+  const words = [...text.matchAll(/\b(?:very\s+low|very\s+good|low|okay|good)\b/gi)];
+  const named = new Set(words.map(([word]) => word.toLowerCase().replace(/\s+/g, " ")));
+  if (named.size !== 1 || !named.has(mood.toLowerCase())) return false;
+  return words.every((word) => {
+    // Negation in the same sentence vetoes a choice, including commands
+    // such as "Don't set my mood to Good". Also catch "Good? No."
+    const before = text.slice(0, word.index).split(/[.!?;\n]/).at(-1) ?? "";
+    const remaining = text.slice(word.index + word[0].length);
+    const after = remaining.split(/[.!?;\n]/)[0] ?? "";
+    return !negation.test(`${before} ${word[0]} ${after}`)
+      && !/^\s*[.!?;]\s*(?:no|not|don['’]t)\b/i.test(remaining);
+  }) && !/\bleave\s+it\s+unset\b/i.test(text);
+}
 
 // Bind writes to this turn's selected day and the person's actual words.
 // These adapters still use the existing shared mutations and replay ids.
-export function closeData(data: CoachData, day: string, text: string, prior: UIMessage[]): CoachData {
+export function closeData(data: CoachData, day: string, text: string, prior: UIMessage[], messageId: string, openingClose: boolean): CoachData {
   let filedThisTurn = false;
-  const noAnswer = cancelsClose(text) || /^skip\b/i.test(text.trim()) || /\b(?:daily close|close (?:the|my) day)\b/i.test(text);
+  const noAnswer = openingClose || cancelsClose(text) || skipsClose(text);
   const permit = (targetDay?: string) => {
     if (noAnswer) throw new Error("Starting, skipping or cancelling Daily close writes nothing.");
     if (targetDay !== undefined && targetDay !== day) throw new Error("Daily close can write only its selected day.");
@@ -54,22 +74,23 @@ export function closeData(data: CoachData, day: string, text: string, prior: UIM
     ...data,
     async appendJournal(userId, input) {
       permit(input.day);
-      if (!input.text.trim() || !text.includes(input.text)) throw new Error("Append only the person's exact answer from this turn.");
+      const answer = text.trim();
+      if (!answer) throw new Error("Append only the person's exact answer from this turn.");
       if (!data.appendJournal) throw new Error("Journal append is unavailable.");
-      return data.appendJournal(userId, input);
+      // Ignore the model's substring. Both payload and replay identity use the
+      // whole trimmed person message, even when a resend changes tool input.
+      return data.appendJournal(userId, { ...input, text: answer, operationId: coachJournalOperationId(messageId, day, answer) });
     },
     async setMood(userId, input) {
       permit(input.day);
-      const named = input.mood === null ? /\b(?:clear|remove)\s+(?:my\s+|the\s+)?mood\b/i.test(text)
-        : text.trim().replace(/[.!]$/, "").toLowerCase() === input.mood.toLowerCase()
-          || new RegExp(`\\bmood\\s*(?::|=|is|was|to)?\\s*${input.mood}\\b`, "i").test(text);
+      const named = input.mood === null ? /\b(?:clear|remove|unset)\s+my\s+mood\b/i.test(text) && !negation.test(text)
+        : namesMood(text, input.mood);
       if (!named) throw new Error("Ask for an explicit mood; never infer it.");
       if (!data.setMood) throw new Error("Mood is unavailable.");
       return data.setMood(userId, input);
     },
     async fileDraft(userId, input) {
       permit(input.destination.kind === "journal" ? input.destination.day : undefined);
-      if (/\b(?:all|everything|every|bulk|rest)\b/i.test(text)) throw new Error("Choose one particular draft; Daily close cannot mass-file.");
       if (filedThisTurn) throw new Error("Daily close files only one draft per reply.");
       const lastReply = [...prior].reverse().find((message) => message.role === "assistant");
       const offer = lastReply?.parts.flatMap((part) => part.type === "text" ? [part.text] : []).join(" ") ?? "";
@@ -83,14 +104,14 @@ export function closeData(data: CoachData, day: string, text: string, prior: UIM
       const namesDraft = (words: string, row: { id: string; excerpt: string }) => words.includes(row.id) || (!!row.excerpt.trim() && words.includes(row.excerpt.trim()));
       const offeredIds = new Set(listed.filter((row) => namesDraft(offer, row)).map((row) => row.id));
       const agrees = /^(?:yes|ok(?:ay)?|sure|please do|file it|go ahead)\b/i.test(text.trim());
-      const direct = /\b(?:file|append)\b/i.test(text) && (text.includes(input.draftId) || listed.some((row) => row.id === input.draftId && namesDraft(text, row)));
       const agreedOffer = agrees && offeredIds.size === 1 && offeredIds.has(input.draftId);
-      const choice = direct ? text : agreedOffer ? offer : "";
       const destination = input.destination;
-      const namesDestination = destination.kind === "journal" ? /\bjournal\b/i.test(choice) && (choice.includes(day) || /\b(?:today|this day)\b/i.test(choice))
-        : destination.kind === "task" ? /\btask\b/i.test(choice)
-        : /\bnote\b/i.test(choice) && !!(destination.notebook ?? destination.notebookId) && choice.toLowerCase().includes((destination.notebook ?? destination.notebookId!).toLowerCase());
-      if ((!direct && !agreedOffer) || !namesDestination) throw new Error("Wait for agreement to one named draft and destination.");
+      const namesDestination = destination.kind === "journal" ? /\bjournal\b/i.test(offer) && (offer.includes(day) || /\b(?:today|this day)\b/i.test(offer))
+        : destination.kind === "task" ? /\btask\b/i.test(offer)
+        : /\bnote\b/i.test(offer) && !!(destination.notebook ?? destination.notebookId) && offer.toLowerCase().includes((destination.notebook ?? destination.notebookId!).toLowerCase());
+      const changedDestination = [...text.matchAll(/\bas\s+(?:a\s+)?(task|note|journal)\b/gi)]
+        .some((match) => match[1]!.toLowerCase() !== destination.kind);
+      if (!agreedOffer || !namesDestination || negation.test(text) || /\b(?:instead|but)\b/i.test(text) || changedDestination) throw new Error("Wait for agreement to one named draft and destination.");
       if (!data.fileDraft) throw new Error("Inbox filing is unavailable.");
       // Reserve before awaiting: parallel model calls cannot file a second draft.
       filedThisTurn = true;
