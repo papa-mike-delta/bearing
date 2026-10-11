@@ -25,13 +25,13 @@ export function JournalDay({ day, entry, settings, mood }: { day: string; entry:
   if (!today) return <p role="status">Checking the browser’s calendar day…</p>;
   return <>
     <nav aria-label="Journal days" className="mb-6 flex flex-wrap items-center gap-3">
-      {previous ? <Link href={`/journal/${previous}`}>Previous</Link> : <span aria-disabled="true">Previous</span>}
+      {previous ? <Button variant="outline" nativeButton={false} render={<Link href={`/journal/${previous}`} />}>Previous</Button> : <Button variant="outline" disabled>Previous</Button>}
       <DayField key={day} day={day} today={today} />
-      {next && next <= today ? <Link href={`/journal/${next}`}>Next</Link> : <span aria-disabled="true">Next</span>}
-      <Link href="/journal">Today</Link>
+      {next && next <= today ? <Button variant="outline" nativeButton={false} render={<Link href={`/journal/${next}`} />}>Next</Button> : <Button variant="outline" disabled>Next</Button>}
+      <Button variant="outline" nativeButton={false} render={<Link href="/journal" />}>Today</Button>
+      {day <= today && <Button variant="outline" className="ml-auto" nativeButton={false} render={<Link href={`/coach?closeDay=${day}`} prefetch={false} />}>Daily close</Button>}
     </nav>
     {day > today ? <p>This day is not open yet.</p> : <>
-      <Button variant="outline" className="mb-4" nativeButton={false} render={<Link href={`/coach?closeDay=${day}`} prefetch={false} />}>Daily close</Button>
       <MoodControl day={day} initialMood={mood} />
       <JournalEditor day={day} entry={entry} settings={settings} />
     </>}
@@ -40,7 +40,7 @@ export function JournalDay({ day, entry, settings, mood }: { day: string; entry:
 
 function DayField({ day, today }: { day: string; today: string }) {
   const router = useRouter();
-  return <form className="flex-row items-center" onSubmit={(event) => {
+  return <form className="flex flex-row items-center gap-2" onSubmit={(event) => {
     event.preventDefault();
     const chosen = new FormData(event.currentTarget).get("day");
     if (isJournalDay(chosen) && chosen <= localToday()) router.push(`/journal/${chosen}`);

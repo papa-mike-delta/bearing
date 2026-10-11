@@ -52,6 +52,17 @@ test("preview caps resolution at the first 100 distinct linked days", () => {
   assert.match(renderToStaticMarkup(preview.content), /href="\/journal\/2100-01-01" class="journal-link-unresolved"/);
 });
 
+test("coach reply markdown renders emphasis and drops unsafe HTML", () => {
+  const html = renderToStaticMarkup(
+    renderMarkdownPreview("**Gratitude**\n\n<script>alert(1)</script>\n\n<img src=x onerror=\"alert(1)\">\n\n[Day](/journal/2026-10-11)").content,
+  );
+  assert.match(html, /<strong>Gratitude<\/strong>/);
+  assert.doesNotMatch(html, /<script/i);
+  assert.doesNotMatch(html, /onerror/i);
+  assert.doesNotMatch(html, /<img/i);
+  assert.match(html, /href="\/journal\/2026-10-11"/);
+});
+
 test("markdown denies unsafe schemes and only loads HTTPS images", () => {
   for (const url of ["javascript:alert(1)", "data:text/html,bad", "vbscript:x", "//evil.test", "java\nscript:alert(1)", "\\evil.test"]) {
     assert.equal(markdownUrl(url, "href"), "");
