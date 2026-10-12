@@ -242,6 +242,7 @@ type Step =
   | { readJournalingArticle: string; toolCallId?: string }
   | { readJournalDay: string; toolCallId?: string }
   | { getJournalTemplate: string; toolCallId?: string }
+  | { searchKnowledge: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
 function scripted(...steps: Step[]) {
@@ -294,7 +295,9 @@ function scripted(...steps: Step[]) {
                               ? { name: "readJournalDay" as const, input: step.readJournalDay, id: step.toolCallId }
                               : "getJournalTemplate" in step
                                 ? { name: "getJournalTemplate" as const, input: step.getJournalTemplate, id: step.toolCallId }
-                                : null;
+                                : "searchKnowledge" in step
+                                  ? { name: "searchKnowledge" as const, input: step.searchKnowledge, id: step.toolCallId }
+                                  : null;
       const chunks = [
         ...(tool
           ? [
@@ -391,6 +394,33 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
+
+  test("searchKnowledge quotes the 21 days section and does not offer habit tracking", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted(
+      { searchKnowledge: JSON.stringify({ query: "21 days" }) },
+      { text: "There is no fixed number." },
+    );
+    await turn(c, thread, userMessage("how long does a habit take?"), model);
+    const names = model.doStreamCalls[0]!.tools?.map((tool) => tool.name) ?? [];
+    assert.ok(names.includes("searchKnowledge"));
+    assert.equal(names.includes("createHabit"), false);
+    assert.ok(promptText(model).includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
+    assert.equal(promptText(model).includes("median of 66 days"), false);
+    assert.ok(promptText(model).includes("Bearing has Tasks, not habits yet"));
+    const saved = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts);
+    const looked = saved.find((p) => p.type === "tool-searchKnowledge" && "output" in p) as { output?: { match?: boolean; heading?: string; section?: string; title?: string } } | undefined;
+    assert.equal(looked?.output?.match, true);
+    assert.equal(looked?.output?.title, "Habits");
+    assert.equal(looked?.output?.heading, "How long does a habit take? Not 21 days");
+    assert.ok(looked?.output?.section?.includes("Source:"));
+    assert.ok(looked?.output?.section?.includes("What this does not mean"));
+    assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
+      "Read your list (0 open)",
+      "Looked up 'How long does a habit take? Not 21 days' in Habits",
+    ]);
+  });
 
   test("Daily close rejects an out-of-list tool even when the model emits it", async () => {
     const c = await account();

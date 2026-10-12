@@ -181,6 +181,7 @@ export async function coachTurn({
       "updateTask",
       "listArea",
       "listNotebooks",
+      "searchKnowledge",
       "createNote",
       "appendJournal",
       "setMood",
