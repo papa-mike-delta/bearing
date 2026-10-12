@@ -82,6 +82,22 @@ Each close turn, including the cancel turn, injects **Close progress** into the 
 
 [Journaling: evidence and limits](packages/coach/knowledge/journaling.md) is available to Paul and at `/coach/knowledge/journaling`, with research citations and no promised benefit.
 
+## Habits
+
+`/habits` lists daily once-habits for the signed-in account. A signed-out visit goes to sign-in. Habits are not inside an Area, and there is no detail page.
+
+**Add habit** needs only a name. It is trimmed, 1–200 characters, and the same name can be used more than once. A blank or longer name is refused (`Use a habit name between 1 and 200 characters.`) and nothing is stored. The habit is daily and once, and it is placed at the top of the list.
+
+The grid is Monday–Sunday of the week that contains the browser's today. **Previous** opens earlier weeks with no horizon. **Next** stops at the current week. A later week says **This week is not open yet** and has no checks. Checking or unchecking today or a past day saves immediately. A future day cannot be checked.
+
+The streak and the record are computed from the marks that remain. They are not stored. The streak is consecutive done days and does not reset on Monday. An empty today does not break it or lower the record. A day that has already ended without a mark does. Unchecking a day can lower the record. Sunday and the next Monday are two consecutive days.
+
+The Habits link shows how many of these habits are still unmarked for the browser's today, including 0 once today is known. Looking at an earlier week does not change that number.
+
+**Delete** asks `Delete this habit and every marked day?`, then removes the habit and its marks. Cancel leaves them. There is no archive. Another account cannot read, check, or delete the habit.
+
+Migration `0017_daily_habits` adds `habits` and `habit_marks`. Deleting a habit, or the account, removes the marks. Domain tests cover the streak and record without a database. Persistence tests use `TEST_POSTGRES_URL`.
+
 ## Related
 
 A Task has its own page at `/tasks/item/<taskId>`, whether it is open or completed. The name on the home list opens that page. Completed Tasks stay off the home list, and the list does not grow a Related section. The page shows the name, note, area, and status, plus the same actions the home list already has for an open Task. Completing a Task from the page leaves it at that address. Someone else's Task, or an id that is not a Task, is not found.
