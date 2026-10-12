@@ -322,7 +322,10 @@ export async function searchLinkTargets(
         and ${isCalendarDay(input.today)}
         and btrim(journal_entries.body) <> ''
         and journal_entries.day <= ${today}::date
-        and journal_entries.day::text ilike ${pattern} escape '\\'
+        and (
+          journal_entries.day::text ilike ${pattern} escape '\\'
+          or to_char(journal_entries.day, 'FMDay, FMMon FMDD, YYYY') ilike ${pattern} escape '\\'
+        )
         and not (${input.exclude.kind} = 'journal' and journal_entries.day::text = ${input.exclude.id})
     ) hits
     order by label asc, kind asc, id asc

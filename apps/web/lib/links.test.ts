@@ -534,6 +534,20 @@ describe(
         found.hits.some((hit) => hit.kind === "journal" && hit.id === savedDay),
         true,
       );
+      const byLabel = await searchLinkTargets(
+        owner,
+        {
+          query: formatJournalDay(savedDay),
+          offset: 0,
+          today,
+          exclude: { kind: "task", id: source.id },
+        },
+        db,
+      );
+      assert.equal(
+        byLabel.hits.some((hit) => hit.kind === "journal" && hit.id === savedDay),
+        true,
+      );
       const hidden = await searchLinkTargets(
         owner,
         {
