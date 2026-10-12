@@ -34,14 +34,31 @@ export async function openTasks(
 ) {
   const loaded = await loadAccount(userId, db);
   const order = new Map(
-    coachList(loaded.areas, loaded.tasks, today, loaded.goals).map((entry, index) => [
-      entry.id,
-      index,
-    ]),
+    coachList(loaded.areas, loaded.tasks, today, loaded.goals).map(
+      (entry, index) => [entry.id, index],
+    ),
   );
   return loaded.tasks
     .filter((task) => order.has(task.id))
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
+export async function taskDetail(
+  userId: string,
+  taskId: string,
+  db: Db = defaultDb,
+) {
+  if (!isUuid(taskId)) return null;
+  const loaded = await loadAccount(userId, db);
+  const task = loaded.tasks.find((item) => item.id === taskId);
+  if (!task) return null;
+  const area = loaded.areas.find((item) => item.id === task.areaId);
+  if (!area) return null;
+  return {
+    task,
+    area,
+    goals: loaded.goals.filter((goal) => goal.areaId === area.id),
+  };
 }
 
 export async function listForCoach(
@@ -148,7 +165,9 @@ async function lockedOpen(userId: string, taskId: string, db: Db) {
   return row ?? null;
 }
 
-function toStatusTask(row: NonNullable<Awaited<ReturnType<typeof lockedOpen>>>) {
+function toStatusTask(
+  row: NonNullable<Awaited<ReturnType<typeof lockedOpen>>>,
+) {
   return {
     status: row.status as TaskRecord["status"],
     previousStatus: row.previousStatus as TaskRecord["previousStatus"],

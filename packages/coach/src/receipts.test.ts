@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { taskHref } from "@repo/domain";
 import { receipt, shownParts } from "./receipts.ts";
 
 test("a listArea call reads as a one-line receipt", () => {
@@ -191,6 +192,36 @@ test("a createTask call reads as a one-line receipt", () => {
   assert.equal(
     receipt({ ...part, state: "output-error" }),
     "Couldn't create that task",
+  );
+});
+
+test("a new create links to the task page; a stored create still links to /", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const href = taskHref(id);
+  assert.deepEqual(shownParts([created("c1", { id, name: "Call dentist", href })]), [
+    { key: "c1", receipt: "Created task 'Call dentist'", calls: 1, href },
+  ]);
+  assert.deepEqual(
+    shownParts([created("c2", { id, name: "Call dentist", href: "https://evil.example" })]),
+    [{ key: "c2", receipt: "Created task 'Call dentist'", calls: 1, href: "/" }],
+  );
+  assert.deepEqual(
+    shownParts([{
+      type: "tool-fileDraft",
+      toolCallId: "filed-task",
+      state: "output-available",
+      output: { kind: "task", id, name: "Call dentist", href },
+    }]),
+    [{ key: "filed-task", receipt: "Filed draft as Task 'Call dentist'", calls: 1, href }],
+  );
+  assert.deepEqual(
+    shownParts([{
+      type: "tool-fileDraft",
+      toolCallId: "filed-old",
+      state: "output-available",
+      output: { kind: "task", id, name: "Call dentist", href: "/" },
+    }]),
+    [{ key: "filed-old", receipt: "Filed draft as Task 'Call dentist'", calls: 1, href: "/" }],
   );
 });
 

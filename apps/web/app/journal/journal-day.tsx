@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { maxNoteBodyLength } from "@repo/domain";
+import { maxNoteBodyLength, type RelatedLists } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { MarkdownEditor } from "../../components/markdown-editor";
+import { Related } from "../../components/related";
 import { useUnsavedChanges } from "../../components/use-unsaved-changes";
 import { isJournalDay, shiftJournalDay } from "../../lib/journal-day";
 import { localToday } from "../../lib/today";
@@ -18,7 +19,7 @@ import { MoodControl } from "./mood-control";
 type Entry = { body: string; revision: number };
 type Settings = { template: string; alwaysLoad: boolean };
 
-export function JournalDay({ day, entry, settings, mood }: { day: string; entry: Entry | null; settings: Settings; mood: Mood | null }) {
+export function JournalDay({ day, entry, settings, mood, links }: { day: string; entry: Entry | null; settings: Settings; mood: Mood | null; links: RelatedLists | null }) {
   const today = useBrowserToday();
   const previous = shiftJournalDay(day, -1);
   const next = shiftJournalDay(day, 1);
@@ -34,6 +35,7 @@ export function JournalDay({ day, entry, settings, mood }: { day: string; entry:
     {day > today ? <p>This day is not open yet.</p> : <>
       <MoodControl day={day} initialMood={mood} />
       <JournalEditor day={day} entry={entry} settings={settings} />
+      {entry && links ? <Related source={{ kind: "journal", id: day }} initial={links} /> : null}
     </>}
   </>;
 }

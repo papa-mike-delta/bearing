@@ -3,6 +3,7 @@ import { db as defaultDb, draftFilings, drafts, notebooks, noteOperations, notes
 import { noteHref, noteName, validNoteBody } from "@repo/domain";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
+import { deleteEdgesForNotes } from "./links.ts";
 
 export { noteHref };
 
@@ -119,10 +120,14 @@ export async function saveNote(userId: string, id: string, input: { title: strin
 
 export async function deleteNote(userId: string, id: string, revision: number, db: Db = defaultDb) {
   if (!isUuid(id) || !Number.isSafeInteger(revision) || revision < 1) throw new NoteError(unavailable);
-  const [deleted] = await db.delete(notes).where(and(eq(notes.userId, userId), eq(notes.id, id), eq(notes.revision, revision)))
-    .returning({ notebookId: notes.notebookId });
-  if (!deleted) throw new NoteError("The Note is unavailable or has changed. Reload before deleting.");
-  return deleted;
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select({ id: notes.id, revision: notes.revision, notebookId: notes.notebookId }).from(notes)
+      .where(and(eq(notes.userId, userId), eq(notes.id, id))).for("update");
+    if (!row || row.revision !== revision) throw new NoteError("The Note is unavailable or has changed. Reload before deleting.");
+    await deleteEdgesForNotes(tx, userId, [id]);
+    await tx.delete(notes).where(and(eq(notes.userId, userId), eq(notes.id, id), eq(notes.revision, revision)));
+    return { notebookId: row.notebookId };
+  });
 }
 
 export async function deleteNotebook(db: Db, userId: string, notebookId: string, mode: "delete-notes" | "move-notes") {
@@ -132,8 +137,11 @@ export async function deleteNotebook(db: Db, userId: string, notebookId: string,
       .where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, userId))).for("update");
     if (!book) return false;
     const owned = and(eq(notes.userId, userId), eq(notes.notebookId, notebookId));
-    if (mode === "delete-notes") await tx.delete(notes).where(owned);
-    else await tx.update(notes).set({ notebookId: null }).where(owned);
+    if (mode === "delete-notes") {
+      const rows = await tx.select({ id: notes.id }).from(notes).where(owned).for("update");
+      await deleteEdgesForNotes(tx, userId, rows.map((row) => row.id));
+      await tx.delete(notes).where(owned);
+    } else await tx.update(notes).set({ notebookId: null }).where(owned);
     await tx.delete(notebooks).where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, userId)));
     return true;
   });
