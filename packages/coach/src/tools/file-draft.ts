@@ -1,4 +1,4 @@
-import { maxNoteNameLength, maxTaskNameLength, noteHref } from "@repo/domain";
+import { maxNoteNameLength, maxTaskNameLength, noteHref, taskHref } from "@repo/domain";
 import { z } from "zod";
 import type { ToolRunContext } from "../data.ts";
 import { journalDaySchema, resolveCoachJournalDay } from "./append-journal.ts";
@@ -28,7 +28,7 @@ export const fileDraft = {
     const result = await data.fileDraft(userId, { ...parsed, today: today ?? "" });
     if (!z.uuid().safeParse(result.id).success) throw new Error("Invalid filing result.");
     const href = result.kind === "note" ? noteHref(result.notebookId, result.id)
-      : result.kind === "journal" ? `/journal/${result.day}` : "/";
+      : result.kind === "journal" ? `/journal/${result.day}` : taskHref(result.id);
     return { ...result, href };
   },
 };

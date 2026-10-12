@@ -2,7 +2,7 @@
 // streamed tool part; null for parts that aren't a Coach tool call.
 
 import { coachMoods } from "./moods.ts";
-import { isCalendarDay, noteHref } from "@repo/domain";
+import { isCalendarDay, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./daily-close.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
@@ -51,7 +51,9 @@ function show(part: ToolPart): Line | null {
     if (pending(part.state)) return { line: "Filing draft…" };
     const output = part.output as { kind?: unknown; id?: unknown; name?: unknown; notebookId?: unknown; day?: unknown; href?: unknown } | undefined;
     if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id)) {
-      if (output.kind === "task" && typeof output.name === "string" && output.href === "/") return { line: `Filed draft as Task '${output.name}'`, href: "/" };
+      if (output.kind === "task" && typeof output.name === "string" && (output.href === "/" || output.href === taskHref(output.id))) {
+        return { line: `Filed draft as Task '${output.name}'`, href: output.href };
+      }
       if (output.kind === "note" && typeof output.name === "string" && typeof output.notebookId === "string" && receiptId.test(output.notebookId)) {
         const href = noteHref(output.notebookId, output.id);
         if (output.href === href) return { line: `Filed draft as Note '${output.name}'`, href };
@@ -103,8 +105,12 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-createTask") {
     if (pending(part.state)) return { line: "Creating a task…" };
     const name = nameOf(part.output);
+    const output = part.output as { id?: unknown; href?: unknown } | undefined;
     if (part.state === "output-available" && name !== undefined) {
-      return { line: `Created task '${name}'`, href: "/" };
+      const href = typeof output?.id === "string" && receiptId.test(output.id) && output.href === taskHref(output.id)
+        ? output.href
+        : "/";
+      return { line: `Created task '${name}'`, href };
     }
     return { line: "Couldn't create that task" };
   }
@@ -157,7 +163,8 @@ export type ShownPart =
 // twice shows it once; `calls` counts the reads behind each receipt. A write
 // stays its own line even when the next write looks the same. A receipt keeps
 // the tool-call id of its first call as its key. A successful create links to
-// the Priority List; a complete does not (the Task has left the list).
+// the Task page when the stored output has that address, and to the Priority
+// List when it does not. A complete does not link.
 // Every real failure keeps its receipt, even when a later call succeeds; a
 // Daily close refusal renders nothing (see show()).
 export function shownParts(parts: readonly Part[]): ShownPart[] {

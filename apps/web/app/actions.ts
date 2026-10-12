@@ -135,6 +135,11 @@ export async function deleteNamedArea(formData: FormData) {
   if (result === "has-tasks") redirect("/?error=area-tasks");
 }
 
+function revalidateTask(id: string) {
+  revalidatePath("/");
+  if (id) revalidatePath(`/tasks/item/${id}`);
+}
+
 export async function addTaskToList(formData: FormData) {
   const { id: userId } = await requireUser();
   const added = await addTask(userId, {
@@ -143,22 +148,24 @@ export async function addTaskToList(formData: FormData) {
     area: String(formData.get("area") ?? "") || undefined,
     today: String(formData.get("today") ?? ""),
   });
-  revalidatePath("/");
+  revalidateTask(added?.id ?? "");
   if (!added) redirect("/?error=task");
 }
 
 export async function completeTaskOnList(formData: FormData) {
   const { id: userId } = await requireUser();
-  await completeTask(userId, String(formData.get("id")));
-  revalidatePath("/");
+  const id = String(formData.get("id"));
+  await completeTask(userId, id);
+  revalidateTask(id);
 }
 
 export async function changeTaskPriority(formData: FormData) {
   const { id: userId } = await requireUser();
   const raw = formData.get("step");
   const step = raw === "up" ? 1 : raw === "down" ? -1 : null;
-  if (step) await changePriority(userId, String(formData.get("id")), step);
-  revalidatePath("/");
+  const id = String(formData.get("id"));
+  if (step) await changePriority(userId, id, step);
+  revalidateTask(id);
 }
 
 export async function moveTaskOnList(formData: FormData) {
@@ -166,20 +173,22 @@ export async function moveTaskOnList(formData: FormData) {
   const raw = String(formData.get("to") ?? "");
   const allowed = ["now", "later", "started", "next", "waiting"] as const;
   const to = allowed.find((item) => item === raw);
+  const id = String(formData.get("id"));
   if (!to) return;
-  await moveTask(userId, String(formData.get("id")), to);
-  revalidatePath("/");
+  await moveTask(userId, id, to);
+  revalidateTask(id);
 }
 
 export async function scheduleTaskOnList(formData: FormData) {
   const { id: userId } = await requireUser();
+  const id = String(formData.get("id"));
   const saved = await scheduleOn(
     userId,
-    String(formData.get("id")),
+    id,
     String(formData.get("date") ?? ""),
     String(formData.get("today") ?? ""),
   );
-  revalidatePath("/");
+  revalidateTask(id);
   if (!saved) redirect("/?error=date");
 }
 
@@ -221,12 +230,9 @@ export async function deleteNamedGoal(formData: FormData) {
 export async function assignTaskGoal(formData: FormData) {
   const { id: userId } = await requireUser();
   const raw = String(formData.get("goal") ?? "");
-  const saved = await setTaskGoal(
-    userId,
-    String(formData.get("id")),
-    raw ? raw : null,
-  );
-  revalidatePath("/");
+  const id = String(formData.get("id"));
+  const saved = await setTaskGoal(userId, id, raw ? raw : null);
+  revalidateTask(id);
   if (!saved) redirect("/?error=goal");
 }
 
