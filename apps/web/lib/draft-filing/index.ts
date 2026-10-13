@@ -1,5 +1,6 @@
 import { db as defaultDb, draftFilings, drafts, notebooks } from "@repo/db";
-import { draftNoteTitle, draftToTask, fileDraftInputSchema, type FileDraftInput, type FiledDraft } from "@repo/domain";
+import { draftNoteTitle, draftToTask } from "@repo/domain";
+import { fileDraftInputSchema, type FileDraftInput, type FiledDraft } from "@repo/domain/draft-filing";
 import { and, asc, eq, TransactionRollbackError } from "drizzle-orm";
 import { isUuid, type Db } from "../db.ts";
 import { isJournalDay } from "../journal-day.ts";
@@ -71,6 +72,8 @@ export async function fileDraft(userId: string, input: FileDraftInput & { today:
   return withDraft(userId, draftId, db, async (draft, tx) => {
     if (!draft) throw new DraftError("Draft not found.");
     const identity = and(eq(draftFilings.userId, userId), eq(draftFilings.draftId, draftId));
+    // Journal filings are recorded in journal_operations (by appendJournalInTransaction),
+    // not draft_filings; this check only stops a Task/Note-filed draft being re-filed to a Journal.
     if (destination.kind === "journal") {
       const [filed] = await tx.select().from(draftFilings).where(identity);
       if (filed) throw new DraftError(differentDestination);
