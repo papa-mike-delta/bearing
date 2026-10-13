@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../../auth";
+import { related } from "../../../../lib/links";
 import { getNote, getNotebook } from "../../../../lib/notes";
+import { Related } from "../../../../components/related";
 import { Header } from "../../../header";
 import { NoteEditor } from "../../note-editor";
 
@@ -11,15 +13,19 @@ export default async function NotePage({ params }: { params: Promise<{ notebookI
   if (notebookId === "_") {
     const note = await getNote(user.id, noteId);
     if (!note || note.notebookId !== null) notFound();
+    const lists = await related(user.id, { kind: "note", id: note.id });
     return <><Header email={user.email} /><main className="font-sans">
       <Link href="/notes">No notebook</Link><h1>{note.title}</h1>
       <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision }} />
+      <Related source={{ kind: "note", id: note.id }} initial={lists} />
     </main></>;
   }
   const [book, note] = await Promise.all([getNotebook(user.id, notebookId), getNote(user.id, noteId)]);
   if (!book || !note || note.notebookId !== book.id) notFound();
+  const lists = await related(user.id, { kind: "note", id: note.id });
   return <><Header email={user.email} /><main className="font-sans">
     <Link href={`/notes/${book.id}`}>{book.name}</Link><h1>{note.title}</h1>
     <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision }} />
+    <Related source={{ kind: "note", id: note.id }} initial={lists} />
   </main></>;
 }

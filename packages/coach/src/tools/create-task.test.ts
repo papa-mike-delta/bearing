@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { maxTaskNameLength, maxTaskNoteLength } from "@repo/domain";
+import { maxTaskNameLength, maxTaskNoteLength, taskHref } from "@repo/domain";
 import type { CoachData } from "../data.ts";
 import { coachCreateSourceId, createTask } from "./create-task.ts";
 
@@ -51,7 +51,13 @@ const ctx = (
 
 test("createTask adds a Task for the session user, tagged with a resend-safe source id", async () => {
   const open = [
-    { id: "task-9", name: "Stored name", priority: 0, area: "Tasks", isNext: true },
+    {
+      id: "task-9",
+      name: "Stored name",
+      priority: 0,
+      area: "Tasks",
+      isNext: true,
+    },
   ];
   const { data, calls } = fake({ id: "task-9", name: "Stored name" }, open);
   const result = await createTask.run(
@@ -83,6 +89,13 @@ test("createTask passes an omitted note through as omitted", async () => {
     calls[0]?.from.sourceId,
     coachCreateSourceId(messageId, "Buy milk"),
   );
+});
+
+test("createTask links a real Task id to its page", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const { data } = fake({ id, name: "Call dentist" });
+  const result = await createTask.run({ name: "Call dentist" }, ctx(data));
+  assert.equal("href" in result ? result.href : null, taskHref(id));
 });
 
 test("createTask returns refused when the data interface refuses the Task", async () => {

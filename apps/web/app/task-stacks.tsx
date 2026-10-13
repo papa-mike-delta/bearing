@@ -3,10 +3,12 @@
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Menu } from "@base-ui/react/menu";
+import Link from "next/link";
 import {
   kanbanColumns,
   maxAreaNameLength,
   stackedPage,
+  taskHref,
   type AreaGoal,
   type AreaRecord,
   type GoalRecord,
@@ -211,6 +213,67 @@ function TaskMenu({
   );
 }
 
+export function OpenTaskActions({
+  task,
+  goals,
+  workflow,
+}: {
+  task: StackTask;
+  goals: AreaGoal[];
+  workflow: Workflow;
+}) {
+  const today = useBrowserToday();
+  const [pickingDate, setPickingDate] = useState(false);
+  if (task.completedAt || task.status === "completed" || !today) return null;
+  const record: TaskRecord = {
+    ...task,
+    createdAt: new Date(task.createdAt),
+    completedAt: null,
+  };
+  return (
+    <div className="card-row">
+      <form action={completeTaskOnList}>
+        <input type="hidden" name="id" value={task.id} />
+        <Button
+          type="submit"
+          variant="outline"
+          size="icon-xs"
+          className="hit rounded-full"
+          aria-label={`Complete ${task.name}`}
+        />
+      </form>
+      <TaskMenu
+        task={record}
+        goals={goals}
+        workflow={workflow}
+        onDate={() => setPickingDate(true)}
+      />
+      {pickingDate ? (
+        <form
+          action={(formData) => {
+            setPickingDate(false);
+            return scheduleTaskOnList(formData);
+          }}
+        >
+          <input type="hidden" name="id" value={task.id} />
+          <input type="hidden" name="today" value={today} />
+          <Input
+            type="date"
+            name="date"
+            className="w-36"
+            aria-label={`Date for ${task.name}`}
+            min={dayAfter(today)}
+            required
+          />
+          <Button type="submit" variant="ghost" size="xs">
+            Set
+          </Button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
 function TaskLine({
   task,
   next,
@@ -254,7 +317,7 @@ function TaskLine({
         </form>
         <span className={kanbanNext ? "card-name next-title" : "card-name"}>
           {kanbanNext ? <span className="sr-only">Next: </span> : null}
-          {task.name}
+          <Link href={taskHref(task.id)}>{task.name}</Link>
           {task.note ? <small>{task.note}</small> : null}
           {task.date ? <small>{formatDay(task.date)}</small> : null}
           {goalName ? <small>{goalName}</small> : null}

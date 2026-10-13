@@ -272,6 +272,60 @@ export const journalOperations = pgTable("journal_operations", {
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("journal_operations_source_unique").on(t.userId, t.source, t.operationId)]);
 
+// One directed edge. The other direction is a second row, not a mirror.
+// Endpoint ids are text: a task or note uuid, or a journal day. No foreign key
+// to those tables, because the endpoint is chosen by type. Note delete removes
+// touching edges in the same transaction. User delete cascades.
+export const entityLinks = pgTable(
+  "entity_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("entity_links_edge_unique").on(
+      t.userId,
+      t.sourceType,
+      t.sourceId,
+      t.targetType,
+      t.targetId,
+    ),
+    index("entity_links_outgoing_idx").on(
+      t.userId,
+      t.sourceType,
+      t.sourceId,
+      t.createdAt,
+    ),
+    index("entity_links_incoming_idx").on(
+      t.userId,
+      t.targetType,
+      t.targetId,
+      t.createdAt,
+    ),
+    check(
+      "entity_links_source_type",
+      sql`${t.sourceType} in ('task', 'note', 'journal')`,
+    ),
+    check(
+      "entity_links_target_type",
+      sql`${t.targetType} in ('task', 'note', 'journal')`,
+    ),
+    check(
+      "entity_links_not_self",
+      sql`not (${t.sourceType} = ${t.targetType} and ${t.sourceId} = ${t.targetId})`,
+    ),
+  ],
+);
+
 // Coach threads. Phase 2 opens one per person, but nothing stops more.
 export const coachThreads = pgTable(
   "coach_threads",

@@ -34,7 +34,7 @@ import {
   shownParts,
 } from "@repo/coach";
 import { captureDraft, fileDraft, fileDraftAsTask, fileDraftAsJournal, inboxDrafts } from "./drafts.ts";
-import { noteHref } from "@repo/domain";
+import { noteHref, taskHref } from "@repo/domain";
 import { coachCloseDay, coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
 import {
@@ -864,12 +864,13 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       { fileDraft: JSON.stringify({ draftId: draft.id, destination: { kind: "task" } }) },
       { text: "Filed." },
     ));
-    assert.deepEqual((await openTasks(c, db)).map((row) => row.name), ["Call dentist"]);
+    const open = await openTasks(c, db);
+    assert.deepEqual(open.map((row) => row.name), ["Call dentist"]);
     assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.body), ["Leave this in Inbox"]);
     const saved = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
     const filed = saved.find((p) => "receipt" in p && p.receipt === "Filed draft as Task 'Call dentist'");
     assert.ok(filed && "href" in filed);
-    assert.equal(filed.href, "/");
+    assert.equal(filed.href, taskHref(open[0]!.id));
   });
 
   test("filing a draft as a Note preserves its body and reloads the Note link", async () => {
@@ -2270,6 +2271,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     };
     assert.equal(createPart?.output?.id, open[0]!.id);
     assert.equal(createPart?.output?.name, "Call dentist");
+    const created = reloaded!.flatMap((m) => shownParts(m.parts)).find((part) => "href" in part && part.receipt === "Created task 'Call dentist'");
+    assert.equal(created && "href" in created ? created.href : null, taskHref(open[0]!.id));
   });
 
   test("two messages that create the same name each add a Task", async () => {
