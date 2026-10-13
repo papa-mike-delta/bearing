@@ -17,6 +17,10 @@ test("habit questions hit one section, its title, and the source line", async ()
     ["missed a day", "Missed a day? It does not reset the habit", "does not mean"],
     ["Does a habit really take 21 days?", "How long does a habit take? Not 21 days", "Lally"],
     ["how long do habits take to form", "How long does a habit take? Not 21 days", "Lally"],
+    ["How do if-then plans work?", "If-then plans (implementation intentions) for getting started", "Gollwitzer"],
+    ["I missed a day, did I ruin my habit?", "Missed a day? It does not reset the habit", "does not mean"],
+    ["What if I skip a day?", "Missed a day? It does not reset the habit", "does not mean"],
+    ["streaks", "Streaks are a display, not a score", "Source:"],
     ["if-then", "If-then plans (implementation intentions) for getting started", "Gollwitzer"],
   ] as const;
   for (const [query, heading, needle] of cases) {
@@ -39,4 +43,11 @@ test("an unrelated query does not match, and another article still can", async (
   const gratitude = searchKnowledgeArticles(corpus, "gratitude");
   assert.equal(gratitude?.title, "Journaling: evidence and limits");
   assert.equal(gratitude?.heading, "Gratitude");
+});
+
+test("a lone generic word does not match a section", async () => {
+  const corpus = await articles();
+  for (const query of ["How was my day?", "I had a bad day", "plan my week", "habit", "time"]) {
+    assert.equal(searchKnowledgeArticles(corpus, query), null, query);
+  }
 });

@@ -46,7 +46,22 @@ const STOPWORDS = new Set([
   "tell", "know", "need", "want", "please", "have", "has", "had", "true", "not", "no",
 ]);
 
+// Generic words that appear in many questions. A heading hit on one of these
+// alone is not enough to match ("How was my day?", "plan my week").
+const WEAK_WORDS = new Set([
+  "day", "week", "plan", "time", "habit", "start", "new", "work", "get", "getting", "make", "good",
+  "bad", "today", "month", "year", "thing",
+]);
+
+// Fold a few phrasings onto the word the headings use.
+const SYNONYMS: Record<string, string> = {
+  skip: "missed", skips: "missed", skipped: "missed", skipping: "missed",
+  miss: "missed", misses: "missed", missing: "missed",
+};
+
 function stem(word: string): string {
+  const synonym = SYNONYMS[word];
+  if (synonym) return synonym;
   if (/^\d+$/.test(word)) return word;
   if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
   if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
@@ -60,7 +75,8 @@ export function contentWords(value: string): string[] {
 // Score each section on query content words (stopwords dropped, plurals folded,
 // numbers kept): a heading hit counts 3, a body-only hit 1, and a number counts
 // double. A section matches only when at least half the query words appear in
-// it and at least one appears in the heading. Highest score wins, then the
+// it and the heading has a distinctive hit: one word outside WEAK_WORDS, or at
+// least two heading words. A lone generic heading word never matches. Highest score wins, then the
 // shorter heading, then the earlier section.
 export function searchKnowledgeArticles(
   articles: readonly { markdown: string }[],
@@ -79,18 +95,20 @@ export function searchKnowledgeArticles(
       let score = 0;
       let hits = 0;
       let headingHits = 0;
+      let strongHeadingHits = 0;
       for (const word of wanted) {
         const weight = /^\d+$/.test(word) ? 2 : 1;
         if (heading.has(word)) {
           score += 3 * weight;
           hits += 1;
           headingHits += 1;
+          if (!WEAK_WORDS.has(word)) strongHeadingHits += 1;
         } else if (body.has(word)) {
           score += weight;
           hits += 1;
         }
       }
-      if (headingHits > 0 && hits * 2 >= wanted.length) {
+      if ((strongHeadingHits > 0 || headingHits >= 2) && hits * 2 >= wanted.length) {
         const candidate = {
           title: parsed.title,
           heading: section.heading,
