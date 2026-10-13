@@ -29,7 +29,7 @@ if (!url && process.env.CI) {
 const today = "2026-10-09";
 const day = "2026-10-08";
 const closeTools = [
-  "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts",
+  "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listInboxDrafts",
   "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
 ];
 const message = (text: string) => ({ id: randomUUID(), text });
@@ -172,6 +172,65 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.deepEqual(await append(replay, "another substring"), saved);
     assert.equal((await getJournalDay(owner.userId, day, db))!.body, "Hand edited after commit");
     assert.equal(await getJournalDay(owner.userId, "2026-10-10", db), null);
+  });
+
+  test("finish is quiet, persists with the reply, and ends reload and turn inheritance together", async () => {
+    const owner = await account();
+    const opening = message("Daily close");
+    const start = await prepare(owner, opening, { closeDay: day });
+    const output = await start.tools.finishDailyClose.execute!({}, call(start, "finishDailyClose"));
+    assert.deepEqual(output, { finished: true, day });
+    // The no-write tool does not change domain data or the user's bound mode.
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+    assert.equal(await getJournalDay(owner.userId, day, db), null);
+    assert.equal(await getMood(owner.userId, day, db), null);
+    const finish = { type: "tool-finishDailyClose" as const, toolCallId: randomUUID(), state: "output-available" as const, input: {}, output };
+    assert.deepEqual(shownParts([finish]), []);
+    await reply(owner, opening, [finish, { type: "text", text: "That completes today's Daily close." }]);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), null);
+
+    const normal = await prepare(owner, message("What next?"));
+    assert.equal(normal.system, coachSystemPrompt(today));
+    assert.equal(normal.read.messages.length, 2);
+    assert.ok("createTask" in normal.tools);
+    assert.ok(normal.activeTools.includes("createTask"));
+    assert.ok(!("finishDailyClose" in normal.tools));
+    assert.ok(!normal.activeTools.includes("finishDailyClose"));
+    const restarted = await prepare(owner, message("Daily close"), { closeDay: day });
+    assertCloseTools(restarted);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+  });
+
+  test("only a successful finish for the bound day ends the close; prose and failures do not", async () => {
+    const owner = await account();
+    const opening = message("Daily close");
+    await prepare(owner, opening, { closeDay: day });
+    await reply(owner, opening, [{ type: "text", text: "That completes today's Daily close." }]);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+    for (const parts of [
+      [{ type: "tool-finishDailyClose" as const, toolCallId: randomUUID(), state: "output-error" as const, input: {}, errorText: "Failed" }],
+      [{ type: "tool-finishDailyClose" as const, toolCallId: randomUUID(), state: "output-available" as const, input: {}, output: { finished: false, day } }],
+      [{ type: "tool-finishDailyClose" as const, toolCallId: randomUUID(), state: "output-available" as const, input: {}, output: { finished: true, day: today } }],
+    ]) {
+      const incoming = message("skip");
+      assertCloseTools(await prepare(owner, incoming));
+      assert.deepEqual(shownParts(parts), []);
+      await reply(owner, incoming, parts);
+      assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+    }
+    assertCloseTools(await prepare(owner, message("Continue")));
+  });
+
+  test("a late finish for an older turn cannot end a newer close turn", async () => {
+    const owner = await account();
+    const opening = message("Daily close");
+    const old = await prepare(owner, opening, { closeDay: day });
+    const output = await old.tools.finishDailyClose.execute!({}, call(old, "finishDailyClose"));
+    const newer = message("skip");
+    await prepare(owner, newer);
+    await reply(owner, opening, [{ type: "tool-finishDailyClose", toolCallId: randomUUID(), state: "output-available", input: {}, output }]);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+    assertCloseTools(await prepare(owner, message("What's left?")));
   });
 
   test("explicit Mood, clear and replay read through the injected data adapter", async () => {

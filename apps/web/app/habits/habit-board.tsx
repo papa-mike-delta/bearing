@@ -56,6 +56,7 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
   const [rows, setRows] = useState(habits);
   const [error, setError] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [, start] = useTransition();
   const router = useRouter();
 
@@ -87,7 +88,7 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
   }
 
   function remove(habit: HabitRow) {
-    if (!window.confirm("Delete this habit and every marked day?")) return;
+    setConfirming(null);
     setError("");
     setPendingKey(habit.id);
     start(async () => {
@@ -111,14 +112,21 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
         <caption className="sr-only">Daily habits for {weekLabel(week)}</caption>
         <thead><tr>
           <th className="habit-name" scope="col">Habit</th>
-          {days.map((day, index) => <th key={day} className="day" scope="col" aria-current={day === today ? "date" : undefined}>{weekdays[index]}<span className="day-number">{Number(day.slice(8))}</span></th>)}
-          <th scope="col">Streak</th>
-          <th scope="col">Record</th>
-          <th scope="col"><span className="sr-only">Delete</span></th>
+          {days.map((day, index) => <th key={day} className="day" scope="col" aria-current={day === today ? "date" : undefined}><span className="day-long">{weekdays[index]}</span><span className="day-short" aria-hidden="true">{weekdays[index]![0]}</span><span className="day-number">{Number(day.slice(8))}</span></th>)}
+          <th className="habit-stat" scope="col">Streak</th>
+          <th className="habit-stat" scope="col">Record</th>
         </tr></thead>
         <tbody>
           {rows.map((habit) => <tr key={habit.id}>
-            <th className="habit-name" scope="row">{habit.name}</th>
+            <th className="habit-name" scope="row">
+              <span className="habit-title">{habit.name}</span>
+              <span className="habit-meta">Streak {habit.streak} · Record {habit.record}</span>
+              {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
+                <span>Delete it and every marked day?</span>
+                <Button type="button" variant="destructive" size="sm" onClick={() => remove(habit)}>Delete</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(null)}>Keep</Button>
+              </span> : <Button type="button" variant="link" size="sm" className="habit-delete" disabled={pendingKey?.startsWith(habit.id) === true} aria-label={`Delete ${habit.name}`} onClick={() => setConfirming(habit.id)}>Delete</Button>}
+            </th>
             {days.map((day) => {
               const closed = day > today;
               return <td key={day} className="day"><input
@@ -129,9 +137,8 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
                 onChange={(event) => toggle(habit, day, event.target.checked)}
               /></td>;
             })}
-            <td>{habit.streak}</td>
-            <td>{habit.record}</td>
-            <td><Button type="button" variant="destructive" size="sm" disabled={pendingKey?.startsWith(habit.id) === true} aria-label={`Delete ${habit.name}`} onClick={() => remove(habit)}>Delete</Button></td>
+            <td className="habit-stat">{habit.streak}</td>
+            <td className="habit-stat">{habit.record}</td>
           </tr>)}
         </tbody>
       </table>
@@ -145,7 +152,7 @@ export function HabitBoard({ today, week, habits }: { today: string; week: strin
   const signature = habits.map((habit) => [habit.id, habit.name, habit.streak, habit.record, habit.marked.join(",")].join(":")).join("|");
   return <>
     <TrackBrowserToday today={today} week={week} />
-    <h2>Daily</h2>
+    <h2 className="habits-daily">Daily</h2>
     <WeekNav today={today} week={week} current={current} />
     {open ? <HabitGrid key={signature} today={today} week={week} habits={habits} /> : <p>This week is not open yet.</p>}
   </>;

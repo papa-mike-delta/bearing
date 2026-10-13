@@ -50,7 +50,7 @@ function HabitCount() {
   const getSnapshot = useCallback(() => readHabitCount(today), [today]);
   const count = useSyncExternalStore(subscribe, getSnapshot, serverCount);
   if (count === null) return null;
-  return <span className="habit-count"> {count}<span className="sr-only"> not done today</span></span>;
+  return <span className="habit-count">{count}<span className="sr-only"> not done today</span></span>;
 }
 
 export function NavLinks() {

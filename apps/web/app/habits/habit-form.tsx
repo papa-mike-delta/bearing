@@ -28,9 +28,9 @@ export function HabitForm() {
     });
   }}>
     <FieldGroup><Field><FieldLabel htmlFor="habit-name">New habit</FieldLabel>
-      <Input id="habit-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required autoComplete="off" disabled={pending} />
+      <Input id="habit-name" value={name} onChange={(event) => { setName(event.target.value); if (error) setError(""); }} aria-invalid={error ? true : undefined} aria-describedby={error ? "habit-name-error" : undefined} autoComplete="off" disabled={pending} />
     </Field></FieldGroup>
-    {error && <p role="alert">{error}</p>}
+    {error && <p id="habit-name-error" role="alert" className="field-error">{error}</p>}
     <Button type="submit" disabled={pending} className="self-end">{pending ? "Adding…" : "Add habit"}</Button>
   </form>;
 }

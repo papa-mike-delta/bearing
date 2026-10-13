@@ -1,11 +1,19 @@
 import { db as defaultDb, habitMarks, habits } from "@repo/db";
-import { dailyOnceProgress, habitName, isCalendarDay } from "@repo/domain";
+import { dailyOnceProgress, habitName, isCalendarDay, maxHabitNameLength } from "@repo/domain";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
 export class HabitError extends Error {}
 
-const nameError = "Use a habit name between 1 and 200 characters.";
+const blankName = "Enter a habit name.";
+
+// Distinct, visible reasons; a long name is refused, never cut.
+export function habitNameError(input: unknown): string | null {
+  if (typeof input !== "string" || !input.trim()) return blankName;
+  const length = input.trim().length;
+  if (length > maxHabitNameLength) return `Habit names can be at most ${maxHabitNameLength} characters; this one has ${length}.`;
+  return null;
+}
 const unavailable = "That habit is unavailable. Refresh and try again.";
 const future = "That day is not open yet.";
 const todayError = "Supply the browser's today as a real calendar day.";
@@ -61,8 +69,9 @@ export async function countUnfinishedHabits(userId: string, today: string, db: D
 
 // A new habit takes the position above the current top. Equal positions keep the older row first.
 export async function createHabit(userId: string, input: string, db: Db = defaultDb) {
-  const name = habitName(input);
-  if (!name) throw new HabitError(nameError);
+  const problem = habitNameError(input);
+  const name = problem ? null : habitName(input);
+  if (!name) throw new HabitError(problem ?? blankName);
   return db.transaction(async (tx) => {
     const [least] = await tx.select({ position: sql<number | null>`min(${habits.position})::int` }).from(habits).where(eq(habits.userId, userId));
     const position = (least?.position == null ? 0 : Number(least.position)) - 1;

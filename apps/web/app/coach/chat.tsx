@@ -35,7 +35,9 @@ export function Chat({
   // model's turn.
   const [stoppedUserIds, setStoppedUserIds] = useState<string[]>([]);
   const router = useRouter();
-  const closeDay = useRef(initialCloseDay);
+  // Only a newly opened close chooses a day. Otherwise let the server inherit
+  // its stored mode, including completion while this view waits for refresh.
+  const closeDay = useRef<string | undefined>(openingClose ? initialCloseDay ?? undefined : undefined);
   const composer = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const focus = focusComposerOnMount({ sentFromComposer, openingClose });
@@ -62,6 +64,7 @@ export function Chat({
       }
     },
     onFinish: () => {
+      closeDay.current = undefined;
       if (openingClose) router.replace("/coach", { scroll: false });
       router.refresh();
     },

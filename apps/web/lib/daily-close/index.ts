@@ -45,8 +45,7 @@ export async function prepareDailyCloseTurn({
   // Use the mode before this message, including on resend. Merely mentioning
   // Daily close during a reflection must neither restart it nor switch days.
   const previousPerson = [...prior].reverse().find((m) => m.role === "user");
-  const previousContext = previousPerson ? await coachMessageContext(userId, thread, previousPerson.id, db) : null;
-  const previousDay = previousPerson?.parts.some((part) => part.type === "text" && cancelsClose(part.text)) ? null : previousContext?.closeDay ?? null;
+  const previousDay = previousPerson ? await dailyCloseDay(userId, thread, db, previousPerson.id) : null;
   const originalContext = !resend ? null : await coachMessageContext(userId, thread, incoming.id, db);
   const browserToday = originalContext ? originalContext.today : today;
   const startsClose = !previousDay && !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text);
@@ -102,9 +101,10 @@ export async function prepareDailyCloseTurn({
   };
 }
 
-// Reload and turn inheritance share the cancellation rule, using only user text.
-export async function dailyCloseDay(userId: string, threadId: string, db: Db = defaultDb) {
-  const message = await latestCloseMessage(userId, threadId, db);
+// Reload and turn inheritance share the cancellation and completion rule.
+// User text can cancel; only a saved successful tool result can complete.
+export async function dailyCloseDay(userId: string, threadId: string, db: Db = defaultDb, messageId?: string) {
+  const message = await latestCloseMessage(userId, threadId, db, messageId);
   const parts = message?.parts as { type: string; text?: string }[] | undefined;
-  return parts?.some((part) => part.type === "text" && cancelsClose(part.text ?? "")) ? null : message?.closeDay ?? null;
+  return message?.finished || parts?.some((part) => part.type === "text" && cancelsClose(part.text ?? "")) ? null : message?.closeDay ?? null;
 }
