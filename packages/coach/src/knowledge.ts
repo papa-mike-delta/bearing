@@ -1,30 +1,22 @@
-import { readFile } from "node:fs/promises";
-import { URL as NodeURL } from "node:url";
+import { habitsMarkdown, journalingMarkdown } from "./knowledge-articles.generated.ts";
 import { searchKnowledgeArticles } from "./knowledge-search.ts";
 
-// Server-only file access: keep it out of the package's client-safe index.
+// The article text is embedded at build time (see scripts/generate-knowledge.ts),
+// so the pages and the Coach route never read traced files at runtime.
 
 const habitsHref = "/coach/knowledge/habits";
 const journalingHref = "/coach/knowledge/journaling";
 
-async function readArticle(file: string) {
-  return readFile(new NodeURL(file, import.meta.url), "utf8");
-}
+export type KnowledgeArticles = { habits: string; journaling: string };
+
+const embedded = async (): Promise<KnowledgeArticles> => ({ habits: habitsMarkdown, journaling: journalingMarkdown });
 
 export async function journalingArticle() {
-  return {
-    title: "Journaling: evidence and limits",
-    body: await readArticle("../knowledge/journaling.md"),
-    href: journalingHref,
-  };
+  return { title: "Journaling: evidence and limits", body: journalingMarkdown, href: journalingHref };
 }
 
 export async function habitsArticle() {
-  return {
-    title: "Habits",
-    body: await readArticle("../knowledge/habits.md"),
-    href: habitsHref,
-  };
+  return { title: "Habits", body: habitsMarkdown, href: habitsHref };
 }
 
 const hrefForTitle: Record<string, string> = {
@@ -32,15 +24,9 @@ const hrefForTitle: Record<string, string> = {
   "Journaling: evidence and limits": journalingHref,
 };
 
-export async function searchKnowledge(query: string) {
-  const [habits, journaling] = await Promise.all([
-    readArticle("../knowledge/habits.md"),
-    readArticle("../knowledge/journaling.md"),
-  ]);
-  const found = searchKnowledgeArticles(
-    [{ markdown: habits }, { markdown: journaling }],
-    query,
-  );
+export async function searchKnowledge(query: string, load: () => Promise<KnowledgeArticles> = embedded) {
+  const { habits, journaling } = await load();
+  const found = searchKnowledgeArticles([{ markdown: habits }, { markdown: journaling }], query);
   if (!found) return { match: false as const };
   return { match: true as const, ...found, href: hrefForTitle[found.title] };
 }

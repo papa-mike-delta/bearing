@@ -17,11 +17,26 @@ export async function coachMessageContext(userId: string, threadId: string, mess
   return message ? { today: message.today ?? "", closeDay: message.closeDay, messageCreatedAt: message.createdAt.getTime() } : null;
 }
 
-// Latest user turn decides the mode on reload; never derive it from model text.
-export async function latestCloseMessage(userId: string, threadId: string, db: Db) {
-  const [message] = await db.select({ closeDay: coachMessages.closeDay, parts: coachMessages.parts })
+// A saved reply is placed by saveMessage exactly one microsecond after the
+// user turn it answers, even if a newer turn arrived while it was streaming.
+// Match only that turn's successful result and bound day, never model prose.
+// The optional id lets turn inheritance use the same end rule as reload.
+export async function latestCloseMessage(userId: string, threadId: string, db: Db, messageId?: string) {
+  const [message] = await db.select({
+    closeDay: coachMessages.closeDay,
+    parts: coachMessages.parts,
+    finished: sql<boolean>`exists (
+      select 1 from coach_messages reply
+      where reply.thread_id = ${coachMessages.threadId} and reply.role = 'assistant'
+        and reply.created_at = ${coachMessages.createdAt} + interval '1 microsecond'
+        and reply.parts_json @> jsonb_build_array(jsonb_build_object(
+          'type', 'tool-finishDailyClose', 'state', 'output-available',
+          'output', jsonb_build_object('finished', true, 'day', ${coachMessages.closeDay})
+        ))
+    )`,
+  })
     .from(coachMessages).innerJoin(coachThreads, eq(coachMessages.threadId, coachThreads.id))
-    .where(and(eq(coachThreads.userId, userId), eq(coachThreads.id, threadId), eq(coachMessages.role, "user")))
+    .where(and(eq(coachThreads.userId, userId), eq(coachThreads.id, threadId), eq(coachMessages.role, "user"), messageId ? eq(coachMessages.id, messageId) : undefined))
     .orderBy(sql`${coachMessages.createdAt} desc`).limit(1);
   return message;
 }

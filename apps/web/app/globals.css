@@ -957,8 +957,7 @@ form.flex-row {
 }
 
 .habit-grid table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   border-collapse: collapse;
 }
 
@@ -970,15 +969,60 @@ form.flex-row {
   font-weight: 500;
 }
 
+.habits-daily {
+  margin-top: 32px;
+  margin-bottom: 8px;
+}
+
+/* The table fits its column at 1024 and up; only the day columns may scroll on a phone. */
 .habit-grid .habit-name {
   text-align: left;
   min-width: 7rem;
-  max-width: 12rem;
+  max-width: 14rem;
   overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.habit-grid .habit-title {
+  display: block;
+}
+
+.habit-grid .habit-meta {
+  display: none;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid .habit-delete {
+  height: auto;
+  padding: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid .habit-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+@media (max-width: 480px) {
+  .habit-grid .habit-stat {
+    display: none;
+  }
+  .habit-grid .habit-meta {
+    display: block;
+  }
 }
 
 .habit-grid .day {
-  min-width: 2.75rem;
+  min-width: 2.25rem;
 }
 
 .habit-grid .day-number {
@@ -998,3 +1042,22 @@ form.flex-row {
   accent-color: var(--primary);
 }
 
+
+.field-error {
+  color: var(--destructive);
+  font-size: 0.875rem;
+}
+
+/* Unfinished habits today, as a muted badge; hidden at 0. */
+.habit-count {
+  display: inline-block;
+  min-width: 1.25rem;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  text-align: center;
+}

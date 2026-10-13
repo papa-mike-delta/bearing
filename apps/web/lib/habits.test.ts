@@ -29,12 +29,14 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.deepEqual((await listHabits(a, today, week, db)).map((habit) => habit.name), ["Floss", "Floss"]);
     assert.equal((await listHabits(a, today, week, db))[0]?.id, second.id);
     assert.notEqual(first.id, second.id);
-    await assert.rejects(createHabit(a, "   ", db), /1 and 200/);
-    await assert.rejects(createHabit(a, "a".repeat(201), db), /1 and 200/);
+    await assert.rejects(createHabit(a, "", db), /Enter a habit name/);
+    await assert.rejects(createHabit(a, " \t\n ", db), /Enter a habit name/);
+    await assert.rejects(createHabit(a, "a".repeat(201), db), /at most 200 characters; this one has 201/);
+    assert.equal((await createHabit(a, ` ${"b".repeat(200)} `, db)).name.length, 200);
     await assert.rejects(db.insert(habits).values({ userId: a, name: "", position: 0 }));
     await assert.rejects(db.insert(habits).values({ userId: a, name: "a".repeat(201), position: 0 }));
-    assert.equal((await listHabits(a, today, week, db)).length, 2);
-    assert.equal(await countUnfinishedHabits(a, today, db), 2);
+    assert.equal((await listHabits(a, today, week, db)).length, 3);
+    assert.equal(await countUnfinishedHabits(a, today, db), 3);
   });
 
   test("today and a past day save, a future day does not, and unchecking removes the mark", async () => {

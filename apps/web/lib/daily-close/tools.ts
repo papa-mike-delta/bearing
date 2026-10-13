@@ -40,6 +40,11 @@ export function closeTools(tools: ReturnType<typeof coachTools>, data: CoachData
     },
     listInboxDrafts: tools.listInboxDrafts,
     listNotebooks: tools.listNotebooks,
+    finishDailyClose: tool({
+      description: "End this Daily close after drafts are handled or skipped, before announcing completion. No domain writes; the successful result is persisted with the assistant reply. No day/id input.",
+      inputSchema: z.strictObject({}),
+      execute: async () => ({ finished: true as const, day }),
+    }),
     ...reads,
   } satisfies Record<(typeof dailyCloseToolNames)[number], unknown>;
 }
