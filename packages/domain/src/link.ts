@@ -42,7 +42,7 @@ export function taskHref(taskId: string) {
 export function linkEnd(kind: unknown, id: unknown): LinkEnd | null {
   if (!isLinkKind(kind) || typeof id !== "string") return null;
   if (kind === "journal") return isCalendarDay(id) ? { kind, id } : null;
-  return uuid.test(id) ? { kind, id } : null;
+  return uuid.test(id) ? { kind, id: id.toLowerCase() } : null;
 }
 
 export function isSelfLink(source: LinkEnd, target: LinkEnd) {

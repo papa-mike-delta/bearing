@@ -31,8 +31,8 @@ export type RemoveLinkResult =
   | { ok: true; targetType: string; targetId: string }
   | { ok: false; reason: "not-found" };
 
-function validEnd(end: LinkEnd) {
-  return linkEnd(end.kind, end.id) !== null;
+function parseEnd(end: LinkEnd) {
+  return linkEnd(end.kind, end.id);
 }
 
 function lockOrder(source: LinkEnd, target: LinkEnd) {
@@ -82,12 +82,14 @@ export async function addLink(
   today: string,
   db: Db = defaultDb,
 ): Promise<AddLinkResult> {
-  if (!isUuid(userId) || !validEnd(source) || !validEnd(target)) {
+  const from = parseEnd(source);
+  const to = parseEnd(target);
+  if (!isUuid(userId) || !from || !to) {
     return { ok: false, reason: "not-found" };
   }
-  if (isSelfLink(source, target)) return { ok: false, reason: "self" };
+  if (isSelfLink(from, to)) return { ok: false, reason: "self" };
   return db.transaction(async (tx) => {
-    for (const end of lockOrder(source, target)) {
+    for (const end of lockOrder(from, to)) {
       if (!(await lockOwned(tx, userId, end, today))) {
         return { ok: false, reason: "not-found" };
       }
@@ -96,10 +98,10 @@ export async function addLink(
       .insert(entityLinks)
       .values({
         userId,
-        sourceType: source.kind,
-        sourceId: source.id,
-        targetType: target.kind,
-        targetId: target.id,
+        sourceType: from.kind,
+        sourceId: from.id,
+        targetType: to.kind,
+        targetId: to.id,
       })
       .onConflictDoNothing({
         target: [
@@ -121,7 +123,8 @@ export async function removeLink(
   source: LinkEnd,
   db: Db = defaultDb,
 ): Promise<RemoveLinkResult> {
-  if (!isUuid(userId) || !isUuid(edgeId) || !validEnd(source)) {
+  const parsed = parseEnd(source);
+  if (!isUuid(userId) || !isUuid(edgeId) || !parsed) {
     return { ok: false, reason: "not-found" };
   }
   const [row] = await db
@@ -130,8 +133,8 @@ export async function removeLink(
       and(
         eq(entityLinks.id, edgeId),
         eq(entityLinks.userId, userId),
-        eq(entityLinks.sourceType, source.kind),
-        eq(entityLinks.sourceId, source.id),
+        eq(entityLinks.sourceType, parsed.kind),
+        eq(entityLinks.sourceId, parsed.id),
       ),
     )
     .returning({
@@ -265,10 +268,11 @@ export async function related(
   end: LinkEnd,
   db: Db = defaultDb,
 ): Promise<RelatedLists> {
-  if (!isUuid(userId) || !validEnd(end)) return { outgoing: [], incoming: [] };
+  const parsed = parseEnd(end);
+  if (!isUuid(userId) || !parsed) return { outgoing: [], incoming: [] };
   const [outgoing, incoming] = await Promise.all([
-    edgesFrom(db, userId, end, "outgoing"),
-    edgesFrom(db, userId, end, "incoming"),
+    edgesFrom(db, userId, parsed, "outgoing"),
+    edgesFrom(db, userId, parsed, "incoming"),
   ]);
   return { outgoing, incoming };
 }
@@ -290,8 +294,8 @@ export async function searchLinkTargets(
   input: { query: string; offset: number; today: string; exclude: LinkEnd },
   db: Db = defaultDb,
 ): Promise<{ hits: PickerHit[]; more: boolean }> {
-  if (!isUuid(userId) || !validEnd(input.exclude))
-    return { hits: [], more: false };
+  const exclude = parseEnd(input.exclude);
+  if (!isUuid(userId) || !exclude) return { hits: [], more: false };
   const query = input.query.trim().slice(0, 200);
   const start =
     Number.isSafeInteger(input.offset) && input.offset >= 0
@@ -307,14 +311,14 @@ export async function searchLinkTargets(
       inner join areas on areas.id = tasks.area_id
       where areas.user_id = ${userId}::uuid
         and tasks.name ilike ${pattern} escape '\\'
-        and not (${input.exclude.kind} = 'task' and tasks.id::text = ${input.exclude.id})
+        and not (${exclude.kind} = 'task' and tasks.id::text = ${exclude.id})
       union all
       select 'note'::text, notes.id::text, notes.title, coalesce(notebooks.name, 'No notebook'), false
       from notes
       left join notebooks on notebooks.id = notes.notebook_id
       where notes.user_id = ${userId}::uuid
         and notes.title ilike ${pattern} escape '\\'
-        and not (${input.exclude.kind} = 'note' and notes.id::text = ${input.exclude.id})
+        and not (${exclude.kind} = 'note' and notes.id::text = ${exclude.id})
       union all
       select 'journal'::text, journal_entries.day::text, journal_entries.day::text, ''::text, false
       from journal_entries
@@ -326,7 +330,7 @@ export async function searchLinkTargets(
           journal_entries.day::text ilike ${pattern} escape '\\'
           or to_char(journal_entries.day, 'FMDay, FMMon FMDD, YYYY') ilike ${pattern} escape '\\'
         )
-        and not (${input.exclude.kind} = 'journal' and journal_entries.day::text = ${input.exclude.id})
+        and not (${exclude.kind} = 'journal' and journal_entries.day::text = ${exclude.id})
     ) hits
     order by label asc, kind asc, id asc
     limit ${linkPageSize + 1} offset ${start}

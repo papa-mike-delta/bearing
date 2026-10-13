@@ -3,7 +3,7 @@
 
 import { coachMoods } from "./moods.ts";
 import { isCalendarDay, noteHref, taskHref } from "@repo/domain";
-import { closeRefusalPrefix } from "./daily-close.ts";
+import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
 

@@ -17,7 +17,7 @@ import {
 import { db as defaultDb } from "@repo/db";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
-import { setMood as setMoodRow, MoodError } from "./mood.ts";
+import { getMood, setMood as setMoodRow, MoodError } from "./mood.ts";
 import { isJournalDay } from "./journal-day.ts";
 import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate, JournalError } from "./journal.ts";
 import { fileDraft as fileDraftRow, listInboxDrafts as inboxRows, DraftError } from "./drafts.ts";
@@ -35,6 +35,7 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    getMood(userId, day) { return getMood(userId, day, db); },
     async readJournalDay(userId, day) {
       const entry = await getJournalDay(userId, day, db);
       const body = entry?.body ?? "";

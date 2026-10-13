@@ -180,6 +180,35 @@ describe(
       );
     });
 
+    test("an uppercase id matches the same edge, and an uppercase self-link is refused", async () => {
+      const source = await task(owner, "Case source");
+      const target = await note(owner, "Case note");
+      const first = await addLink(
+        owner,
+        { kind: "task", id: source.id },
+        { kind: "note", id: target.id },
+        today,
+        db,
+      );
+      const again = await addLink(
+        owner,
+        { kind: "task", id: source.id.toUpperCase() },
+        { kind: "note", id: target.id.toUpperCase() },
+        today,
+        db,
+      );
+      assert.deepEqual(first, { ok: true, created: true });
+      assert.deepEqual(again, { ok: true, created: false });
+      const self = await addLink(
+        owner,
+        { kind: "note", id: target.id.toUpperCase() },
+        { kind: "note", id: target.id },
+        today,
+        db,
+      );
+      assert.deepEqual(self, { ok: false, reason: "self" });
+    });
+
     test("remove deletes one direction, and a missing or foreign end is not found", async () => {
       const source = await task(owner, "Remove source");
       const target = await note(owner, "Remove target");
