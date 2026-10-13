@@ -3,7 +3,8 @@
 import { db } from "@repo/db";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { createNotebook, deleteNote, deleteNotebook, fileDraftAsNote, noteHref, NoteError, saveNote } from "../../lib/notes";
+import { createNotebook, deleteNote, deleteNotebook, noteHref, NoteError, saveNote } from "../../lib/notes";
+import { fileDraftAsNote } from "../../lib/draft-filing/index";
 
 function failure(error: unknown) {
   return { error: error instanceof NoteError ? error.message : "Could not save. Your text is kept here; please try again." };

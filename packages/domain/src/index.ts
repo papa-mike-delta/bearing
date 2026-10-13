@@ -3,6 +3,7 @@
 
 export * from "./areas.ts";
 export * from "./draft.ts";
+export * from "./draft-filing.ts";
 export * from "./habit.ts";
 export * from "./link.ts";
 export * from "./note.ts";

@@ -2,7 +2,7 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
-import type { FileDraftInput, FiledDraft } from "./tools/file-draft.ts";
+import type { FileDraftInput, FiledDraft } from "@repo/domain";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
