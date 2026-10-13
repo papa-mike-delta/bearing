@@ -73,7 +73,7 @@ export async function fileDraft(userId: string, input: FileDraftInput & { today:
     if (!draft) throw new DraftError("Draft not found.");
     const identity = and(eq(draftFilings.userId, userId), eq(draftFilings.draftId, draftId));
     // Journal filings are recorded in journal_operations (by appendJournalInTransaction),
-    // not draft_filings; this check only stops a Task/Note-filed draft being re-filed to a Journal.
+    // not draft_filings. This check only stops a Task/Note-filed draft being re-filed to a Journal.
     if (destination.kind === "journal") {
       const [filed] = await tx.select().from(draftFilings).where(identity);
       if (filed) throw new DraftError(differentDestination);
