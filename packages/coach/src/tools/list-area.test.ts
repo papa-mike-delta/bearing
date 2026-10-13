@@ -7,6 +7,9 @@ import { listArea } from "./list-area.ts";
 function fake(tasks: ListedTask[]) {
   const asked: string[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks(userId) {
       asked.push(userId);
       return tasks;

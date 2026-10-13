@@ -98,7 +98,6 @@ export function closeData(data: CoachData, day: string, text: string, prior: UIM
       permit(input.day);
       // A repeated choice reports the stored success without moving its
       // timestamp or requiring fresh authorization for a write we won't make.
-      if (!data.getMood) throw new Error("Mood is unavailable.");
       const storedMood = await data.getMood(userId, day);
       if (input.mood !== null && storedMood === input.mood) return { day, mood: input.mood };
       const named = input.mood === null ? /\b(?:clear|remove|unset)\s+my\s+mood\b/i.test(text) && !negation.test(text)
