@@ -93,6 +93,7 @@ export async function prepareDailyCloseTurn({
       "updateTask",
       "listArea",
       "listNotebooks",
+      "searchKnowledge",
       "createNote",
       "appendJournal",
       "setMood",

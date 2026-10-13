@@ -22,6 +22,7 @@ import { isJournalDay } from "./journal-day.ts";
 import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate, JournalError } from "./journal.ts";
 import { fileDraft as fileDraftRow, listInboxDrafts as inboxRows, DraftError } from "./drafts.ts";
 import type { Db } from "./db.ts";
+import { searchKnowledge } from "@repo/coach/knowledge";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
 import { createNote as createNoteRow, NoteError, listNotebooks as notebookRows } from "./notes.ts";
@@ -241,6 +242,12 @@ export function coachTools(data: CoachData) {
         catch (error) { logToolError("listNotebooks", toolCallId, error); throw new Error("Couldn't read your notebooks."); }
       },
     }),
+    searchKnowledge: tool({
+      description: "Look up one knowledge-article section by the words in its heading. Returns that section and the article title, or no match. Quote the section, including what it does not mean and the source. Do not paraphrase, and do not invent a section.",
+      inputSchema: z.object({ query: z.string().trim().min(1).max(200) }),
+      contextSchema: toolContext,
+      execute: async ({ query }) => searchKnowledge(query),
+    }),
     createNote: tool({
       description: createNote.description,
       inputSchema: createNote.inputSchema,
@@ -359,6 +366,7 @@ export const coachToolNames = [
   "appendJournal",
   "setMood",
   "listNotebooks",
+  "searchKnowledge",
   "createNote",
   "listArea",
   "createTask",
