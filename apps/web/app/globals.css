@@ -57,7 +57,7 @@
   .app-sign-out { display: none; }
   .app-header-inner { flex-wrap: nowrap; align-items: center; gap: 0.25rem; height: 3.5rem; padding-inline: 0.5rem; }
   .brand { flex: none; }
-  .app-nav { flex-wrap: nowrap; gap: 0; min-width: 0; }
+  .app-nav { flex-wrap: nowrap; gap: 0; min-width: 0; overflow-x: auto; }
   .app-nav a { padding: 0.35rem 0.25rem; white-space: nowrap; font-size: 0.8rem; }
 }
 
@@ -948,3 +948,53 @@ form.themes .choices {
 form.flex-row {
   flex-direction: row;
 }
+
+/* Seven day columns stay reachable on a phone. The page itself does not scroll sideways. */
+.habit-grid {
+  max-width: 100%;
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+.habit-grid table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.habit-grid th,
+.habit-grid td {
+  padding: 0.4rem 0.35rem;
+  text-align: center;
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+.habit-grid .habit-name {
+  text-align: left;
+  min-width: 7rem;
+  max-width: 12rem;
+  overflow-wrap: anywhere;
+}
+
+.habit-grid .day {
+  min-width: 2.75rem;
+}
+
+.habit-grid .day-number {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid th[aria-current="date"] {
+  color: var(--primary);
+}
+
+.habit-grid input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--primary);
+}
+

@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -372,4 +373,39 @@ export const coachMessages = pgTable(
     check("coach_messages_role", sql`${t.role} in ('user', 'assistant')`),
     index("coach_messages_thread_created_idx").on(t.threadId, t.createdAt),
   ],
+);
+
+// A daily once-habit. Global to the account. A row in habit_marks is a checked day.
+export const habits = pgTable(
+  "habits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("habits_user_position_idx").on(t.userId, t.position, t.createdAt),
+    check("habits_name_length", sql`char_length(${t.name}) between 1 and 200`),
+  ],
+);
+
+export const habitMarks = pgTable(
+  "habit_marks",
+  {
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.habitId, t.day] })],
 );
