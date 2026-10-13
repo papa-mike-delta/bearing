@@ -13,7 +13,7 @@ const differentDestination = "That draft was already filed to a different destin
 type Draft = typeof drafts.$inferSelect & { sourceId: string };
 type TaskInput = { today: string; area?: string; name?: string };
 
-// All filing paths cross this seam: one owned row lock, one transaction, and
+// Every filing path crosses this seam: one owned row lock, one transaction, and
 // no destination writer opens another transaction or acquires the Draft lock.
 async function withDraft<T>(userId: string, draftId: string, db: Db, run: (draft: Draft | undefined, tx: Db) => Promise<T>) {
   return db.transaction(async (tx) => {
