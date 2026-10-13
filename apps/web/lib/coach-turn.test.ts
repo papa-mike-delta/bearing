@@ -1,3 +1,4 @@
+import { dailyCloseDay as coachCloseDay } from "./daily-close/index.ts";
 // Coach turns against a real Postgres with a scripted model: no Gateway, no
 // key. Same guard as the isolation suite: needs TEST_POSTGRES_URL, fails in CI
 // without it, and is skipped with a warning everywhere else.
@@ -35,7 +36,7 @@ import {
 } from "@repo/coach";
 import { captureDraft, fileDraft, fileDraftAsTask, fileDraftAsJournal, inboxDrafts } from "./drafts.ts";
 import { noteHref, taskHref } from "@repo/domain";
-import { coachCloseDay, coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
 import {
   coachModel,
@@ -83,6 +84,10 @@ function writeToolsOffered(
 }
 
 const unusedWrites = {
+  // No Mood recorded; required by CoachData.
+  async getMood() {
+    return null;
+  },
   async createTask() {
     throw new Error("createTask should not run");
   },
@@ -242,6 +247,8 @@ type Step =
   | { readJournalingArticle: string; toolCallId?: string }
   | { readJournalDay: string; toolCallId?: string }
   | { getJournalTemplate: string; toolCallId?: string }
+  | { finishDailyClose: string; toolCallId?: string }
+  | { searchKnowledge: string; toolCallId?: string }
   | { completeTask: string; toolCallId?: string }
   | { text: string };
 function scripted(...steps: Step[]) {
@@ -294,7 +301,11 @@ function scripted(...steps: Step[]) {
                               ? { name: "readJournalDay" as const, input: step.readJournalDay, id: step.toolCallId }
                               : "getJournalTemplate" in step
                                 ? { name: "getJournalTemplate" as const, input: step.getJournalTemplate, id: step.toolCallId }
-                                : null;
+                                : "searchKnowledge" in step
+                                  ? { name: "searchKnowledge" as const, input: step.searchKnowledge, id: step.toolCallId }
+                                  : "finishDailyClose" in step
+                                    ? { name: "finishDailyClose" as const, input: step.finishDailyClose, id: step.toolCallId }
+                                    : null;
       const chunks = [
         ...(tool
           ? [
@@ -392,6 +403,79 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     return user!.id;
   }
 
+  test("searchKnowledge quotes the 21 days section and does not offer habit tracking", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const model = scripted(
+      { searchKnowledge: JSON.stringify({ query: "21 days" }) },
+      { text: "There is no fixed number." },
+    );
+    await turn(c, thread, userMessage("how long does a habit take?"), model);
+    const names = model.doStreamCalls[0]!.tools?.map((tool) => tool.name) ?? [];
+    assert.ok(names.includes("searchKnowledge"));
+    assert.equal(names.includes("createHabit"), false);
+    assert.ok(promptText(model).includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
+    assert.equal(promptText(model).includes("median of 66 days"), false);
+    assert.ok(promptText(model).includes("Bearing has daily Habits on the Habits page"));
+    const saved = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts);
+    const looked = saved.find((p) => p.type === "tool-searchKnowledge" && "output" in p) as { output?: { match?: boolean; heading?: string; section?: string; title?: string } } | undefined;
+    assert.equal(looked?.output?.match, true);
+    assert.equal(looked?.output?.title, "Habits");
+    assert.equal(looked?.output?.heading, "How long does a habit take? Not 21 days");
+    assert.ok(looked?.output?.section?.includes("Source:"));
+    assert.ok(looked?.output?.section?.includes("What this does not mean"));
+    assert.deepEqual(receiptsOf(await threadMessages(c, thread, db)), [
+      "Read your list (0 open)",
+      "Looked up 'How long does a habit take? Not 21 days' in Habits",
+    ]);
+  });
+
+  test("finishing Daily close hides the banner mode and restores normal tools on the next turn", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"), "2026-10-09", undefined, day);
+    assert.equal(await coachCloseDay(c, thread, db), day);
+    await turn(c, thread, userMessage("Skip the rest"), scripted(
+      { listInboxDrafts: "{}" },
+      { finishDailyClose: "{}" },
+      { text: "That completes today's Daily close." },
+    ));
+    const saved = (await threadMessages(c, thread, db))!;
+    const finish = saved.at(-1)!.parts.find((part) => part.type === "tool-finishDailyClose");
+    assert.ok(finish && "output" in finish);
+    assert.deepEqual(finish.output, { finished: true, day });
+    assert.deepEqual(shownParts([finish]), []);
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    assert.equal(await getJournalDay(c, day, db), null);
+    assert.equal(await getMood(c, day, db), null);
+
+    const normal = scripted({ createTask: JSON.stringify({ name: "Call the plumber" }) }, { text: "Added." });
+    await turn(c, thread, userMessage("Add Call the plumber"), normal);
+    writeToolsOffered(normal.doStreamCalls[0]!);
+    assert.ok(!normal.doStreamCalls[0]!.tools?.some((tool) => tool.name === "finishDailyClose"));
+    assert.equal((await openTasks(c, db))[0]?.name, "Call the plumber");
+    assert.equal(await coachCloseDay(c, thread, db), null);
+  });
+
+  test("a failed reply after finish retains the close and resends with the original day", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    await turn(c, thread, userMessage("Daily close"), replying("Any drafts?"), "2026-10-09", undefined, day);
+    const incoming = userMessage("skip");
+    await turn(c, thread, incoming, failingAfterWrite("finishDailyClose", {}));
+    assert.equal(await coachCloseDay(c, thread, db), day);
+    assert.equal((await threadMessages(c, thread, db))!.at(-1)!.id, incoming.id);
+    const retry = scripted({ finishDailyClose: "{}" }, { text: "Daily close complete." });
+    await turn(c, thread, incoming, retry, "2026-10-10", undefined, null);
+    assert.match(promptText(retry), /Daily close for 2026-10-08.*Today is 2026-10-09/);
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    // A new close on the same day is not ended by the earlier finish marker.
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"), "2026-10-09", undefined, day);
+    assert.equal(await coachCloseDay(c, thread, db), day);
+  });
+
   test("Daily close rejects an out-of-list tool even when the model emits it", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
@@ -401,7 +485,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
     assert.equal(await getMood(c, "2026-10-09", db), null);
     assert.deepEqual(model.doStreamCalls[0]!.tools?.map((tool) => tool.name).sort(), [
-      "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
+      "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
     ]);
     assert.equal(readIn(await threadMessages(c, thread, db)), undefined);
   });

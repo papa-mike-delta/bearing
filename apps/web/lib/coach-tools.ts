@@ -17,11 +17,12 @@ import {
 import { db as defaultDb } from "@repo/db";
 import { tool, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { z } from "zod";
-import { setMood as setMoodRow, MoodError } from "./mood.ts";
+import { getMood, setMood as setMoodRow, MoodError } from "./mood.ts";
 import { isJournalDay } from "./journal-day.ts";
 import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate, JournalError } from "./journal.ts";
 import { fileDraft as fileDraftRow, listInboxDrafts as inboxRows, DraftError } from "./drafts.ts";
 import type { Db } from "./db.ts";
+import { searchKnowledge } from "@repo/coach/knowledge";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 
 import { createNote as createNoteRow, NoteError, listNotebooks as notebookRows } from "./notes.ts";
@@ -34,6 +35,7 @@ const maxUpdatesPerTurn = 3;
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    getMood(userId, day) { return getMood(userId, day, db); },
     async readJournalDay(userId, day) {
       const entry = await getJournalDay(userId, day, db);
       const body = entry?.body ?? "";
@@ -240,6 +242,12 @@ export function coachTools(data: CoachData) {
         catch (error) { logToolError("listNotebooks", toolCallId, error); throw new Error("Couldn't read your notebooks."); }
       },
     }),
+    searchKnowledge: tool({
+      description: "Look up one knowledge-article section by the words in its heading. Returns that section and the article title, or no match. Quote the section, including what it does not mean and the source. Do not paraphrase, and do not invent a section.",
+      inputSchema: z.object({ query: z.string().trim().min(1).max(200) }),
+      contextSchema: toolContext,
+      execute: async ({ query }) => searchKnowledge(query),
+    }),
     createNote: tool({
       description: createNote.description,
       inputSchema: createNote.inputSchema,
@@ -358,6 +366,7 @@ export const coachToolNames = [
   "appendJournal",
   "setMood",
   "listNotebooks",
+  "searchKnowledge",
   "createNote",
   "listArea",
   "createTask",

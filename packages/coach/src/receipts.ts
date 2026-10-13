@@ -3,7 +3,7 @@
 
 import { coachMoods } from "./moods.ts";
 import { isCalendarDay, noteHref, taskHref } from "@repo/domain";
-import { closeRefusalPrefix } from "./daily-close.ts";
+import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
 
@@ -32,6 +32,22 @@ function show(part: ToolPart): Line | null {
   if (part.type === "tool-readJournalingArticle") {
     if (pending(part.state)) return { line: "Reading journaling knowledge…" };
     return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
+  }
+  if (part.type === "tool-searchKnowledge") {
+    if (pending(part.state)) return { line: "Looking up knowledge…" };
+    const output = part.output as { match?: unknown; title?: unknown; heading?: unknown; href?: unknown } | undefined;
+    const title = output?.title;
+    const heading = output?.heading;
+    const href = title === "Habits"
+      ? "/coach/knowledge/habits"
+      : title === "Journaling: evidence and limits"
+        ? "/coach/knowledge/journaling"
+        : undefined;
+    if (part.state === "output-available" && output?.match === true && typeof heading === "string" && heading && typeof title === "string" && output.href === href) {
+      return { line: `Looked up '${heading}' in ${title}`, href };
+    }
+    if (part.state === "output-available" && output?.match === false) return { line: "No matching knowledge section" };
+    return { line: "Couldn't look up knowledge" };
   }
   if (part.type === "tool-readJournalDay") {
     if (pending(part.state)) return { line: "Reading this Journal day…" };

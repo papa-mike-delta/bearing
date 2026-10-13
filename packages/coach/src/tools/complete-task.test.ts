@@ -18,6 +18,9 @@ function fake(
 ) {
   const calls: { userId: string; taskId: string }[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return open;
     },

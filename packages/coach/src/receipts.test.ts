@@ -381,3 +381,32 @@ test("two creates in a row stay two lines", () => {
     ],
   );
 });
+
+test("a habits lookup receipt names the section and rejects a foreign link", () => {
+  const part = {
+    type: "tool-searchKnowledge",
+    state: "output-available",
+    output: {
+      match: true,
+      title: "Habits",
+      heading: "How long does a habit take? Not 21 days",
+      href: "/coach/knowledge/habits",
+    },
+  };
+  assert.equal(
+    receipt(part),
+    "Looked up 'How long does a habit take? Not 21 days' in Habits",
+  );
+  assert.equal(
+    receipt({ ...part, output: { match: false } }),
+    "No matching knowledge section",
+  );
+  assert.equal(
+    receipt({
+      ...part,
+      output: { ...part.output, href: "https://example.com" },
+    }),
+    "Couldn't look up knowledge",
+  );
+});
+

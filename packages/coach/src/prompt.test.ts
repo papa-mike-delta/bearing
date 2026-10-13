@@ -109,6 +109,16 @@ test("the rest of the coaching prompt stays", () => {
   );
 });
 
+test("knowledge titles are listed and the article bodies are not", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
+  assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
+  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page"));
+  assert.equal(prompt.includes("median of 66 days"), false);
+  assert.equal(prompt.includes("Pennebaker"), false);
+  assert.equal(prompt.includes("You can create a habit"), false);
+});
+
 test("a valid today is named in the system prompt", () => {
   assert.ok(coachSystemPrompt("2026-10-09").includes("Today is 2026-10-09."));
   assert.equal(coachSystemPrompt("2026-02-31").includes("Today is"), false);

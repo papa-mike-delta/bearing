@@ -19,6 +19,15 @@ test("a link end is an owned task, note, or calendar day", () => {
   assert.equal(linkEnd("journal", "2023-02-29"), null);
   assert.equal(linkEnd("area", taskId), null);
   assert.equal(linkEnd("journal", "10/09/2026"), null);
+  const mixed = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+  assert.deepEqual(linkEnd("task", mixed), {
+    kind: "task",
+    id: mixed.toLowerCase(),
+  });
+  assert.deepEqual(linkEnd("note", mixed), {
+    kind: "note",
+    id: mixed.toLowerCase(),
+  });
   assert.equal(linkPageSize, 20);
 });
 
