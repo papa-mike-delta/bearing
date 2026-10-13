@@ -1,13 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { db as defaultDb, draftFilings, drafts, notebooks, noteOperations, notes } from "@repo/db";
+import { db as defaultDb, notebooks, notes } from "@repo/db";
 import { noteHref, noteName, validNoteBody } from "@repo/domain";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 import { deleteEdgesForNotes } from "./links.ts";
+import { createNoteInTransaction, NoteError, validateNoteCreation, type NoteInput, type NoteSource } from "./draft-filing/postgres.ts";
 
 export { noteHref };
 
-export class NoteError extends Error {}
+export { NoteError, type NoteInput, type NoteSource } from "./draft-filing/postgres.ts";
+export { fileDraftAsNote } from "./draft-filing/index.ts";
 const unavailable = "That item is unavailable. Refresh and try again.";
 
 export async function listNotebooks(userId: string, db: Db = defaultDb) {
@@ -53,56 +54,9 @@ export async function getNote(userId: string, id: string, db: Db = defaultDb) {
   return row ?? null;
 }
 
-export type NoteInput = { notebookId: string; title: string; body: string };
-export type NoteSource = { source: "draft" | "coach"; sourceId: string };
-
-async function replay(userId: string, from: NoteSource, db: Db) {
-  const [operation] = await db.select().from(noteOperations).where(and(
-    eq(noteOperations.userId, userId), eq(noteOperations.source, from.source), eq(noteOperations.sourceId, from.sourceId),
-  ));
-  if (!operation) return null;
-  const note = await getNote(userId, operation.noteId, db);
-  if (!note) throw new NoteError("The previously created Note is no longer available. It will not be recreated.");
-  return note;
-}
-
 export async function createNote(userId: string, input: NoteInput, from: NoteSource, db: Db = defaultDb) {
-  const title = noteName(input.title);
-  if (!title || !validNoteBody(input.body)) throw new NoteError("Use a title of 1–200 characters and a body of at most 100,000 characters.");
-  if (!from.sourceId || from.sourceId.length > 250 || !["draft", "coach"].includes(from.source)) throw new NoteError(unavailable);
-  return db.transaction(async (tx) => {
-    if (!(await getNotebook(userId, input.notebookId, tx))) throw new NoteError(unavailable);
-    const id = randomUUID();
-    const [claimed] = await tx.insert(noteOperations).values({ userId, ...from, noteId: id })
-      .onConflictDoNothing().returning({ id: noteOperations.id });
-    if (!claimed) {
-      const existing = await replay(userId, from, tx);
-      if (!existing) throw new NoteError(unavailable);
-      return existing;
-    }
-    const [note] = await tx.insert(notes).values({ id, userId, notebookId: input.notebookId, title, body: input.body }).returning();
-    return note!;
-  });
-}
-
-export async function fileDraftAsNote(userId: string, draftId: string, input: Omit<NoteInput, "body">, db: Db = defaultDb) {
-  if (!isUuid(draftId)) throw new NoteError(unavailable);
-  return db.transaction(async (tx) => {
-    // This row lock also serializes against fileDraftAsTask's guarded UPDATE.
-    const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.userId, userId))).for("update");
-    if (!draft) throw new NoteError(unavailable);
-    const from = { source: "draft", sourceId: draftId } as const;
-    const existing = await replay(userId, from, tx);
-    if (existing) {
-      if (existing.notebookId !== input.notebookId) throw new NoteError("That draft was already filed to a different destination.");
-      return existing;
-    }
-    if (draft.workspace !== "inbox" || !draft.body.trim()) throw new NoteError(unavailable);
-    const note = await createNote(userId, { ...input, body: draft.body }, from, tx);
-    await tx.insert(draftFilings).values({ userId, draftId, destinationKey: JSON.stringify(["note", input.notebookId]), kind: "note", entityId: note.id, name: note.title, notebookId: input.notebookId });
-    await tx.update(drafts).set({ workspace: "archive" }).where(and(eq(drafts.id, draftId), eq(drafts.userId, userId)));
-    return note;
-  });
+  validateNoteCreation(input, from);
+  return db.transaction((tx) => createNoteInTransaction(userId, input, from, tx));
 }
 
 export async function saveNote(userId: string, id: string, input: { title: string; body: string; pinned: boolean; revision: number }, db: Db = defaultDb) {

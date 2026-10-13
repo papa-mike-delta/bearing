@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { fileDraftAsJournal } from "../../lib/drafts";
+import { fileDraftAsJournal } from "../../lib/draft-filing/index";
 import { JournalError } from "../../lib/journal";
 
 export async function fileJournal(draftId: string, day: string, today: string): Promise<{ day: string } | { error: string }> {
