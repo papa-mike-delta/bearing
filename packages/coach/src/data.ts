@@ -14,6 +14,7 @@ export type ListedTask = {
 };
 
 export type CoachData = {
+  getMood?(userId: string, day: string): Promise<CoachMood | null>;
   readJournalDay?(userId: string, day: string): Promise<{ day: string; body: string; truncated: boolean }>;
   getJournalTemplate?(userId: string): Promise<{ template: string }>;
   listInboxDrafts?(userId: string): Promise<{ id: string; excerpt: string; createdAt: string }[]>;

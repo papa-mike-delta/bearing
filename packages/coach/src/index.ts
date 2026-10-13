@@ -35,4 +35,4 @@ export { coachMoods } from "./moods.ts";
 
 export { fileDraft, type FileDraftInput, type FiledDraft } from "./tools/file-draft.ts";
 export { listInboxDrafts, maxListedInboxDrafts } from "./tools/list-inbox-drafts.ts";
-export { CloseRefusal, closeRefusalPrefix, dailyClosePrompt, dailyCloseToolNames } from "./daily-close.ts";
+export { CloseRefusal, closeRefusalPrefix } from "./close-refusal.ts";

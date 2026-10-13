@@ -1,12 +1,3 @@
-// Daily close is a turn mode, with the web runtime enforcing its tool set.
-// The prefix survives SDK serialization into a stored output-error part.
-export const closeRefusalPrefix = "Daily close refused: ";
-export class CloseRefusal extends Error {
-  constructor(reason: string) {
-    super(`${closeRefusalPrefix}${reason}`);
-  }
-}
-
 export const dailyCloseToolNames = [
   "appendJournal", "fileDraft", "getJournalTemplate", "listInboxDrafts", "listNotebooks",
   "readJournalDay", "readJournalingArticle", "setMood",
