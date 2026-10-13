@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import type {
@@ -12,6 +18,7 @@ import type {
   RelatedLists,
 } from "@repo/domain";
 import { localToday } from "../lib/today";
+import { acceptResponse, matchesQuery } from "../lib/link-picker";
 import {
   createLink,
   deleteLink,
@@ -35,20 +42,30 @@ function Item({
   pending: boolean;
   onRemove: (edgeId: string) => void;
 }) {
+  const meta = [
+    kindLabel[item.kind],
+    item.detail,
+    item.completed ? "Completed" : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
   return (
-    <li className="card-row">
-      <Link href={item.href}>{item.label}</Link>
-      <span>{kindLabel[item.kind]}</span>
-      {item.detail ? <span>{item.detail}</span> : null}
-      {item.completed ? <span>Completed</span> : null}
-      <span className="sr-only">
-        {direction === "outgoing" ? "Outgoing" : "Backlink"}
-      </span>
+    <li className="related-item">
+      <div className="related-main">
+        <Link className="related-title" href={item.href}>
+          {item.label}
+        </Link>
+        <p className="related-meta">{meta}</p>
+        <span className="sr-only">
+          {direction === "outgoing" ? "Outgoing" : "Backlink"}
+        </span>
+      </div>
       {direction === "outgoing" ? (
         <Button
           type="button"
           variant="ghost"
           size="xs"
+          className="related-remove"
           disabled={pending}
           onClick={() => {
             if (!window.confirm("Remove this link?")) return;
@@ -78,6 +95,9 @@ export function Related({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
+  const requestId = useRef(0);
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
   useEffect(() => {
     setLists(initial);
@@ -85,16 +105,27 @@ export function Related({
 
   useEffect(() => {
     if (!open) return;
+    setHits([]);
+    setActive(0);
+    setMore(false);
     let cancel = false;
+    const id = ++requestId.current;
+    const requestedQuery = query;
     const handle = setTimeout(() => {
-      void findLinkTargets(query, 0, localToday(), source.kind, source.id).then(
-        (page) => {
-          if (cancel) return;
-          setHits(page.hits);
-          setMore(page.more);
-          setActive(0);
-        },
-      );
+      void findLinkTargets(
+        requestedQuery,
+        0,
+        localToday(),
+        source.kind,
+        source.id,
+      ).then((page) => {
+        if (cancel) return;
+        if (!acceptResponse(requestId.current, id)) return;
+        if (requestedQuery !== queryRef.current) return;
+        setHits(page.hits.filter((hit) => matchesQuery(hit, requestedQuery)));
+        setMore(page.more);
+        setActive(0);
+      });
     }, 150);
     return () => {
       cancel = true;
@@ -150,6 +181,119 @@ export function Related({
     }
   }
 
+  const picker = open ? (
+    <div>
+      <label
+        className="sr-only"
+        htmlFor={`add-link-${source.kind}-${source.id}`}
+      >
+        Find a task, note, or journal day
+      </label>
+      <Input
+        id={`add-link-${source.kind}-${source.id}`}
+        role="combobox"
+        aria-expanded={hits.length > 0}
+        aria-controls={`link-hits-${source.id}`}
+        aria-activedescendant={
+          hits[active]
+            ? `link-hit-${hits[active].kind}-${hits[active].id}`
+            : undefined
+        }
+        value={query}
+        placeholder="Task name, note title, or date"
+        onChange={(event) => {
+          const next = event.target.value;
+          queryRef.current = next;
+          requestId.current += 1;
+          setQuery(next);
+          setHits([]);
+          setActive(0);
+          setMore(false);
+        }}
+        onKeyDown={onKeyDown}
+        autoFocus
+      />
+      <ul id={`link-hits-${source.id}`} role="listbox">
+        {hits.map((hit, index) => (
+          <li
+            key={`${hit.kind}:${hit.id}`}
+            id={`link-hit-${hit.kind}-${hit.id}`}
+            role="option"
+            aria-selected={index === active}
+          >
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => choose(hit)}
+            >
+              {kindLabel[hit.kind]}: {hit.label}
+              {hit.detail ? ` · ${hit.detail}` : ""}
+              {hit.completed ? " · Completed" : ""}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {more ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => {
+            const id = ++requestId.current;
+            const requestedQuery = query;
+            void findLinkTargets(
+              requestedQuery,
+              hits.length,
+              localToday(),
+              source.kind,
+              source.id,
+            ).then((page) => {
+              if (!acceptResponse(requestId.current, id)) return;
+              if (requestedQuery !== queryRef.current) return;
+              setHits((current) => {
+                const seen = new Set(
+                  current.map((hit) => `${hit.kind}:${hit.id}`),
+                );
+                return [
+                  ...current,
+                  ...page.hits.filter(
+                    (hit) =>
+                      !seen.has(`${hit.kind}:${hit.id}`) &&
+                      matchesQuery(hit, requestedQuery),
+                  ),
+                ];
+              });
+              setMore(page.more);
+            });
+          }}
+        >
+          More
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        onClick={() => setOpen(false)}
+      >
+        Cancel
+      </Button>
+    </div>
+  ) : (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        setOpen(true);
+        setNotice("");
+        setError("");
+      }}
+    >
+      Add link
+    </Button>
+  );
+
   return (
     <section aria-label="Related" className="mt-8">
       <h2>Related</h2>
@@ -169,6 +313,7 @@ export function Related({
           ))}
         </ul>
       )}
+      {picker}
       <h3>Backlinks</h3>
       {lists.incoming.length === 0 ? (
         <p>No backlinks.</p>
@@ -184,104 +329,6 @@ export function Related({
             />
           ))}
         </ul>
-      )}
-      {open ? (
-        <div>
-          <label
-            className="sr-only"
-            htmlFor={`add-link-${source.kind}-${source.id}`}
-          >
-            Find a task, note, or journal day
-          </label>
-          <Input
-            id={`add-link-${source.kind}-${source.id}`}
-            role="combobox"
-            aria-expanded={hits.length > 0}
-            aria-controls={`link-hits-${source.id}`}
-            aria-activedescendant={
-              hits[active]
-                ? `link-hit-${hits[active].kind}-${hits[active].id}`
-                : undefined
-            }
-            value={query}
-            placeholder="Task name, note title, or date"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onKeyDown}
-            autoFocus
-          />
-          <ul id={`link-hits-${source.id}`} role="listbox">
-            {hits.map((hit, index) => (
-              <li
-                key={`${hit.kind}:${hit.id}`}
-                id={`link-hit-${hit.kind}-${hit.id}`}
-                role="option"
-                aria-selected={index === active}
-              >
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => choose(hit)}
-                >
-                  {kindLabel[hit.kind]}: {hit.label}
-                  {hit.detail ? ` · ${hit.detail}` : ""}
-                  {hit.completed ? " · Completed" : ""}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {more ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                void findLinkTargets(
-                  query,
-                  hits.length,
-                  localToday(),
-                  source.kind,
-                  source.id,
-                ).then((page) => {
-                  setHits((current) => {
-                    const seen = new Set(
-                      current.map((hit) => `${hit.kind}:${hit.id}`),
-                    );
-                    return [
-                      ...current,
-                      ...page.hits.filter(
-                        (hit) => !seen.has(`${hit.kind}:${hit.id}`),
-                      ),
-                    ];
-                  });
-                  setMore(page.more);
-                });
-              }}
-            >
-              More
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            onClick={() => setOpen(false)}
-          >
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setOpen(true);
-            setNotice("");
-            setError("");
-          }}
-        >
-          Add link
-        </Button>
       )}
       {notice ? <p role="status">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}

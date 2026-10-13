@@ -1,3 +1,4 @@
+import { dailyCloseDay as coachCloseDay } from "./daily-close/index.ts";
 // Coach turns against a real Postgres with a scripted model: no Gateway, no
 // key. Same guard as the isolation suite: needs TEST_POSTGRES_URL, fails in CI
 // without it, and is skipped with a warning everywhere else.
@@ -35,7 +36,7 @@ import {
 } from "@repo/coach";
 import { captureDraft, fileDraft, fileDraftAsTask, fileDraftAsJournal, inboxDrafts } from "./drafts.ts";
 import { noteHref, taskHref } from "@repo/domain";
-import { coachCloseDay, coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
+import { coachThread, saveMessage, threadMessages } from "./coach-threads.ts";
 import { createArea } from "./areas.ts";
 import {
   coachModel,
