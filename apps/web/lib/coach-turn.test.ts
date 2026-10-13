@@ -806,6 +806,30 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.match(promptText(next), /Mood: not recorded\.\nAnswers appended: 0\.\nDrafts filed: \[\]\.\nRefused last turn: setMood \(no explicit mood\)\./);
   });
 
+  // A Note filing that names its Notebook by both name and id (as listNotebooks returns it) must file once, cleanly.
+  test("Coach Note filing with a Notebook name and id files without a failure receipt", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const ideas = await createNotebook(c, "Ideas", db);
+    await captureDraft(c, "Draft E note", db);
+    const [draft] = await inboxDrafts(c, db);
+    const both = JSON.stringify({ draftId: draft!.id, destination: { kind: "note", notebook: "Ideas", notebookId: ideas.id } });
+    await turn(c, thread, userMessage("Please file my Inbox draft 'Draft E note' as a Note in my Ideas notebook."),
+      scripted({ listNotebooks: "{}" }, { fileDraft: both }, { text: "Filed." }));
+    const last = (await threadMessages(c, thread, db))!.at(-1)!;
+    const receipts = receiptsOf([last])!;
+    assert.ok(receipts.includes("Filed draft as Note 'Draft E note'"), receipts.join(" | "));
+    assert.ok(!receipts.includes("Couldn't file that draft"), receipts.join(" | "));
+    assert.equal((await listNotes(c, ideas.id, db)).length, 1);
+    await captureDraft(c, "Draft F note", db);
+    const [other] = await inboxDrafts(c, db);
+    const mismatch = JSON.stringify({ draftId: other!.id, destination: { kind: "note", notebook: "Recipes", notebookId: ideas.id } });
+    await turn(c, thread, userMessage("File 'Draft F note' in Recipes."), scripted({ fileDraft: mismatch }, { text: "Which Notebook?" }));
+    const refused = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.ok(refused.parts.some((part) => part.type === "tool-fileDraft" && part.state === "output-error"), JSON.stringify(refused.parts));
+    assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.id), [other!.id]);
+  });
+
   // c: a reply whose filing committed must not also carry a failure receipt for that same filing.
   test("D4c: a refused fileDraft call followed by the committed one shows only the success receipt", async () => {
     const c = await account();

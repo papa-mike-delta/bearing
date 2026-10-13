@@ -85,12 +85,17 @@ export async function fileDraft(userId: string, input: FileDraftInput & { today:
     let notebookId: string | undefined;
     if (destination.kind === "note") {
       notebookId = destination.notebookId;
-      if (!notebookId) {
-        const books = await tx.select({ id: notebooks.id, name: notebooks.name }).from(notebooks)
-          .where(eq(notebooks.userId, userId)).orderBy(asc(notebooks.name), asc(notebooks.id));
+      const books = await tx.select({ id: notebooks.id, name: notebooks.name }).from(notebooks)
+        .where(eq(notebooks.userId, userId)).orderBy(asc(notebooks.name), asc(notebooks.id));
+      if (destination.notebook) {
         const matches = books.filter((book) => book.name.toLowerCase() === destination.notebook!.toLowerCase());
-        if (matches.length !== 1) throw new DraftError("Choose one existing, unambiguous Notebook name or id.");
-        notebookId = matches[0]!.id;
+        if (notebookId && !matches.some((book) => book.id === notebookId)) {
+          throw new DraftError("That Notebook name and id don't match. Choose one existing Notebook.");
+        }
+        if (!notebookId) {
+          if (matches.length !== 1) throw new DraftError("Choose one existing, unambiguous Notebook name or id.");
+          notebookId = matches[0]!.id;
+        }
       }
     }
     const key = destination.kind === "task" ? JSON.stringify(["task", destination.name ?? null]) : JSON.stringify(["note", notebookId]);
