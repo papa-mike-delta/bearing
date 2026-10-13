@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { maxAreaNameLength, maxTaskNameLength, maxTaskNoteLength } from "@repo/domain";
+import {
+  linkEnd,
+  maxAreaNameLength,
+  maxTaskNameLength,
+  maxTaskNoteLength,
+  taskHref,
+} from "@repo/domain";
 import { z } from "zod";
 import type { ToolRunContext } from "../data.ts";
 
@@ -38,12 +44,11 @@ export const createTask = {
     if (result === null) return { refused: true as const };
     const tasks = await data.listOpenTasks(userId);
     const areaName = tasks.find((task) => task.id === result.id)?.area;
-    const next = tasks.find(
-      (task) => task.isNext && task.area === areaName,
-    );
+    const next = tasks.find((task) => task.isNext && task.area === areaName);
     return {
       id: result.id,
       name: result.name,
+      ...(linkEnd("task", result.id) ? { href: taskHref(result.id) } : {}),
       next: next ? { id: next.id, name: next.name } : null,
     };
   },
