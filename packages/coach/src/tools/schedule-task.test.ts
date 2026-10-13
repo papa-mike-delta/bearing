@@ -9,6 +9,9 @@ const messageId = "11111111-1111-4111-8111-111111111111";
 function fake(result: { id: string; name: string } | null) {
   const calls: { userId: string; taskId: string; date: string }[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [
         {

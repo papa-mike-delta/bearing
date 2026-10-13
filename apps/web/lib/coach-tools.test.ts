@@ -18,6 +18,10 @@ import {
 } from "./coach-tools.ts";
 
 const unusedWrites = {
+  // No Mood recorded; required by CoachData.
+  async getMood() {
+    return null;
+  },
   async createTask() {
     throw new Error("createTask should not run");
   },
@@ -32,7 +36,7 @@ const unusedWrites = {
   },
 } satisfies Pick<
   CoachData,
-  "createTask" | "completeTask" | "scheduleTask" | "updateTask"
+  "getMood" | "createTask" | "completeTask" | "scheduleTask" | "updateTask"
 >;
 
 const messageId = "11111111-1111-4111-8111-111111111111";
@@ -215,6 +219,9 @@ test("createTask passes Coach provenance with a resend-safe source id", async ()
   const userId = randomUUID();
   const calls: unknown[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },
@@ -276,6 +283,9 @@ test("createTask passes Coach provenance with a resend-safe source id", async ()
 test("a createTask database error reaches the model as a fixed sentence", async () => {
   const userId = randomUUID();
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },
@@ -372,6 +382,9 @@ test("a second completeTask in one tools instance is refused before data", async
   const taskId = randomUUID();
   let completes = 0;
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },
@@ -409,6 +422,9 @@ test("a second completeTask in one tools instance is refused before data", async
 test("a completeTask database error reaches the model as a fixed sentence", async () => {
   const userId = randomUUID();
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },
@@ -596,6 +612,9 @@ test("parallel updateTask calls and an extra completeTask complete at most one T
   let updates = 0;
   let completed = 0;
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },

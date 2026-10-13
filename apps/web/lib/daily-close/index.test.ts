@@ -15,7 +15,8 @@ import { createArea } from "../areas.ts";
 import { captureDraft, inboxDrafts } from "../drafts.ts";
 import { getJournalDay, saveJournalDay } from "../journal.ts";
 import { getMood } from "../mood.ts";
-import { dailyCloseDay, prepareDailyCloseTurn, type DailyCloseTurn } from "./index.ts";
+import { normalTurnToolNames } from "../coach-normal-turn.ts";
+import { dailyCloseDay, prepareCoachTurn, type CoachTurn } from "./index.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) {
@@ -41,19 +42,19 @@ const refused = (reason: string) => (error: unknown) => {
 };
 
 // Execute the actual tool object returned to coachTurn, with its stored context.
-function call(turn: DailyCloseTurn, name: keyof DailyCloseTurn["tools"]) {
+function call(turn: CoachTurn, name: keyof CoachTurn["tools"]) {
   return {
     toolCallId: randomUUID(), messages: [], context: turn.toolsContext[name as keyof typeof turn.toolsContext],
   };
 }
-const append = async (turn: DailyCloseTurn, text = "model-selected fragment", targetDay = day) =>
+const append = async (turn: CoachTurn, text = "model-selected fragment", targetDay = day) =>
   turn.tools.appendJournal.execute!({ day: targetDay, text }, call(turn, "appendJournal"));
-const mood = async (turn: DailyCloseTurn, choice: "Good" | "Okay" | "Very good" | null) =>
+const mood = async (turn: CoachTurn, choice: "Good" | "Okay" | "Very good" | null) =>
   turn.tools.setMood.execute!({ day, mood: choice }, call(turn, "setMood"));
-const file = async (turn: DailyCloseTurn, draftId: string) =>
+const file = async (turn: CoachTurn, draftId: string) =>
   turn.tools.fileDraft.execute!({ draftId, destination: { kind: "journal", day } }, call(turn, "fileDraft"));
 
-function assertCloseTools(turn: DailyCloseTurn) {
+function assertCloseTools(turn: CoachTurn) {
   assert.deepEqual(Object.keys(turn.tools).sort(), closeTools);
   assert.deepEqual([...turn.activeTools].sort(), closeTools);
 }
@@ -88,7 +89,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
   ) {
     const earlier = (await threadMessages(owner.userId, owner.threadId, db))!;
     const resend = earlier.at(-1)?.id === incoming.id;
-    const result = await prepareDailyCloseTurn({
+    const result = await prepareCoachTurn({
       ...owner, message: incoming, prior: resend ? earlier.slice(0, -1) : earlier,
       resend, today, db, ...options,
     });
@@ -99,6 +100,17 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
   async function reply(owner: { userId: string; threadId: string }, incoming: ReturnType<typeof message>, parts: UIMessage["parts"]) {
     assert.equal(await saveMessage(owner.userId, owner.threadId, { id: randomUUID(), role: "assistant", parts }, db, incoming.id), true);
   }
+
+  test("a normal turn gets the Coach tools and prompt, with no close mode", async () => {
+    const owner = await account();
+    const turn = await prepare(owner, message("What should I focus on today?"));
+    assert.deepEqual([...turn.activeTools], [...normalTurnToolNames]);
+    for (const name of turn.activeTools) assert.ok(name in turn.tools, `${name} is executable`);
+    for (const name of ["finishDailyClose", "readJournalDay", "getJournalTemplate"]) assert.equal(name in turn.tools, false);
+    assert.equal(turn.system, coachSystemPrompt(today));
+    assert.doesNotMatch(turn.system, /user-initiated Daily close|Daily close cancelled/);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), null);
+  });
 
   test("start -> answer -> skip -> cancel preserves writes, progress, selected day and exact tool exposure", async () => {
     const owner = await account();
@@ -240,7 +252,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     const base = coachData(db, today);
     const data: CoachData = {
       ...base,
-      async getMood(userId, selectedDay) { reads.push({ userId, day: selectedDay }); return base.getMood!(userId, selectedDay); },
+      async getMood(userId, selectedDay) { reads.push({ userId, day: selectedDay }); return base.getMood(userId, selectedDay); },
       async setMood(userId, input) { writes++; return base.setMood!(userId, input); },
     };
     await prepare(owner, message("Daily close"), { closeDay: day, data });
@@ -319,11 +331,11 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
   test("day validation and failed pre-save reads leave the message and reload mode untouched", async () => {
     const owner = await account();
     for (const closeDay of ["2026-02-30", "2026-10-10", "today", ""]) {
-      assert.deepEqual(await prepareDailyCloseTurn({ ...owner, message: message("Daily close"), prior: [], resend: false, today, closeDay, db }), { refused: 400 });
+      assert.deepEqual(await prepareCoachTurn({ ...owner, message: message("Daily close"), prior: [], resend: false, today, closeDay, db }), { refused: 400 });
       assert.deepEqual(await threadMessages(owner.userId, owner.threadId, db), []);
     }
     const base = coachData(db, today);
-    await assert.rejects(() => prepareDailyCloseTurn({
+    await assert.rejects(() => prepareCoachTurn({
       ...owner, message: message("Daily close"), prior: [], resend: false, today, closeDay: day, db,
       data: { ...base, async getMood() { throw new Error("Mood read failed"); } },
     }), /Mood read failed/);

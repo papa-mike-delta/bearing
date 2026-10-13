@@ -5,7 +5,6 @@ import { and, asc, count, eq, gte, sql } from "drizzle-orm";
 import type { Db } from "../db.ts";
 
 async function readMood(data: CoachData, userId: string, day: string) {
-  if (!data.getMood) throw new Error("Mood is unavailable.");
   return data.getMood(userId, day);
 }
 

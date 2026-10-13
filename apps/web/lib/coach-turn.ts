@@ -17,7 +17,7 @@ import {
   type UIMessage,
 } from "ai";
 import { saveMessage, threadMessages } from "./coach-threads.ts";
-import { prepareDailyCloseTurn } from "./daily-close/index.ts";
+import { prepareCoachTurn } from "./daily-close/index.ts";
 import { isUuid, type Db } from "./db.ts";
 
 // The Gateway model id. Swap models by changing COACH_MODEL.
@@ -110,7 +110,7 @@ export async function coachTurn({
   };
   const thread = threadId as string;
   const prior = resent === -1 ? earlier : earlier.slice(0, -1);
-  const prepared = await prepareDailyCloseTurn({
+  const prepared = await prepareCoachTurn({
     userId, threadId: thread, message: incoming, prior, resend: resent !== -1,
     today, closeDay: requestedCloseDay, db, data: suppliedData,
   });

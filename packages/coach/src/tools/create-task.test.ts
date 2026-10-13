@@ -22,6 +22,9 @@ function fake(
     from: { source: string; sourceId: string };
   }[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return open;
     },

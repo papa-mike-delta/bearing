@@ -14,6 +14,9 @@ function fake(result: { id: string; name: string } | null) {
     input: Record<string, unknown>;
   }[] = [];
   const data: CoachData = {
+    async getMood() {
+      return null;
+    },
     async listOpenTasks() {
       return [];
     },

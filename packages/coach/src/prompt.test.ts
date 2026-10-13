@@ -113,7 +113,7 @@ test("knowledge titles are listed and the article bodies are not", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
-  assert.ok(prompt.includes("Bearing has Tasks, not habits yet"));
+  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
   assert.equal(prompt.includes("You can create a habit"), false);
