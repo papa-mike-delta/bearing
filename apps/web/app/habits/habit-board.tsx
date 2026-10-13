@@ -112,7 +112,7 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
         <caption className="sr-only">Daily habits for {weekLabel(week)}</caption>
         <thead><tr>
           <th className="habit-name" scope="col">Habit</th>
-          {days.map((day, index) => <th key={day} className="day" scope="col" aria-current={day === today ? "date" : undefined}>{weekdays[index]}<span className="day-number">{Number(day.slice(8))}</span></th>)}
+          {days.map((day, index) => <th key={day} className="day" scope="col" aria-current={day === today ? "date" : undefined}><span className="day-long">{weekdays[index]}</span><span className="day-short" aria-hidden="true">{weekdays[index]![0]}</span><span className="day-number">{Number(day.slice(8))}</span></th>)}
           <th className="habit-stat" scope="col">Streak</th>
           <th className="habit-stat" scope="col">Record</th>
         </tr></thead>

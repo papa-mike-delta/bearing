@@ -15,6 +15,8 @@ test("habit questions hit one section, its title, and the source line", async ()
   const cases = [
     ["21 days", "How long does a habit take? Not 21 days", "Lally"],
     ["missed a day", "Missed a day? It does not reset the habit", "does not mean"],
+    ["Does a habit really take 21 days?", "How long does a habit take? Not 21 days", "Lally"],
+    ["how long do habits take to form", "How long does a habit take? Not 21 days", "Lally"],
     ["if-then", "If-then plans (implementation intentions) for getting started", "Gollwitzer"],
   ] as const;
   for (const [query, heading, needle] of cases) {
@@ -31,6 +33,9 @@ test("an unrelated query does not match, and another article still can", async (
   const corpus = await articles();
   assert.equal(searchKnowledgeArticles(corpus, "quantum physics"), null);
   assert.equal(searchKnowledgeArticles(corpus, ""), null);
+  assert.deepEqual(searchKnowledgeArticles(corpus, "Does a habit really take?"), searchKnowledgeArticles(corpus, "habit take"));
+  assert.equal(searchKnowledgeArticles(corpus, "What is the best stock to buy in 2026?"), null);
+  assert.equal(searchKnowledgeArticles(corpus, "does it really?"), null);
   const gratitude = searchKnowledgeArticles(corpus, "gratitude");
   assert.equal(gratitude?.title, "Journaling: evidence and limits");
   assert.equal(gratitude?.heading, "Gratitude");
