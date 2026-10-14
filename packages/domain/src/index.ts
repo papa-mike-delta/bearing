@@ -3,6 +3,9 @@
 
 export * from "./areas.ts";
 export * from "./draft.ts";
+// The filing schema builds zod at import time, so it has its own entry
+// (@repo/domain/draft-filing) to keep zod out of client bundles. Types are free.
+export type { FileDraftInput, FiledDraft } from "./draft-filing.ts";
 export * from "./habit.ts";
 export * from "./link.ts";
 export * from "./note.ts";

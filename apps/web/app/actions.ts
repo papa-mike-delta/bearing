@@ -18,7 +18,8 @@ import {
 } from "../lib/account-theme-store";
 import { hashPassword, parseCredentials } from "../lib/credentials";
 import { changePassword } from "../lib/password";
-import { captureDraft, fileDraftAsTask } from "../lib/drafts";
+import { captureDraft } from "../lib/drafts";
+import { fileDraftAsTask } from "../lib/draft-filing/index";
 import { expandPreset } from "../lib/expand-preset";
 import {
   createArea,

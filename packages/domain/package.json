@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./draft-filing": "./src/draft-filing.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -14,5 +15,8 @@
     "@repo/typescript-config": "*",
     "@types/node": "26.4.1",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
   }
 }
