@@ -1,13 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useState, useTransition, type KeyboardEvent } from "react";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import type {
@@ -18,12 +12,8 @@ import type {
   RelatedLists,
 } from "@repo/domain";
 import { localToday } from "../lib/today";
-import { acceptResponse, matchesQuery } from "../lib/link-picker";
-import {
-  createLink,
-  deleteLink,
-  findLinkTargets,
-} from "../app/related-actions";
+import { useRelatedPicker } from "../lib/use-related-picker";
+import { createLink, deleteLink } from "../app/related-actions";
 
 const kindLabel: Record<LinkKind, string> = {
   task: "Task",
@@ -87,51 +77,15 @@ export function Related({
   initial: RelatedLists;
 }) {
   const [lists, setLists] = useState(initial);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<PickerHit[]>([]);
-  const [more, setMore] = useState(false);
-  const [active, setActive] = useState(0);
+  const { open, query, hits, more, active, dispatch } =
+    useRelatedPicker(source);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  const requestId = useRef(0);
-  const queryRef = useRef(query);
-  queryRef.current = query;
 
   useEffect(() => {
     setLists(initial);
   }, [initial]);
-
-  useEffect(() => {
-    if (!open) return;
-    setHits([]);
-    setActive(0);
-    setMore(false);
-    let cancel = false;
-    const id = ++requestId.current;
-    const requestedQuery = query;
-    const handle = setTimeout(() => {
-      void findLinkTargets(
-        requestedQuery,
-        0,
-        localToday(),
-        source.kind,
-        source.id,
-      ).then((page) => {
-        if (cancel) return;
-        if (!acceptResponse(requestId.current, id)) return;
-        if (requestedQuery !== queryRef.current) return;
-        setHits(page.hits.filter((hit) => matchesQuery(hit, requestedQuery)));
-        setMore(page.more);
-        setActive(0);
-      });
-    }, 150);
-    return () => {
-      cancel = true;
-      clearTimeout(handle);
-    };
-  }, [open, query, source.kind, source.id]);
 
   function choose(hit: PickerHit) {
     setError("");
@@ -150,8 +104,7 @@ export function Related({
       }
       setLists(result.related);
       setNotice(result.exists ? "That link already exists." : "");
-      setOpen(false);
-      setQuery("");
+      dispatch({ type: "reset" });
     });
   }
 
@@ -168,16 +121,16 @@ export function Related({
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((index) => Math.min(hits.length - 1, index + 1));
+      dispatch({ type: "move", direction: 1 });
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => Math.max(0, index - 1));
+      dispatch({ type: "move", direction: -1 });
     } else if (event.key === "Enter" && hits[active]) {
       event.preventDefault();
       choose(hits[active]);
     } else if (event.key === "Escape") {
       event.preventDefault();
-      setOpen(false);
+      dispatch({ type: "cancel" });
     }
   }
 
@@ -201,15 +154,9 @@ export function Related({
         }
         value={query}
         placeholder="Task name, note title, or date"
-        onChange={(event) => {
-          const next = event.target.value;
-          queryRef.current = next;
-          requestId.current += 1;
-          setQuery(next);
-          setHits([]);
-          setActive(0);
-          setMore(false);
-        }}
+        onChange={(event) =>
+          dispatch({ type: "query", value: event.target.value })
+        }
         onKeyDown={onKeyDown}
         autoFocus
       />
@@ -238,34 +185,7 @@ export function Related({
           type="button"
           variant="ghost"
           size="xs"
-          onClick={() => {
-            const id = ++requestId.current;
-            const requestedQuery = query;
-            void findLinkTargets(
-              requestedQuery,
-              hits.length,
-              localToday(),
-              source.kind,
-              source.id,
-            ).then((page) => {
-              if (!acceptResponse(requestId.current, id)) return;
-              if (requestedQuery !== queryRef.current) return;
-              setHits((current) => {
-                const seen = new Set(
-                  current.map((hit) => `${hit.kind}:${hit.id}`),
-                );
-                return [
-                  ...current,
-                  ...page.hits.filter(
-                    (hit) =>
-                      !seen.has(`${hit.kind}:${hit.id}`) &&
-                      matchesQuery(hit, requestedQuery),
-                  ),
-                ];
-              });
-              setMore(page.more);
-            });
-          }}
+          onClick={() => dispatch({ type: "more" })}
         >
           More
         </Button>
@@ -274,7 +194,7 @@ export function Related({
         type="button"
         variant="outline"
         size="xs"
-        onClick={() => setOpen(false)}
+        onClick={() => dispatch({ type: "cancel" })}
       >
         Cancel
       </Button>
@@ -285,7 +205,7 @@ export function Related({
       variant="outline"
       size="sm"
       onClick={() => {
-        setOpen(true);
+        dispatch({ type: "open" });
         setNotice("");
         setError("");
       }}
