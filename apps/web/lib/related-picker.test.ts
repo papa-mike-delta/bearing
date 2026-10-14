@@ -522,3 +522,29 @@ test("subscribers see synchronous intent updates and accepted results; unsubscri
   picker.dispatch({ type: "cancel" });
   assert.equal(listener.mock.callCount(), 1);
 });
+
+test("Escape resets like a pick: closed, query cleared, reopen lists recent targets", async () => {
+  const { picker, requests } = setup();
+  picker.dispatch({ type: "open" });
+  picker.dispatch({ type: "query", value: "Plan" });
+  mock.timers.tick(150);
+  requests[0]!.resolve({ hits: [plan], more: true });
+  await Promise.resolve();
+  picker.dispatch({ type: "move", direction: 1 });
+  picker.dispatch({ type: "reset" });
+  assert.deepEqual(
+    {
+      open: picker.getSnapshot().open,
+      query: picker.getSnapshot().query,
+      hits: picker.getSnapshot().hits,
+      more: picker.getSnapshot().more,
+      active: picker.getSnapshot().active,
+    },
+    { open: false, query: "", hits: [], more: false, active: 0 },
+  );
+  picker.dispatch({ type: "open" });
+  mock.timers.tick(150);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1]!.query, "");
+  assert.equal(requests[1]!.offset, 0);
+});

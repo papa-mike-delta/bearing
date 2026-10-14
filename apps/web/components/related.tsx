@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import type {
@@ -82,6 +88,24 @@ export function Related({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
+  const addLinkRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  const linked = new Set(
+    lists.outgoing.map((item) => `${item.kind}:${item.id}`),
+  );
+
+  // After a pick or Escape the picker unmounts; put focus back on Add link
+  // instead of letting it drop to the body.
+  useEffect(() => {
+    if (open || !returnFocus.current) return;
+    returnFocus.current = false;
+    addLinkRef.current?.focus();
+  }, [open]);
+
+  function close() {
+    returnFocus.current = true;
+    dispatch({ type: "reset" });
+  }
 
   useEffect(() => {
     setLists(initial);
@@ -104,7 +128,7 @@ export function Related({
       }
       setLists(result.related);
       setNotice(result.exists ? "That link already exists." : "");
-      dispatch({ type: "reset" });
+      close();
     });
   }
 
@@ -130,7 +154,7 @@ export function Related({
       choose(hits[active]);
     } else if (event.key === "Escape") {
       event.preventDefault();
-      dispatch({ type: "cancel" });
+      close();
     }
   }
 
@@ -167,6 +191,7 @@ export function Related({
             id={`link-hit-${hit.kind}-${hit.id}`}
             role="option"
             aria-selected={index === active}
+            className="related-hit"
           >
             <button
               type="button"
@@ -176,6 +201,7 @@ export function Related({
               {kindLabel[hit.kind]}: {hit.label}
               {hit.detail ? ` · ${hit.detail}` : ""}
               {hit.completed ? " · Completed" : ""}
+              {linked.has(`${hit.kind}:${hit.id}`) ? " · Linked" : ""}
             </button>
           </li>
         ))}
@@ -201,6 +227,7 @@ export function Related({
     </div>
   ) : (
     <Button
+      ref={addLinkRef}
       type="button"
       variant="outline"
       size="sm"
