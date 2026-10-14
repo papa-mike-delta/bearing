@@ -1,4 +1,5 @@
-import { fileDraftInputSchema as inputSchema, noteHref, taskHref, type FileDraftInput } from "@repo/domain";
+import { noteHref, taskHref } from "@repo/domain";
+import { fileDraftInputSchema as inputSchema, type FileDraftInput } from "@repo/domain/draft-filing";
 import { z } from "zod";
 import type { ToolRunContext } from "../data.ts";
 import { resolveCoachJournalDay } from "./append-journal.ts";

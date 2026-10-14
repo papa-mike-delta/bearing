@@ -12,7 +12,8 @@ const journalDaySchema = z.union([
 const destinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("task"), name: z.string().trim().min(1).max(maxTaskNameLength).optional() }),
   z.strictObject({ kind: z.literal("note"), notebook: z.string().trim().min(1).max(maxNoteNameLength).optional(), notebookId: z.uuid().optional() })
-    .refine((input) => Boolean(input.notebook) !== Boolean(input.notebookId), "Choose one Notebook name or id."),
+    // Name and id together (as listNotebooks returns them) are accepted when they agree.
+    .refine((input) => Boolean(input.notebook) || Boolean(input.notebookId), "Choose a Notebook name or id."),
   z.strictObject({ kind: z.literal("journal"), day: journalDaySchema }),
 ]);
 export const fileDraftInputSchema = z.strictObject({ draftId: z.uuid(), destination: destinationSchema });

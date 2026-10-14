@@ -1,5 +1,6 @@
 import { db as defaultDb, draftFilings, drafts, notebooks } from "@repo/db";
-import { draftNoteTitle, draftToTask, fileDraftInputSchema, type FileDraftInput, type FiledDraft } from "@repo/domain";
+import { draftNoteTitle, draftToTask } from "@repo/domain";
+import { fileDraftInputSchema, type FileDraftInput, type FiledDraft } from "@repo/domain/draft-filing";
 import { and, asc, eq, TransactionRollbackError } from "drizzle-orm";
 import { isUuid, type Db } from "../db.ts";
 import { isJournalDay } from "../journal-day.ts";
@@ -12,7 +13,7 @@ const differentDestination = "That draft was already filed to a different destin
 type Draft = typeof drafts.$inferSelect & { sourceId: string };
 type TaskInput = { today: string; area?: string; name?: string };
 
-// All filing paths cross this seam: one owned row lock, one transaction, and
+// Every filing path crosses this seam: one owned row lock, one transaction, and
 // no destination writer opens another transaction or acquires the Draft lock.
 async function withDraft<T>(userId: string, draftId: string, db: Db, run: (draft: Draft | undefined, tx: Db) => Promise<T>) {
   return db.transaction(async (tx) => {
@@ -71,6 +72,8 @@ export async function fileDraft(userId: string, input: FileDraftInput & { today:
   return withDraft(userId, draftId, db, async (draft, tx) => {
     if (!draft) throw new DraftError("Draft not found.");
     const identity = and(eq(draftFilings.userId, userId), eq(draftFilings.draftId, draftId));
+    // Journal filings are recorded in journal_operations (by appendJournalInTransaction),
+    // not draft_filings. This check only stops a Task/Note-filed draft being re-filed to a Journal.
     if (destination.kind === "journal") {
       const [filed] = await tx.select().from(draftFilings).where(identity);
       if (filed) throw new DraftError(differentDestination);
@@ -82,12 +85,17 @@ export async function fileDraft(userId: string, input: FileDraftInput & { today:
     let notebookId: string | undefined;
     if (destination.kind === "note") {
       notebookId = destination.notebookId;
-      if (!notebookId) {
-        const books = await tx.select({ id: notebooks.id, name: notebooks.name }).from(notebooks)
-          .where(eq(notebooks.userId, userId)).orderBy(asc(notebooks.name), asc(notebooks.id));
+      const books = await tx.select({ id: notebooks.id, name: notebooks.name }).from(notebooks)
+        .where(eq(notebooks.userId, userId)).orderBy(asc(notebooks.name), asc(notebooks.id));
+      if (destination.notebook) {
         const matches = books.filter((book) => book.name.toLowerCase() === destination.notebook!.toLowerCase());
-        if (matches.length !== 1) throw new DraftError("Choose one existing, unambiguous Notebook name or id.");
-        notebookId = matches[0]!.id;
+        if (notebookId && !matches.some((book) => book.id === notebookId)) {
+          throw new DraftError("That Notebook name and id don't match. Choose one existing Notebook.");
+        }
+        if (!notebookId) {
+          if (matches.length !== 1) throw new DraftError("Choose one existing, unambiguous Notebook name or id.");
+          notebookId = matches[0]!.id;
+        }
       }
     }
     const key = destination.kind === "task" ? JSON.stringify(["task", destination.name ?? null]) : JSON.stringify(["note", notebookId]);

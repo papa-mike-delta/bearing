@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./draft-filing": "./src/draft-filing.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

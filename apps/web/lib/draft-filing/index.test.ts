@@ -98,6 +98,27 @@ describe("Draft filing interface (Postgres)", { skip: !url && "TEST_POSTGRES_URL
     });
   }
 
+  test("another account cannot file a Draft through any of the four filing paths", async () => {
+    const owner = await account();
+    const intruder = await account();
+    const captured = await draft(owner.userId);
+    await Promise.allSettled([
+      fileDraft(intruder.userId, { draftId: captured.id, destination: { kind: "task" }, today }, db),
+      fileDraftAsTask(intruder.userId, captured.id, db, { today }),
+      fileDraftAsNote(intruder.userId, captured.id, { notebookId: intruder.book.id, title: "Stolen" }, db),
+      fileDraftAsJournal(intruder.userId, captured.id, { day: today, today }, db),
+    ]);
+    await assert.rejects(fileDraft(intruder.userId, { draftId: captured.id, destination: { kind: "note", notebookId: intruder.book.id }, today }, db), /Draft not found/);
+    assert.equal((await db.select().from(drafts).where(eq(drafts.id, captured.id)))[0]?.workspace, "inbox");
+    assert.equal((await db.select().from(draftFilings).where(eq(draftFilings.draftId, captured.id))).length, 0);
+    assert.equal((await db.select().from(journalOperations).where(eq(journalOperations.operationId, captured.id))).length, 0);
+    for (const userId of [owner.userId, intruder.userId]) {
+      assert.equal((await openTasks(userId, db)).length, 0);
+      assert.equal((await db.select().from(notes).where(eq(notes.userId, userId))).length, 0);
+      assert.equal(await getJournalDay(userId, today, db), null);
+    }
+  });
+
   test("screen Note titles, live Note replay and Task Area choice survive Coach replay", async () => {
     const { userId, book } = await account();
     const secondArea = (await createArea(userId, "Work", db))!;
