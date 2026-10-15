@@ -22,6 +22,18 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
+    "web#build": {
+      "dependsOn": ["^build", "@repo/db#db:migrate:vercel", "web#check-types"],
+      "passThroughEnv": [
+        "VERCEL",
+        "VERCEL_ENV",
+        "VERCEL_DEPLOYMENT_ID",
+        "VERCEL_GIT_COMMIT_SHA",
+        "BEARING_VERCEL_BUILD"
+      ],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
+    },
     "@repo/db#db:migrate:vercel": {
       "cache": false,
       "passThroughEnv": [
