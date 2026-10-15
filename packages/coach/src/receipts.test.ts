@@ -3,6 +3,19 @@ import { test } from "node:test";
 import { taskHref } from "@repo/domain";
 import { receipt, shownParts } from "./receipts.ts";
 
+test("successful Task changes link to the Task and ignore untrusted output links", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  for (const [tool, label] of [["scheduleTask", "Scheduled"], ["updateTask", "Updated"], ["completeTask", "Completed"]]) {
+    const part = { type: `tool-${tool}`, state: "output-available", output: { id, name: "Call dentist", href: "https://untrusted.invalid" } };
+    assert.deepEqual(shownParts([part]), [
+      { key: "part-0", receipt: `${label} 'Call dentist'`, calls: 1, href: taskHref(id) },
+    ]);
+    assert.deepEqual(shownParts([{ ...part, output: { id: "invalid", name: "Call dentist" } }]), [
+      { key: "part-0", receipt: `${label} 'Call dentist'`, calls: 1 },
+    ]);
+  }
+});
+
 test("a listArea call reads as a one-line receipt", () => {
   const part = { type: "tool-listArea" };
   assert.equal(
@@ -263,7 +276,7 @@ test("a completeTask call reads as a one-line receipt", () => {
   );
 });
 
-test("a successful create links to the Priority List; a complete does not", () => {
+test("legacy outputs link creates to the Priority List and keep completion text without an id", () => {
   assert.deepEqual(
     shownParts([
       created("c1", { id: "t1", name: "Call dentist" }),

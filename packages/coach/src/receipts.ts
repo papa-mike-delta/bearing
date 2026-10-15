@@ -26,6 +26,11 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
 
 type Line = { line: string; href?: string };
 
+function taskReceipt(line: string, output: unknown): Line {
+  const id = (output as { id?: unknown } | undefined)?.id;
+  return { line, ...(typeof id === "string" && receiptId.test(id) ? { href: taskHref(id) } : {}) };
+}
+
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart): Line | null {
   if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
@@ -134,7 +139,7 @@ function show(part: ToolPart): Line | null {
     if (pending(part.state)) return { line: "Completing…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return { line: `Completed '${name}'` };
+      return taskReceipt(`Completed '${name}'`, part.output);
     }
     if (part.state === "output-available" && flag(part.output, "invalidId")) {
       return { line: "That Task id isn't valid" };
@@ -148,7 +153,7 @@ function show(part: ToolPart): Line | null {
     if (pending(part.state)) return { line: "Scheduling…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return { line: `Scheduled '${name}'` };
+      return taskReceipt(`Scheduled '${name}'`, part.output);
     }
     return { line: "Couldn't schedule that task" };
   }
@@ -156,7 +161,7 @@ function show(part: ToolPart): Line | null {
     if (pending(part.state)) return { line: "Updating…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return { line: `Updated '${name}'` };
+      return taskReceipt(`Updated '${name}'`, part.output);
     }
     return { line: "Couldn't update that task" };
   }
@@ -180,7 +185,8 @@ export type ShownPart =
 // stays its own line even when the next write looks the same. A receipt keeps
 // the tool-call id of its first call as its key. A successful create links to
 // the Task page when the stored output has that address, and to the Priority
-// List when it does not. A complete does not link.
+// List when it does not. Complete, schedule and update link when a valid Task
+// id is present in the successful output.
 // Every real failure keeps its receipt, even when a later call succeeds; a
 // Daily close refusal renders nothing (see show()).
 export function shownParts(parts: readonly Part[]): ShownPart[] {
