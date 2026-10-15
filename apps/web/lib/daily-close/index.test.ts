@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import { coachMessages, createDb, dayScores, journalOperations, users } from "@repo/db";
 import { CloseRefusal, coachSystemPrompt, shownParts, type CoachData } from "@repo/coach";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import type { UIMessage } from "ai";
 import { coachData } from "../coach-tools.ts";
@@ -266,7 +266,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     const opening = message("Daily close");
     const start = await prepare(owner, opening, { closeDay: day });
     const output = await start.tools.finishDailyClose.execute!({}, call(start, "finishDailyClose"));
-    assert.deepEqual(output, { finished: true, day });
+    assert.deepEqual(output, { finished: true, day, messageId: opening.id });
     // The no-write tool does not change domain data or the user's bound mode.
     assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
     assert.equal(await getJournalDay(owner.userId, day, db), null);
@@ -285,6 +285,39 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.ok(!normal.activeTools.includes("finishDailyClose"));
     const restarted = await prepare(owner, message("Daily close"), { closeDay: day });
     assertCloseTools(restarted);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+  });
+
+  test("legacy finish receipts tolerate timestamp drift and cannot end a newer turn", async () => {
+    const owner = await account();
+    const opening = message("Daily close");
+    await prepare(owner, opening, { closeDay: day });
+    await reply(owner, opening, [{ type: "tool-finishDailyClose", toolCallId: randomUUID(), state: "output-available", input: {}, output: { finished: true, day } }]);
+    const finish = (await threadMessages(owner.userId, owner.threadId, db))!.at(-1)!;
+    await db.update(coachMessages).set({ createdAt: sql`created_at + interval '2 milliseconds'` }).where(eq(coachMessages.id, finish.id));
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), null);
+    const fresh = await prepare(owner, message("Daily close"), { closeDay: day });
+    assert.match(fresh.system, /Answers appended: 0\./);
+    assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
+  });
+
+  test("an explicit new start resets an unfinished close and keeps that boundary on reload", async () => {
+    const owner = await account();
+    const opening = message("Daily close");
+    await prepare(owner, opening, { closeDay: day });
+    await reply(owner, opening, [{ type: "text", text: "Old question?" }]);
+    const incoming = message("Old answer");
+    const old = await prepare(owner, incoming);
+    await append(old);
+    await mood(await prepare(owner, message("Good")), "Good");
+    const start = await prepare(owner, message("Start Daily close"), { closeDay: day });
+    assert.match(start.system, /Answers appended: 0\./);
+    assert.match(start.system, /Mood: not recorded/);
+    assert.deepEqual(start.prior, []);
+    const resumed = await prepare(owner, message("skip"));
+    assert.match(resumed.system, /Answers appended: 0\./);
+    assert.match(resumed.system, /Mood: not recorded/);
+    assert.doesNotMatch(JSON.stringify(resumed.prior), /Old answer|Old question/);
     assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), day);
   });
 

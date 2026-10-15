@@ -70,7 +70,8 @@ function newMessageText(message: unknown) {
 // saved before the model runs and the reply when it
 // finishes, so a closed tab doesn't lose the turn: `saved` settles once both
 // are written. Stopping in the browser doesn't stop the model; the reply
-// still finishes and is saved.
+// still finishes and is saved. Browser EOF does not wait on persistence;
+// the route's after(saved) keeps that work alive independently.
 export async function coachTurn({
   userId,
   threadId,
@@ -116,7 +117,7 @@ export async function coachTurn({
   });
   if ("refused" in prepared) return prepared;
   const { tools, read } = prepared;
-  const messages = await historyForModel(prior, userMessage, tools, thread);
+  const messages = await historyForModel(prepared.prior, userMessage, tools, thread);
 
   // Start the model's view at a user message.
   const recent = messages.slice(-historyWindow);
@@ -151,10 +152,11 @@ export async function coachTurn({
   // failed tool call isn't one: the model sees the error and goes on, and the
   // reply is saved with a refused receipt.
   let failed = false;
+  let persistence: Promise<unknown> = Promise.resolve();
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream.pipeThrough(read.receipt).pipeThrough(
+    stream: result.stream.pipeThrough(read.receipt).pipeThrough(moodReceiptDays(prepared.toolsContext.setMood.today)).pipeThrough(
       failOnErrors((error) => {
         if (!failed) logTurnError(thread, model, error);
         failed = true;
@@ -167,14 +169,37 @@ export async function coachTurn({
     onError: (error) => error instanceof CloseRefusal ? error.message : "An error occurred.",
     originalMessages: messages,
     generateMessageId: () => crypto.randomUUID(),
-    onEnd: async ({ responseMessage, outcome, finishReason }) => {
+    onEnd: ({ responseMessage, outcome, finishReason }) => {
       logTurn(thread, model, responseMessage, finishReason);
       if (!failed && outcome.status === "completed") {
-        await saveMessage(userId, thread, responseMessage, db, userMessage.id);
+        // The SDK awaits onEnd before EOF. Persistence belongs to saved/after,
+        // so a slow insert cannot leave useChat stuck in streaming status.
+        persistence = saveMessage(userId, thread, responseMessage, db, userMessage.id);
+        // Observe immediately; saved below still reports a rejected write.
+        void persistence.catch(() => {});
       }
     },
   }).tee();
-  return { stream, saved: readToEnd(ownCopy) };
+  return { stream, saved: readToEnd(ownCopy).then(() => persistence) };
+}
+
+// Preserve the resolved default day in the UI receipt input. This lets a
+// later success replace a failed retry even when the model omitted day or
+// used "today", including when the thread is reloaded on a different day.
+function moodReceiptDays(today: string) {
+  return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
+    transform(part, controller) {
+      if (part.type === "tool-call" && part.toolName === "setMood" &&
+        typeof part.input === "object" && part.input !== null) {
+        const input = part.input as Record<string, unknown>;
+        if (input.day === undefined || input.day === "today") {
+          controller.enqueue({ ...part, input: { ...input, day: today } });
+          return;
+        }
+      }
+      controller.enqueue(part);
+    },
+  });
 }
 
 // The thread as the model sees it: what was said, nothing else. Earlier tool

@@ -1,11 +1,11 @@
 // The one line a tool call shows as in the Coach thread. Takes a stored or
 // streamed tool part; null for parts that aren't a Coach tool call.
 
-import { coachMoods } from "./moods.ts";
+import { coachMoods, normalizeCoachMood } from "./moods.ts";
 import { isCalendarDay, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./close-refusal.ts";
 
-type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
+type ToolPart = { type: string; state?: string; input?: unknown; output?: unknown; errorText?: string };
 
 const receiptId =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -187,13 +187,22 @@ export type ShownPart =
 // the Task page when the stored output has that address, and to the Priority
 // List when it does not. Complete, schedule and update link when a valid Task
 // id is present in the successful output.
-// Every real failure keeps its receipt, even when a later call succeeds; a
-// Daily close refusal renders nothing (see show()).
+// A recovered mood attempt is replaced by the later success for that same
+// day and choice. Other failures remain; Daily close refusals are quiet.
 export function shownParts(parts: readonly Part[]): ShownPart[] {
   const shown: ShownPart[] = [];
   const lines = parts.map(show);
   let lastPart: Part | undefined;
   parts.forEach((part, i) => {
+    if (part.type === "tool-setMood" && part.state === "output-error") {
+      const input = part.input as { day?: unknown; mood?: unknown } | undefined;
+      if (typeof input?.day === "string" && isCalendarDay(input.day) && parts.slice(i + 1).some((later) => {
+        const output = later.output as { day?: unknown; mood?: unknown } | undefined;
+        return later.type === part.type && later.state === "output-available" &&
+          show(later)?.href && output?.day === input.day &&
+          output?.mood === normalizeCoachMood(input.mood);
+      })) return;
+    }
     if (part.type === "text") {
       shown.push({ key: `text-${i}`, text: part.text ?? "" });
       return;

@@ -8,7 +8,7 @@ import type { Db } from "../db.ts";
 import { isJournalDay } from "../journal-day.ts";
 import { coachMessageContext, closeProgress, latestCloseMessage } from "./postgres.ts";
 import { dailyClosePrompt, dailyCloseToolNames } from "./prompt.ts";
-import { cancelsClose, closeData, closeTools } from "./tools.ts";
+import { cancelsClose, closeData, closeTools, startsNewClose } from "./tools.ts";
 
 export type CoachTurnInput = {
   userId: string;
@@ -26,6 +26,7 @@ export type CoachTurnInput = {
 // The executable object is restricted at runtime. The combined vocabulary
 // preserves the SDK's inference for both modes, as in coachTurn before deepening.
 export type CoachTurn = {
+  prior: UIMessage[];
   tools: ReturnType<typeof coachTools> & ReturnType<typeof closeTools>;
   read: Awaited<ReturnType<typeof freshRead>>;
   system: string;
@@ -49,7 +50,8 @@ export async function prepareCoachTurn({
   const previousDay = previousPerson ? await dailyCloseDay(userId, thread, db, previousPerson.id) : null;
   const originalContext = !resend ? null : await coachMessageContext(userId, thread, incoming.id, db);
   const browserToday = originalContext ? originalContext.today : today;
-  const startsClose = !previousDay && !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text);
+  const startsClose = startsNewClose(incoming.text) || (!previousDay && !cancelsClose(incoming.text) && /\b(?:daily close|close (?:the|my) day)\b/i.test(incoming.text));
+  const freshClose = startsClose || !previousDay;
   const selectedDay = originalContext ? originalContext.closeDay
     : cancelsClose(incoming.text) ? null
     : startsClose ? (typeof closeDay === "string" ? closeDay : incoming.text.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0] ?? browserToday)
@@ -66,24 +68,26 @@ export async function prepareCoachTurn({
   if (selectedDay && !template) return { refused: 400 } as const;
   // Cancel returns to the normal prompt, carrying DB progress for the day
   // just closed. Read before saving the cancel's null mode boundary.
-  const progress = progressDay ? await closeProgress(userId, thread, progressDay as string, prior, incoming.id, readData, db) : "";
+  const progress = progressDay ? await closeProgress(userId, thread, progressDay as string, prior, incoming.id, readData, db, freshClose) : undefined;
+  const sessionPrior = progress?.startId ? prior.slice(prior.findIndex((m) => m.id === progress.startId)) : [];
   if (!(await saveMessage(userId, thread, userMessage, db, undefined, browserToday, selectedDay as string | null))) {
     return { refused: 409 } as const;
   }
   const context = await coachMessageContext(userId, thread, userMessage.id, db);
   if (!context) return { refused: 409 } as const;
   const baseData = suppliedData ?? coachData(db, context.today);
-  const data = progressDay ? closeData(baseData, progressDay as string, incoming.text, prior, incoming.id, !previousDay) : baseData;
+  const data = progressDay ? closeData(baseData, progressDay as string, incoming.text, sessionPrior, incoming.id, freshClose) : baseData;
   const allTools = coachTools(data);
   // The SDK infers keyof a union as only the common names. Give its types
   // the combined vocabulary; the actual object contains only this mode's
   // tools, so an unadvertised call has no handler and is rejected by the SDK.
-  const tools = (progressDay ? closeTools(allTools, data, userId, progressDay as string) : allTools) as
+  const tools = (progressDay ? closeTools(allTools, data, userId, progressDay as string, incoming.id) : allTools) as
     ReturnType<typeof coachTools> & ReturnType<typeof closeTools>;
   return {
+    prior: selectedDay ? sessionPrior : prior,
     tools,
     read,
-    system: context.closeDay ? dailyClosePrompt(context.today, context.closeDay, template!.template, progress) : normalTurnPrompt(context.today, progress),
+    system: context.closeDay ? dailyClosePrompt(context.today, context.closeDay, template!.template, progress?.text) : normalTurnPrompt(context.today, progress?.text),
     activeTools: progressDay ? [...dailyCloseToolNames] : [...normalTurnToolNames] as (keyof typeof tools)[],
     toolsContext: coachToolsContext(userId, incoming.id, context.today, context.messageCreatedAt),
   };

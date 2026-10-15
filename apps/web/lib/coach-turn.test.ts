@@ -27,7 +27,7 @@ import {
   type UIMessage,
 } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   coachCreateSourceId,
   maxCoachMessageLength,
@@ -430,6 +430,130 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     ]);
   });
 
+  test("Daily close normalizes mood labels before executing a single successful call", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What mood?"));
+    const model = scripted({ setMood: JSON.stringify({ day: "2026-10-09", mood: "good" }) }, { text: "Saved as Good." });
+    await turn(c, thread, userMessage("Good"), model);
+    assert.equal(await getMood(c, "2026-10-09", db), "Good");
+    const last = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.deepEqual(shownParts(last.parts).flatMap((p) => "receipt" in p ? [p.receipt] : []), ["Set mood Good for 2026-10-09"]);
+  });
+
+  test("Daily close hides a recovered mood failure for the same day and choice", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-09";
+    await turn(c, thread, userMessage("Daily close"), replying("What mood?"));
+    const base = coachData(db, day);
+    let attempts = 0;
+    await turn(c, thread, userMessage("Good"), scripted(
+      { setMood: JSON.stringify({ mood: "Good" }), toolCallId: "first" },
+      { setMood: JSON.stringify({ day, mood: "Good" }), toolCallId: "retry" },
+      { text: "Saved as Good." },
+    ), day, { ...base, async setMood(userId, input) {
+      if (++attempts === 1) throw new Error("Temporary write failure");
+      return base.setMood!(userId, input);
+    } });
+    const last = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.ok(last.parts.some((p) => p.type === "tool-setMood" && p.state === "output-error"));
+    assert.deepEqual(shownParts(last.parts).flatMap((p) => "receipt" in p ? [p.receipt] : []), [`Set mood Good for ${day}`]);
+    assert.equal(await getMood(c, day, db), "Good");
+  });
+
+  test("two closes on one day ask afresh, exclude previous progress, and both finish despite timestamp drift", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-09";
+    await captureDraft(c, "First close draft", db);
+    const [draft] = await inboxDrafts(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("First close question?"));
+    await turn(c, thread, userMessage("First close answer"), scripted(
+      { appendJournal: JSON.stringify({ text: "First close answer" }) }, { text: "What mood?" },
+    ));
+    await turn(c, thread, userMessage("Good"), scripted(
+      { setMood: JSON.stringify({ mood: "Good" }) }, { listInboxDrafts: "{}" },
+      { text: 'File "First close draft" in the Journal for 2026-10-09?' },
+    ));
+    await turn(c, thread, userMessage("Yes"), scripted(
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day } }) },
+      { finishDailyClose: "{}" }, { text: "First close finished." },
+    ));
+    const finished = (await threadMessages(c, thread, db))!.at(-1)!;
+    await db.update(coachMessages).set({ createdAt: sql`created_at + interval '2 milliseconds'` }).where(eq(coachMessages.id, finished.id));
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    const second = replying("What went well this time?");
+    await turn(c, thread, userMessage("Start Daily close"), second);
+    const prompt = promptText(second);
+    assert.match(prompt, /Answers appended: 0\./);
+    assert.match(prompt, /Mood: not recorded/);
+    assert.match(prompt, /Drafts filed: \[\]/);
+    assert.doesNotMatch(prompt, /First close answer|First close question|First close draft|First close finished/);
+    await turn(c, thread, userMessage("Second close answer"), scripted(
+      { appendJournal: JSON.stringify({ text: "Second close answer" }) }, { text: "Anything else?" },
+    ));
+    const finish = scripted({ listInboxDrafts: "{}" }, { finishDailyClose: "{}" }, { text: "Second close finished." });
+    await turn(c, thread, userMessage("Skip the rest"), finish);
+    assert.match(promptText(finish), /Answers appended: 1\./);
+    assert.doesNotMatch(promptText(finish), /First close answer/);
+    assert.equal(await coachCloseDay(c, thread, db), null);
+  });
+
+  test("journal filing confirmation streams and ends while reply persistence is waiting", { timeout: 5000 }, async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await captureDraft(c, "Draft call dentist", db);
+    const [draft] = await inboxDrafts(c, db);
+    await turn(c, thread, userMessage("Daily close"), scripted({ listInboxDrafts: "{}" }, { text: "Which draft?" }));
+    const confirmation = 'File "Draft call dentist" in the Journal for 2026-10-09?';
+    let release!: () => void;
+    let saving!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { saving = resolve; });
+    const insert = db.insert.bind(db);
+    const stub = mock.method(db, "insert", ((table: Parameters<typeof db.insert>[0]) => {
+      const builder = insert(table);
+      if (table !== coachMessages) return builder;
+      const values = builder.values.bind(builder);
+      builder.values = ((input: { role?: string }) => {
+        const query = values(input as Parameters<typeof values>[0]);
+        if (input.role !== "assistant") return query;
+        const returning = query.returning.bind(query);
+        query.returning = (() => {
+          saving();
+          return blocked.then(() => returning());
+        }) as typeof query.returning;
+        return query;
+      }) as typeof builder.values;
+      return builder;
+    }) as typeof db.insert);
+    try {
+      const result = await coachTurn({ userId: c, threadId: thread, message: userMessage('File "Draft call dentist" to the journal'), model: scripted(
+        { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day: "2026-10-09" } }) },
+        { text: confirmation },
+      ), db, today: "2026-10-09" });
+      assert.ok(!("refused" in result));
+      const read = (async () => {
+        const chunks = [];
+        for await (const chunk of result.stream) chunks.push(chunk);
+        return chunks;
+      })();
+      await entered;
+      const completed = await Promise.race([read, new Promise<null>((resolve) => setTimeout(() => resolve(null), 200))]);
+      release();
+      await read;
+      await result.saved;
+      assert.ok(completed, "browser stream must close without waiting for the assistant DB write");
+      assert.equal(completed.filter((c) => c.type === "text-delta").map((c) => c.delta).join(""), confirmation);
+      assert.ok(completed.some((c) => c.type === "finish"));
+      assert.equal((await inboxDrafts(c, db)).length, 1);
+    } finally {
+      release();
+      stub.mock.restore();
+    }
+  });
+
   test("finishing Daily close hides the banner mode and restores normal tools on the next turn", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
@@ -444,7 +568,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const saved = (await threadMessages(c, thread, db))!;
     const finish = saved.at(-1)!.parts.find((part) => part.type === "tool-finishDailyClose");
     assert.ok(finish && "output" in finish);
-    assert.deepEqual(finish.output, { finished: true, day });
+    assert.deepEqual(finish.output, { finished: true, day, messageId: saved.at(-2)!.id });
     assert.deepEqual(shownParts([finish]), []);
     assert.equal(await coachCloseDay(c, thread, db), null);
     assert.equal(await getJournalDay(c, day, db), null);

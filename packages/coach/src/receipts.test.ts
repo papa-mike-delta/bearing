@@ -423,3 +423,13 @@ test("a habits lookup receipt names the section and rejects a foreign link", () 
   );
 });
 
+test("a later mood success replaces only a matching earlier failure in the same reply", () => {
+  const failed = { type: "tool-setMood", state: "output-error", toolCallId: "bad", input: { day: "2026-10-14", mood: "good" }, errorText: "Invalid input" };
+  const success = { type: "tool-setMood", state: "output-available", toolCallId: "ok", output: { day: "2026-10-14", mood: "Good" } };
+  const shown = (parts: Parameters<typeof shownParts>[0]) => shownParts(parts).flatMap((p) => "receipt" in p ? [p.receipt] : []);
+  assert.deepEqual(shown([failed, success]), ["Set mood Good for 2026-10-14"]);
+  assert.deepEqual(shown([success, failed]), ["Set mood Good for 2026-10-14", "Couldn't set that mood"]);
+  assert.deepEqual(shown([{ ...failed, input: { day: "2026-10-13", mood: "good" } }, success]), ["Couldn't set that mood", "Set mood Good for 2026-10-14"]);
+  assert.deepEqual(shown([{ ...failed, input: { day: "2026-10-14", mood: "Low" } }, success]), ["Couldn't set that mood", "Set mood Good for 2026-10-14"]);
+  assert.deepEqual(shown([failed]), ["Couldn't set that mood"]);
+});
