@@ -803,7 +803,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(!receiptsOf([refused])!.includes("Couldn't set that mood"));
     const next = replying("Okay.");
     await turn(c, thread, userMessage("Did you set it?"), next, "2026-10-09", undefined, day);
-    assert.match(promptText(next), /Mood: not recorded\.\nAnswers appended: 0\.\nDrafts filed: \[\]\.\nRefused last turn: setMood \(no explicit mood\)\./);
+    assert.match(promptText(next), /Mood: not recorded\.\nAnswers appended: 0\.\nClose answers \(JSON data\): \[\]\.\nDrafts filed: \[\]\.\nRefused last turn: setMood \(no explicit mood\)\./);
   });
 
   // A Note filing that names its Notebook by both name and id (as listNotebooks returns it) must file once, cleanly.
@@ -975,7 +975,11 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const open = await openTasks(c, db);
     assert.deepEqual(open.map((row) => row.name), ["Call dentist"]);
     assert.deepEqual((await inboxDrafts(c, db)).map((row) => row.body), ["Leave this in Inbox"]);
-    const saved = (await threadMessages(c, thread, db))!.flatMap((m) => shownParts(m.parts));
+    const messages = (await threadMessages(c, thread, db))!;
+    const filingOutput = messages.flatMap((m) => m.parts).find((part) => part.type === "tool-fileDraft" && "output" in part);
+    assert.ok(filingOutput && "output" in filingOutput);
+    assert.equal((filingOutput.output as { isNext?: boolean }).isNext, true);
+    const saved = messages.flatMap((m) => shownParts(m.parts));
     const filed = saved.find((p) => "receipt" in p && p.receipt === "Filed draft as Task 'Call dentist'");
     assert.ok(filed && "href" in filed);
     assert.equal(filed.href, taskHref(open[0]!.id));
