@@ -156,7 +156,7 @@ export async function coachTurn({
   // One copy streams to the browser, the other is read here, so the reply is
   // still saved if the browser stops reading. Reasoning isn't sent or saved.
   const [stream, ownCopy] = toUIMessageStream({
-    stream: result.stream.pipeThrough(read.receipt).pipeThrough(moodReceiptDays(prepared.toolsContext.setMood.today)).pipeThrough(
+    stream: result.stream.pipeThrough(read.receipt).pipeThrough(
       failOnErrors((error) => {
         if (!failed) logTurnError(thread, model, error);
         failed = true;
@@ -176,30 +176,11 @@ export async function coachTurn({
         // so a slow insert cannot leave useChat stuck in streaming status.
         persistence = saveMessage(userId, thread, responseMessage, db, userMessage.id);
         // Observe immediately; saved below still reports a rejected write.
-        void persistence.catch(() => {});
+        void persistence.catch((error) => logTurnError(thread, model, error, "coach.turn.save_error"));
       }
     },
   }).tee();
   return { stream, saved: readToEnd(ownCopy).then(() => persistence) };
-}
-
-// Preserve the resolved default day in the UI receipt input. This lets a
-// later success replace a failed retry even when the model omitted day or
-// used "today", including when the thread is reloaded on a different day.
-function moodReceiptDays(today: string) {
-  return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
-    transform(part, controller) {
-      if (part.type === "tool-call" && part.toolName === "setMood" &&
-        typeof part.input === "object" && part.input !== null) {
-        const input = part.input as Record<string, unknown>;
-        if (input.day === undefined || input.day === "today") {
-          controller.enqueue({ ...part, input: { ...input, day: today } });
-          return;
-        }
-      }
-      controller.enqueue(part);
-    },
-  });
 }
 
 // The thread as the model sees it: what was said, nothing else. Earlier tool
@@ -314,14 +295,14 @@ function logTurn(
 // One line when a turn fails, for the runtime logs: the error's name, its
 // message and HTTP status (a provider or Gateway refusal carries both). No
 // user id, no request body, nothing the person wrote.
-function logTurnError(threadId: string, model: LanguageModel, error: unknown) {
+function logTurnError(threadId: string, model: LanguageModel, error: unknown, event = "coach.turn.error") {
   const { name, message, statusCode } =
     error instanceof Error
       ? (error as Error & { statusCode?: number })
       : { name: "Error", message: String(error), statusCode: undefined };
   console.error(
     JSON.stringify({
-      event: "coach.turn.error",
+      event,
       threadId,
       model: typeof model === "string" ? model : model.modelId,
       error: name,

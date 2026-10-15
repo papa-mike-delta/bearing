@@ -441,27 +441,6 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.deepEqual(shownParts(last.parts).flatMap((p) => "receipt" in p ? [p.receipt] : []), ["Set mood Good for 2026-10-09"]);
   });
 
-  test("Daily close hides a recovered mood failure for the same day and choice", async () => {
-    const c = await account();
-    const thread = await coachThread(c, db);
-    const day = "2026-10-09";
-    await turn(c, thread, userMessage("Daily close"), replying("What mood?"));
-    const base = coachData(db, day);
-    let attempts = 0;
-    await turn(c, thread, userMessage("Good"), scripted(
-      { setMood: JSON.stringify({ mood: "Good" }), toolCallId: "first" },
-      { setMood: JSON.stringify({ day, mood: "Good" }), toolCallId: "retry" },
-      { text: "Saved as Good." },
-    ), day, { ...base, async setMood(userId, input) {
-      if (++attempts === 1) throw new Error("Temporary write failure");
-      return base.setMood!(userId, input);
-    } });
-    const last = (await threadMessages(c, thread, db))!.at(-1)!;
-    assert.ok(last.parts.some((p) => p.type === "tool-setMood" && p.state === "output-error"));
-    assert.deepEqual(shownParts(last.parts).flatMap((p) => "receipt" in p ? [p.receipt] : []), [`Set mood Good for ${day}`]);
-    assert.equal(await getMood(c, day, db), "Good");
-  });
-
   test("two closes on one day ask afresh, exclude previous progress, and both finish despite timestamp drift", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
