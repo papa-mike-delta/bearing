@@ -4,10 +4,12 @@ import { tool, type UIMessage } from "ai";
 import { z } from "zod";
 import type { coachTools } from "../coach-tools.ts";
 import { dailyCloseToolNames } from "./prompt.ts";
+export { cancelsClose, startsNewClose } from "./state.ts";
+import { cancelsClose } from "./state.ts";
 
 // Construct a separate tool set. activeTools alone is provider guidance and
 // must not be trusted to stop a model emitting an unadvertised tool call.
-export function closeTools(tools: ReturnType<typeof coachTools>, data: CoachData, userId: string, day: string) {
+export function closeTools(tools: ReturnType<typeof coachTools>, data: CoachData, userId: string, day: string, messageId?: string) {
   const reads = {
     readJournalDay: tool({
       description: "Read only the selected owned Journal day, at most 4,000 characters; truncated is explicit. No day/id input.",
@@ -43,13 +45,11 @@ export function closeTools(tools: ReturnType<typeof coachTools>, data: CoachData
     finishDailyClose: tool({
       description: "End this Daily close after drafts are handled or skipped, before announcing completion. No domain writes; the successful result is persisted with the assistant reply. No day/id input.",
       inputSchema: z.strictObject({}),
-      execute: async () => ({ finished: true as const, day }),
+      execute: async () => ({ finished: true as const, day, ...(messageId && { messageId }) }),
     }),
     ...reads,
   } satisfies Record<(typeof dailyCloseToolNames)[number], unknown>;
 }
-
-export const cancelsClose = (text: string) => /^(?:cancel|stop|end)(?:\s+(?:daily close|the close|close))?[.!?,;:\s]*$/i.test(text.trim());
 
 const skipsClose = (text: string) => /^(?:skip(?:\s+this)?|next)[.!?,;:\s]*$/i.test(text.trim());
 const negation = /\b(?:not|no|don['’]t|leave\s+it\s+unset)\b/i;

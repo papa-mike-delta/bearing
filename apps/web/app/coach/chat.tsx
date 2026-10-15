@@ -9,12 +9,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { focusComposerOnMount, shownThread } from "../../lib/coach-screen";
+import { closeDayOnScreen } from "../../lib/daily-close/state";
 import { renderMarkdownPreview } from "../../lib/markdown";
 import { localToday } from "../../lib/today";
 
-// Set when the person sends from this view. The page keys Chat by its last
-// message, so the refresh after a reply remounts it; the new mount reads this
-// to put focus back in the composer instead of leaving it on the page top.
+// Set when the person sends from this view. If a server resync remounts Chat,
+// the new mount puts focus back in the composer.
 let sentFromComposer = false;
 
 export function Chat({
@@ -47,6 +47,9 @@ export function Chat({
   const send = (text: string) => {
     following.current = true;
     sentFromComposer = true;
+    // Consume the entry link once a turn starts. Reload must use durable mode,
+    // rather than reopening a finished close from a stale query parameter.
+    if (openingClose) window.history.replaceState(null, "", "/coach");
     sendMessage({ text });
     composer.current?.focus({ preventScroll: true });
   };
@@ -65,8 +68,8 @@ export function Chat({
     },
     onFinish: () => {
       closeDay.current = undefined;
-      if (openingClose) router.replace("/coach", { scroll: false });
-      router.refresh();
+      // Keep the streamed reply. Persistence runs independently on the server;
+      // an immediate refresh could replace it with the not-yet-saved thread.
     },
     transport: new DefaultChatTransport({
       api: "/api/coach",
@@ -114,12 +117,13 @@ export function Chat({
   // A stopped one still does: a neutral note. Stop ends the browser stream;
   // reload to see the reply if the Coach finished and saved it.
   const shown = shownThread(messages, stoppedUserIds);
+  const visibleCloseDay = closeDayOnScreen(initialCloseDay, messages.slice(initialMessages.length), localToday());
 
   return (
     <>
-      {initialCloseDay && <section aria-label="Daily close" className="mb-6 flex flex-wrap items-center gap-3">
-        <p>Daily close · {initialCloseDay}. Skip any question or cancel.</p>
-        {openingClose && <Button type="button" disabled={replying} onClick={() => send("Start Daily close")}>Start Daily close</Button>}
+      {visibleCloseDay && <section aria-label="Daily close" className="mb-6 flex flex-wrap items-center gap-3">
+        <p>Daily close · {visibleCloseDay}. Skip any question or cancel.</p>
+        {openingClose && messages.length === initialMessages.length && <Button type="button" disabled={replying} onClick={() => send("Start Daily close")}>Start Daily close</Button>}
         <Button type="button" variant="outline" disabled={replying} onClick={() => send("Cancel Daily close")}>Cancel Daily close</Button>
       </section>}
       {shown.length === 0 ? (

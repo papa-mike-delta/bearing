@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { ToolRunContext } from "../data.ts";
 import { journalDaySchema, resolveCoachJournalDay } from "./append-journal.ts";
 
-import { coachMoods } from "../moods.ts";
+import { coachMoods, normalizeCoachMood } from "../moods.ts";
 const inputSchema = z.object({
   day: journalDaySchema,
-  mood: z.enum(coachMoods).nullable(),
+  mood: z.preprocess(normalizeCoachMood, z.enum(coachMoods).nullable()),
 });
 
 export const setMood = {
