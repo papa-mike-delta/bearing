@@ -7,3 +7,6 @@ A person's choice to store their current Note, Journal reflection, or Journal te
 
 **Coach execution**:
 The running of a Coach reply's tools with the person's turn context, attempt limits, and safe error reporting. Daily close chooses which tools and writes that reply permits.
+
+**Owned Task**:
+A Task that belongs to a person's account through its Area, including a hidden Area. Completed Tasks remain owned and available to read, but cannot be changed by open Task commands.
