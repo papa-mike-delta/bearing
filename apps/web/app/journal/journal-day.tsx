@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
 import { maxNoteBodyLength, type RelatedLists } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { MarkdownEditor } from "../../components/markdown-editor";
 import { Related } from "../../components/related";
-import { useUnsavedChanges } from "../../components/use-unsaved-changes";
+import { useExplicitSave } from "../../lib/use-explicit-save";
 import { isJournalDay, shiftJournalDay } from "../../lib/journal-day";
 import { localToday } from "../../lib/today";
 import type { Mood } from "../../lib/mood-values";
@@ -57,33 +56,31 @@ function DayField({ day, today }: { day: string; today: string }) {
 }
 
 function JournalEditor({ day, entry, settings }: { day: string; entry: Entry | null; settings: Settings }) {
-  const [saved, setSaved] = useState(entry ?? { body: "", revision: 0 });
   // A prompt is an editor baseline, never a saved reflection. Initialize only
   // when opening the day; refreshed settings must not replace local work.
-  const [baseline, setBaseline] = useState(() => saved.body || (settings.alwaysLoad ? settings.template : ""));
-  const [body, setBody] = useState(baseline);
-  const [error, setError] = useState("");
-  const [pending, start] = useTransition();
-  const dirty = body !== baseline;
+  const session = useExplicitSave({
+    initial: {
+      saved: entry ?? { body: "", revision: 0 },
+      value: entry?.body || (settings.alwaysLoad ? settings.template : ""),
+    },
+    subject: "Journal",
+    failureMessage: "Could not save. Your text is kept here; please retry.",
+    save: async ({ value: body, saved, baseline }) => {
+      const result = await updateJournalDay(day, body, saved.revision, localToday(), saved.revision === 0 ? baseline : undefined);
+      if ("error" in result) return result;
+      if ("empty" in result) return { error: "An empty reflection or untouched template is not saved. Your saved entry is kept." };
+      return { value: body, saved: { body, revision: result.revision } };
+    },
+  });
+  const { value: body, saved, error, pending, dirty, edit: setBody } = session;
   const untouchedTemplate = !saved.body && body === settings.template;
-  useUnsavedChanges(dirty, "Journal");
   const tooLong = body.length > maxNoteBodyLength;
   return <form data-journal-editor onSubmit={(event) => {
     event.preventDefault();
-    start(async () => {
-      setError("");
-      try {
-        const result = await updateJournalDay(day, body, saved.revision, localToday(), saved.revision === 0 ? baseline : undefined);
-        if ("error" in result) setError(result.error);
-        else if ("empty" in result) setError("An empty reflection or untouched template is not saved. Your saved entry is kept.");
-        else { setSaved({ body, revision: result.revision }); setBaseline(body); }
-      } catch { setError("Could not save. Your text is kept here; please retry."); }
-    });
+    session.save();
   }}>
     {!saved.body && <Button type="button" variant="outline" disabled={pending || !!body.trim()} onClick={() => {
-      setBody(settings.template);
-      setBaseline(settings.template);
-      setError("");
+      session.loadBaseline(settings.template);
     }}>Insert template</Button>}
     <MarkdownEditor value={body} onChange={setBody} disabled={pending} previewRefreshKey={saved.revision} />
     {tooLong && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}

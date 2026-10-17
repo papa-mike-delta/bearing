@@ -1,22 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useOptimistic, useState, useTransition } from "react";
+import { useOptimistic, useTransition } from "react";
 import { Button } from "@repo/ui/components/button";
 import { MarkdownEditor } from "../../components/markdown-editor";
-import { useUnsavedChanges } from "../../components/use-unsaved-changes";
+import { useExplicitSave } from "../../lib/use-explicit-save";
 import { updateAlwaysLoadTemplate, updateJournalTemplate } from "./actions";
 
 type Settings = { template: string; alwaysLoad: boolean };
 
 export function JournalTemplateSettings({ settings, editing = false }: { settings: Settings; editing?: boolean }) {
-  const [saved, setSaved] = useState(settings.template);
-  const [template, setTemplate] = useState(saved);
-  const [error, setError] = useState("");
-  const [pending, start] = useTransition();
+  const session = useExplicitSave({
+    initial: { saved: settings.template, value: settings.template },
+    subject: "Journal template",
+    failureMessage: "Could not save the template. Your text is kept here; please retry.",
+    save: async ({ value: template }) => {
+      const result = await updateJournalTemplate(template);
+      if ("error" in result) return result;
+      return { value: template, saved: template };
+    },
+  });
+  const { value: template, error, dirty, edit: setTemplate, setError } = session;
+  const [savingSetting, start] = useTransition();
+  const pending = session.pending || savingSetting;
   const [alwaysLoad, setAlwaysLoad] = useOptimistic(settings.alwaysLoad);
-  const dirty = template !== saved;
-  useUnsavedChanges(dirty, "Journal template");
   const tooLong = template.length > 10_000;
   const alwaysLoadControl = <label className="flex items-center gap-2">
     <input type="checkbox" checked={alwaysLoad} disabled={pending} onChange={(event) => {
@@ -33,14 +40,7 @@ export function JournalTemplateSettings({ settings, editing = false }: { setting
   </label>;
   const editor = <form data-journal-editor onSubmit={(event) => {
     event.preventDefault();
-    start(async () => {
-      setError("");
-      try {
-        const result = await updateJournalTemplate(template);
-        if ("error" in result) setError(result.error);
-        else setSaved(template);
-      } catch { setError("Could not save the template. Your text is kept here; please retry."); }
-    });
+    session.save();
   }}>
     <MarkdownEditor value={template} onChange={setTemplate} disabled={pending} />
     {tooLong && <p role="alert">Template exceeds 10,000 characters. Shorten it before saving; your text has not been truncated.</p>}

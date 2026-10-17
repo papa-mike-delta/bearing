@@ -1,36 +1,39 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Field, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { MarkdownEditor } from "../../components/markdown-editor";
-import { useUnsavedChanges } from "../../components/use-unsaved-changes";
+import { useExplicitSave } from "../../lib/use-explicit-save";
 import { removeNote, updateNote } from "./actions";
 
 type Note = { id: string; title: string; body: string; pinned: boolean; revision: number };
 
 export function NoteEditor({ note }: { note: Note }) {
-  const [saved, setSaved] = useState(note);
-  const [title, setTitle] = useState(note.title);
-  const [body, setBody] = useState(note.body);
-  const [pinned, setPinned] = useState(note.pinned);
-  const [error, setError] = useState("");
-  const [pending, start] = useTransition();
-  const dirty = title !== saved.title || body !== saved.body || pinned !== saved.pinned;
-  const guard = useUnsavedChanges(dirty);
+  const session = useExplicitSave({
+    initial: { saved: note, value: { title: note.title, body: note.body, pinned: note.pinned } },
+    equal: (left, right) => left.title === right.title && left.body === right.body && left.pinned === right.pinned,
+    failureMessage: "Could not save. Your text is kept here; please retry.",
+    save: async ({ value, saved }) => {
+      const result = await updateNote(note.id, { ...value, revision: saved.revision });
+      if ("error" in result) return result;
+      const accepted = { ...value, title: result.title };
+      return { value: accepted, saved: { ...saved, ...accepted, revision: result.revision } };
+    },
+  });
+  const { value, saved, error, dirty, setError } = session;
+  const { title, body, pinned } = value;
+  const setTitle = (title: string) => session.edit({ ...value, title });
+  const setBody = (body: string) => session.edit({ ...value, body });
+  const setPinned = (pinned: boolean) => session.edit({ ...value, pinned });
+  const [deleting, start] = useTransition();
+  const pending = session.pending || deleting;
   const router = useRouter();
   return <form data-note-editor onSubmit={(event) => {
     event.preventDefault();
-    start(async () => {
-      setError("");
-      try {
-        const result = await updateNote(note.id, { title, body, pinned, revision: saved.revision });
-        if ("error" in result) setError(result.error);
-        else { setTitle(result.title); setSaved({ ...saved, title: result.title, body, pinned, revision: result.revision }); }
-      } catch { setError("Could not save. Your text is kept here; please retry."); }
-    });
+    session.save();
   }}>
     <FieldGroup><Field><FieldLabel htmlFor="note-title">Title</FieldLabel>
       <Input id="note-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={pending} />
@@ -48,7 +51,7 @@ export function NoteEditor({ note }: { note: Note }) {
           try {
             const result = await removeNote(note.id, saved.revision);
             if ("error" in result) setError(result.error);
-            else { guard.current = false; router.push(result.href); }
+            else { session.leaveWithoutPrompt(); router.push(result.href); }
           } catch { setError("Could not delete. Please try again."); }
         });
       }}>Delete Note</Button>
