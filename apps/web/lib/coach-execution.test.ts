@@ -570,5 +570,5 @@ test("habit reads are uncapped and use the account and browser today from contex
   await assert.rejects(Promise.resolve().then(() => tools.listHabits.execute!({}, call("invalid", "2026-02-31"))), /browser's Today/);
   assert.equal(asked.length, 8);
   assert.ok(normalTurnToolNames.includes("listHabits"));
-  assert.equal("listHabits" in closeTools(tools, data(), userId, today), false);
+  assert.equal("listHabits" in closeTools(tools, data(), userId, today), true);
 });

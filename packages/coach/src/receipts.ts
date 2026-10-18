@@ -109,9 +109,12 @@ function show(part: ToolPart): Line | null {
   }
   if (part.type === "tool-listHabits") {
     if (pending(part.state)) return { line: "Reading your habits…" };
-    const habits = (part.output as { habits?: unknown } | undefined)?.habits;
+    const output = part.output as { habits?: unknown; day?: unknown } | undefined;
+    const habits = output?.habits;
+    const day = output?.day;
     return part.state === "output-available" && Array.isArray(habits)
-      ? { line: `Read your habits (${habits.length})`, href: "/habits" }
+      && (day === undefined || (typeof day === "string" && isCalendarDay(day)))
+      ? { line: `Read your habits${day === undefined ? "" : ` for ${day}`} (${habits.length})`, href: "/habits" }
       : { line: "Couldn't read your habits" };
   }
   if (part.type === "tool-listNotebooks") {
