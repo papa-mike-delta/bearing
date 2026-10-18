@@ -153,6 +153,7 @@ Source: [habits](https://lunatask.app/docs/features/habits).
 - Bad habits: no widget, no calendar block, no streak, no incomplete count. Can be many-times (cigarettes).
 - Custom recurrence on daily habits (Tue/Fri). Weaker than task recurrence.
 - Streaks: current (end of the consecutive block) and record. Hidden on many-times (that number is the count) and on bad habits.
+- Bearing goal ranges: a daily many-times goal is a whole number from 1 to 99, a weekly one from 1 to 999. Counts run from 0 to 99 per day and 0 to 999 per week; no mark row means 0.
 - Bearing: a Bad many-times habit may have no goal; it shows only the count. A count above the goal shows a subtle mark in one colour, nothing more.
 - Track: double-click a day, or complete icon on a calendar block. Alt/Option or long-press decrements. Hold Space/Shift for single-click entry mode.
 - Auto time block: "at 8:30", optional duration, default 15 min. Many-times can have multiple reminders.
@@ -346,7 +347,7 @@ Write it from primary sources, and say what those sources do not support. Starte
 - Journaling. Pennebaker's expressive-writing work is about structured disclosure, not a daily gratitude quota. Gratitude interventions (Emmons and others) have small effects. One mood, energy, and stress value per day matches the product and the "reflect on the whole day" rule. The coach does not diagnose from a mood chart.
 - Goals. Locke and Latham: specific and challenging beats "do your best", with feedback. WOOP (Oettingen): wish, outcome, obstacle, plan. A goal in this app is a folder inside an area, not a vision board. The coach files tasks under a goal; it does not create a new area because the user named a topic.
 - Coaching boundary. Reflect, ask one question, propose a next task or habit. No diagnosis, no clinical advice, no "you have ADHD" from a task list. If the user is in crisis, point at local emergency services and stop coaching.
-- Asked about building a habit ("does it take 21 days?", "I missed a day"), the coach quotes the matching Habits section with its source, including what the research does not support, then proposes one habit (name, daily or weekly, once or many-times, Bad if it is something to cut down) and waits. It creates the habit only when the person says yes. It proposes a habit, not a Task, unless they ask for a Task.
+- (from #95) Asked about building a habit ("does it take 21 days?", "I missed a day"), the coach quotes the matching Habits section with its source, including what the research does not support, then proposes one habit (name, daily or weekly, once or many-times, Bad if it is something to cut down) and waits. It creates the habit only when the person says yes. It proposes a habit, not a Task, unless they ask for a Task.
 
 Each article ends with the citation. The coach quotes the article, not a vibes summary.
 
@@ -360,7 +361,7 @@ Context the panel can attach: the open task, note, or person id, passed into the
 
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
-- Coach-created rows set `source = coach` and `source_id` to the tool-call id, so they idempotent-match like any other integration.
+- Coach writes are idempotent on the person's message id: a provenance source id on the row (Tasks, Notes), or a replay record in `journal_operations`, `note_operations` or `habit_operations` (Journal appends, draft filing, Habits; for habits the operation id comes from the message id and the tool call, #95). A replay returns the recorded result and never writes twice; `habit_operations` has no habit FK, so a replay after delete never recreates the habit.
 - Knowledge base is not user data and is not mixed into export.
 
 ### 8.7 Keeping the Coach current
@@ -546,7 +547,7 @@ Docs were enough for the model. These were thin or failed to fetch:
 - notebook PIN vs app PIN vs journal PIN (one PIN or three)
 - habit routine data model
 - whether goals are ordered and whether a task can be in two goals (assume no)
-- free vs premium beyond habits (7), energy/stress, calendar connect, Must/Should/Want, Eisenhower (weekly habits: not premium in Bearing v1)
+- free vs premium beyond habits (no limit in v1), energy/stress, calendar connect, Must/Should/Want, Eisenhower (weekly habits: not premium in Bearing v1)
 
 ## 13. Sources
 
