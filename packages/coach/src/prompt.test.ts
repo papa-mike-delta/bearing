@@ -165,5 +165,6 @@ test("weekly habits are due until done that week and close reads use the close w
   assert.ok(prompt.includes("weekly once-habits (Monday to Sunday)"));
   assert.ok(prompt.includes("A weekly habit is due until done that week"));
   assert.ok(prompt.includes("its streak and record are in weeks"));
+  assert.ok(prompt.includes('Say a streak or record of 1 in the singular ("1 day", "1 week")'));
   assert.ok(prompt.includes("judging weekly habits by the week containing the close day"));
 });
