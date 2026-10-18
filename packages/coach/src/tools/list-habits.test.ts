@@ -4,8 +4,8 @@ import type { CoachData, ListedHabit } from "../data.ts";
 import { listHabits } from "./list-habits.ts";
 
 const rows: ListedHabit[] = [
-  { id: "once", name: "Walk", period: "day", trackMode: "once", goalCount: null, bad: false, count: 1, done: true, streak: 2 },
-  { id: "many", name: "Water", period: "day", trackMode: "many", goalCount: 3, bad: false, count: 2, done: false, streak: null },
+  { id: "once", name: "Walk", period: "day", trackMode: "once", goalCount: null, bad: false, count: 1, done: true, streak: 2, record: 5 },
+  { id: "many", name: "Water", period: "day", trackMode: "many", goalCount: 3, bad: false, count: 2, done: false, streak: null, record: null },
 ];
 
 test("listHabits reads this account's progress using the turn's browser today", async () => {

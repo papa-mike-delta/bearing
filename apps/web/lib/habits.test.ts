@@ -174,7 +174,7 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     const adapter = coachData(db, "2026-10-07");
     const rows = await adapter.listHabits!(b, today);
     assert.equal(rows.length, 27);
-    assert.deepEqual(rows.find((row) => row.id === many.id), { id: many.id, name: "Coach water", period: "day", trackMode: "many", goalCount: 3, bad: false, count: 1, done: false, streak: null });
+    assert.deepEqual(rows.find((row) => row.id === many.id), { id: many.id, name: "Coach water", period: "day", trackMode: "many", goalCount: 3, bad: false, count: 1, done: false, streak: null, record: null });
     assert.equal(rows.find((row) => row.id === once.id)?.streak, 1);
     assert.equal(rows.find((row) => row.id === once.id)?.done, true);
     assert.equal((await adapter.listHabits!(b, "2026-10-07")).find((row) => row.id === many.id)?.count, 0);

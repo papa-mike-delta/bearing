@@ -1,5 +1,5 @@
 {
-  "id": "16b5ddf1-01bd-4934-8602-5f23dbea1ab5",
+  "id": "f6258b3c-7db0-4e4d-8020-fdb02014978a",
   "prevId": "981989b5-0a6e-44f9-ae2d-416034101256",
   "version": "7",
   "dialect": "postgresql",
@@ -903,6 +903,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "operation_id": {
           "name": "operation_id",
           "type": "text",
@@ -913,11 +919,11 @@
           "name": "habit_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
+        "result": {
+          "name": "result",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
@@ -930,11 +936,17 @@
         }
       },
       "indexes": {
-        "habit_operations_operation_unique": {
-          "name": "habit_operations_operation_unique",
+        "habit_operations_source_unique": {
+          "name": "habit_operations_source_unique",
           "columns": [
             {
               "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -964,19 +976,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "habit_operations_habit_id_habits_id_fk": {
-          "name": "habit_operations_habit_id_habits_id_fk",
-          "tableFrom": "habit_operations",
-          "tableTo": "habits",
-          "columnsFrom": [
-            "habit_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

@@ -17,8 +17,8 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     async listHabits(userId, browserToday) {
       const rows = await habitRows(userId, browserToday, [browserToday], db);
-      return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak }) =>
-        ({ id, name, period, trackMode, goalCount, bad, count, done, streak }));
+      return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }) =>
+        ({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }));
     },
     getMood(userId, day) { return getMood(userId, day, db); },
     async readJournalDay(userId, day) {

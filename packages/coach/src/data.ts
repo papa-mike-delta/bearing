@@ -19,6 +19,7 @@ export type ListedHabit = HabitTracking & {
   count: number;
   done: boolean;
   streak: number | null;
+  record: number | null;
 };
 
 export type CoachData = {

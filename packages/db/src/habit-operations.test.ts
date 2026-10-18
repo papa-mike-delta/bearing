@@ -73,35 +73,82 @@ describe("habit operations ledger", { skip: !url && "TEST_POSTGRES_URL missing" 
       "select column_name, is_nullable from information_schema.columns where table_name = 'habit_operations' order by ordinal_position",
     );
     assert.deepEqual(rows.map((row) => `${row.column_name}:${row.is_nullable}`), [
-      "id:NO", "user_id:NO", "operation_id:NO", "habit_id:YES", "kind:NO", "created_at:NO",
+      "id:NO", "user_id:NO", "source:NO", "operation_id:NO", "habit_id:NO", "result:NO", "created_at:NO",
     ]);
   });
 
-  test("one operation id per account; another account may reuse it", async () => {
+  const insert = "insert into habit_operations (user_id, source, operation_id, habit_id, result) values ($1, $2, $3, $4, $5)";
+
+  test("a second row with the same user, source and operation id is refused", async () => {
     const owner = await user();
     const other = await user();
     const habitId = await habit(owner);
-    const insert = "insert into habit_operations (user_id, operation_id, habit_id, kind) values ($1, $2, $3, $4)";
-    await client!.query(insert, [owner, "call-1", habitId, "create"]);
+    await client!.query(insert, [owner, "coach", "call-1", habitId, { count: 1 }]);
     await assert.rejects(
-      client!.query(insert, [owner, "call-1", habitId, "mark"]),
+      client!.query(insert, [owner, "coach", "call-1", habitId, { count: 2 }]),
       (error: { code?: string }) => error.code === "23505",
     );
-    await client!.query(insert, [other, "call-1", null, "create"]);
+    // Only the full (user, source, operation) triple is unique.
+    await client!.query(insert, [owner, "screen", "call-1", habitId, {}]);
+    await client!.query(insert, [other, "coach", "call-1", habitId, {}]);
   });
 
-  test("deleting the habit keeps the ledger row with a null habit", async () => {
+  test("deleting a habit leaves its operation rows", async () => {
     const owner = await user();
     const habitId = await habit(owner);
-    await client!.query(
-      "insert into habit_operations (user_id, operation_id, habit_id, kind) values ($1, 'call-2', $2, 'mark')",
-      [owner, habitId],
-    );
+    await client!.query(insert, [owner, "coach", "call-2", habitId, { done: true }]);
     await client!.query("delete from habits where id = $1", [habitId]);
-    const { rows } = await client!.query<{ habit_id: string | null }>(
-      "select habit_id from habit_operations where user_id = $1 and operation_id = 'call-2'",
+    const { rows } = await client!.query<{ habit_id: string; result: unknown }>(
+      "select habit_id, result from habit_operations where user_id = $1 and operation_id = 'call-2'",
       [owner],
     );
-    assert.deepEqual(rows, [{ habit_id: null }]);
+    assert.deepEqual(rows, [{ habit_id: habitId, result: { done: true } }]);
+  });
+
+  test("deleting the account removes its operation rows", async () => {
+    const owner = await user();
+    const habitId = await habit(owner);
+    await client!.query(insert, [owner, "coach", "call-3", habitId, {}]);
+    await client!.query("delete from users where id = $1", [owner]);
+    const { rows } = await client!.query("select 1 from habit_operations where user_id = $1", [owner]);
+    assert.equal(rows.length, 0);
+  });
+});
+
+describe("0018 on existing once-habits", { skip: !url && "TEST_POSTGRES_URL missing" }, () => {
+  const dbName = `bearing_h18_${randomUUID().replaceAll("-", "")}`;
+  const admin = new Client({ connectionString: url });
+  let client: Client | undefined;
+
+  before(async () => {
+    await admin.connect();
+    await admin.query(`create database "${dbName}"`);
+    client = new Client({ connectionString: databaseUrl(url!, dbName) });
+    await client.connect();
+  });
+
+  after(async () => {
+    await client?.end();
+    await admin.query(`drop database if exists "${dbName}"`);
+    await admin.end();
+  });
+
+  test("existing habits stay daily once-habits and marks become count 1", async () => {
+    const journal = JSON.parse(readFileSync(fileURLToPath(new URL("../drizzle/meta/_journal.json", import.meta.url)), "utf8")) as Journal;
+    for (const entry of journal.entries.filter((entry) => entry.idx < 18)) {
+      for (const statement of statements(migrationSql(entry.tag))) await client!.query(statement);
+    }
+    const { rows: [account] } = await client!.query<{ id: string }>(
+      "insert into users (email, password_hash) values ($1, 'x') returning id", [`${randomUUID()}@example.com`],
+    );
+    const { rows: [walk] } = await client!.query<{ id: string }>(
+      "insert into habits (user_id, name, position) values ($1, 'Walk', 0) returning id", [account!.id],
+    );
+    await client!.query("insert into habit_marks (habit_id, day) values ($1, '2026-10-10'), ($1, '2026-10-11')", [walk!.id]);
+    for (const statement of statements(migrationSql("0018_habit_counts"))) await client!.query(statement);
+    const { rows: habits } = await client!.query("select period, track_mode, goal_count, bad from habits");
+    assert.deepEqual(habits, [{ period: "day", track_mode: "once", goal_count: null, bad: false }]);
+    const { rows: marks } = await client!.query("select count from habit_marks order by day");
+    assert.deepEqual(marks, [{ count: 1 }, { count: 1 }]);
   });
 });

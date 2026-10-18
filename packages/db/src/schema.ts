@@ -428,14 +428,15 @@ export const habitMarks = pgTable(
   ],
 );
 
-// Durable receipts for Coach habit writes (#95), so a retried tool call never
-// applies twice. habit_id is set null on delete: the ledger row outlives the
-// habit, so an old operation can never recreate or re-mark it.
+// Replay record for Coach habit writes (#95), like note_operations and
+// journal_operations. No habit foreign key: a deleted habit's old operation
+// must never recreate it or apply again. #89 writes nothing here.
 export const habitOperations = pgTable("habit_operations", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
   operationId: text("operation_id").notNull(),
-  habitId: uuid("habit_id").references(() => habits.id, { onDelete: "set null" }),
-  kind: text("kind").notNull(),
+  habitId: uuid("habit_id").notNull(),
+  result: jsonb("result").notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
-}, (t) => [uniqueIndex("habit_operations_operation_unique").on(t.userId, t.operationId)]);
+}, (t) => [uniqueIndex("habit_operations_source_unique").on(t.userId, t.source, t.operationId)]);
