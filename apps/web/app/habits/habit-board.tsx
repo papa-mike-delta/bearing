@@ -7,6 +7,7 @@ import { habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { formatJournalDay } from "../../lib/journal-day";
 import { useBrowserToday } from "../browser-today";
+import { habitRunLength } from "../../lib/habit-units";
 import type { HabitListItem } from "../../lib/habits";
 import { countHabitDay, markHabitDay, removeHabit } from "./actions";
 
@@ -56,7 +57,8 @@ function WeekNav({ today, week, weeklyWeek, current, weekly = false }: { today: 
 
 function HabitGrid({ today, week, habits, weekly = false }: { today: string; week: string; habits: HabitRow[]; weekly?: boolean }) {
   const days = weekly ? [-3, -2, -1, 0].flatMap((offset) => shiftWeek(week, offset) ?? []) : weekDays(week) ?? [];
-  const unit = weekly ? " weeks" : "";
+  const period = weekly ? "week" : "day";
+  const run = (value: number | null) => habitRunLength(value ?? 0, period);
   const label = (day: string) => weekly ? `week of ${weekLabel(day)}` : `on ${formatJournalDay(day)}`;
   const [rows, setRows] = useState(habits);
   const [error, setError] = useState("");
@@ -139,8 +141,8 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
           {days.map((day, index) => <th key={day} className="day" scope="col" aria-current={(weekly ? day === mondayOf(today) : day === today) ? "date" : undefined}>
             {weekly ? <><span className="sr-only">Week of {weekLabel(day)}</span><span aria-hidden="true">{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`))}</span></> : <><span className="day-long">{weekdays[index]}</span><span className="day-short" aria-hidden="true">{weekdays[index]![0]}</span><span className="day-number">{Number(day.slice(8))}</span></>}
           </th>)}
-          <th className="habit-stat" scope="col">Streak{unit}</th>
-          <th className="habit-stat" scope="col">Record{unit}</th>
+          <th className="habit-stat" scope="col">Streak</th>
+          <th className="habit-stat" scope="col">Record</th>
         </tr></thead>
         <tbody>
           {rows.map((habit) => <tr key={habit.id} className={[habit.trackMode === "many" ? "habit-many" : "", habit.bad ? "habit-bad" : ""].join(" ")}>
@@ -149,7 +151,7 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
               {habit.bad && <span className="habit-bad-label">Bad</span>}
               {habit.trackMode === "many"
                 ? habit.goalCount !== null && <span className="habit-goal">{`${habit.bad ? "Limit" : "Daily goal"} ${habit.goalCount}`}</span>
-                : !habit.bad && <span className="habit-meta">Streak {habit.streak}{unit} · Record {habit.record}{unit}</span>}
+                : !habit.bad && <span className="habit-meta"><span>Streak {run(habit.streak)}</span><span className="habit-meta-sep" aria-hidden="true"> · </span><span>Record {run(habit.record)}</span></span>}
               {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
                 <span>Delete it and every marked day?</span>
                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(habit)}>Delete</Button>
@@ -168,16 +170,16 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
                   <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
                 </div>
               </td>;
-              return <td key={day} className="day"><input
+              return <td key={day} className="day"><label className="habit-hit"><input
                 type="checkbox"
                 checked={habit.marked.includes(day)}
                 disabled={closed || pendingKey !== null}
                 aria-label={`${habit.name} ${label(day)}`}
                 onChange={(event) => toggle(habit, day, event.target.checked)}
-              /></td>;
+              /></label></td>;
             })}
-            <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? habit.streak : "—"}</td>
-            <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? habit.record : "—"}</td>
+            <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? run(habit.streak) : "—"}</td>
+            <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? run(habit.record) : "—"}</td>
           </tr>)}
         </tbody>
       </table>

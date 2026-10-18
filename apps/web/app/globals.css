@@ -1076,9 +1076,16 @@ form.flex-row {
   .habit-grid .day-short {
     display: block;
   }
+  /* Streak and Record on their own lines, wrapping inside the habit cell. */
   .habit-grid .habit-meta {
-    white-space: nowrap;
     font-size: 0.6875rem;
+    overflow-wrap: anywhere;
+  }
+  .habit-grid .habit-meta > span {
+    display: block;
+  }
+  .habit-grid .habit-meta .habit-meta-sep {
+    display: none;
   }
 }
 
@@ -1089,8 +1096,33 @@ form.flex-row {
   font-weight: 400;
 }
 
+/* The current day or week: accent, semibold and a quiet underline. */
 .habit-grid th[aria-current="date"] {
   color: var(--primary);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.habit-grid th[aria-current="date"] .day-number {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* A larger hit area around each checkbox; the visible box stays 1.15rem. */
+.habit-grid .habit-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .habit-grid .habit-hit {
+    min-width: 2rem;
+  }
 }
 
 .habit-grid input[type="checkbox"] {
@@ -1216,5 +1248,4 @@ form.flex-row {
 .habit-weekly-grid .day { min-width: 3rem; }
 @media (max-width: 480px) {
   .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
-  .habit-weekly-grid .habit-meta { white-space: normal; }
 }
