@@ -1,5 +1,5 @@
 import { db as defaultDb, habitMarks, habits } from "@repo/db";
-import { dailyOnceProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, manyTimesProgress, maxHabitNameLength, validHabitGoal, type HabitTracking } from "@repo/domain";
+import { changeHabitCount, dailyOnceProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, manyTimesProgress, maxHabitNameLength, validHabitGoal, type HabitTracking } from "@repo/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
@@ -120,6 +120,7 @@ export async function changeHabitDayCount(userId: string, habitId: string, day: 
   return db.transaction(async (tx) => {
     const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "many"), eq(habits.period, "day"))).for("update");
     if (!habit) throw new HabitError(unavailable);
+    // The SQL mirrors changeHabitCount: plus stops at habitCountCap, minus at 0 (no row).
     const cap = habitCountCap(habit.period);
     const target = and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, day));
     let count: number;
@@ -133,8 +134,9 @@ export async function changeHabitDayCount(userId: string, habitId: string, day: 
       count = row.count;
     } else {
       const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
-      if (!mark) throw new HabitError("This habit's count is already 0.");
-      count = mark.count - 1;
+      const next = mark ? changeHabitCount(mark.count, -1, habit.period) : null;
+      if (next === null) throw new HabitError("This habit's count is already 0.");
+      count = next;
       if (count === 0) await tx.delete(habitMarks).where(target);
       else await tx.update(habitMarks).set({ count }).where(target);
     }
