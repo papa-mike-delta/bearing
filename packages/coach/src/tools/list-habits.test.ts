@@ -29,17 +29,21 @@ test("Bad habits are never due, including unfinished once and many-times habits"
   const bad = rows.map((row) => ({ ...row, bad: true, done: false, count: 0 }));
   const data = { listHabits: async () => bad } as unknown as CoachData;
   const result = await listHabits.run({}, { userId: "account", messageId: "message", toolCallId: "read", today: "2026-10-08", data });
-  assert.deepEqual(result.habits.map((habit) => habit.due), [false, false]);
-  assert.match(listHabits.description, /Bad habits are never due/);
+  assert.deepEqual(result.habits.map(({ bad, done, due, streak, record }) => ({ bad, done, due, streak, record })), bad.map(() => ({ bad: true, done: false, due: false, streak: null, record: null })));
+  assert.match(listHabits.description, /Bad habits have no streak or record, are never done or due/);
 });
 
-test("weekly habits retain the data reader's open-period done status; Bad weekly habits are never due", async () => {
-  const weekly = [
+test("weekly habits are excluded and Bad daily habits have no streak, record or due state", async () => {
+  const bad = { ...rows[0]!, id: "bad", bad: true };
+  const data = { listHabits: async () => [
+    ...rows, bad,
     { ...rows[0]!, period: "week" as const },
-    { ...rows[1]!, period: "week" as const },
     { ...rows[1]!, period: "week" as const, bad: true },
-  ];
-  const data = { listHabits: async () => weekly } as unknown as CoachData;
+  ] } as unknown as CoachData;
   const result = await listHabits.run({}, { userId: "account", messageId: "message", toolCallId: "read", today: "2026-10-08", data });
-  assert.deepEqual(result.habits.map((habit) => habit.due), [false, true, false]);
+  assert.deepEqual(result.habits, [
+    { ...rows[0]!, due: false },
+    { ...rows[1]!, due: true },
+    { ...bad, done: false, due: false, streak: null, record: null },
+  ]);
 });

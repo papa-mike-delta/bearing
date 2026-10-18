@@ -3,20 +3,23 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui/components/button";
+import { Checkbox } from "@repo/ui/components/checkbox";
 import { Input } from "@repo/ui/components/input";
 import { Field, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { NativeSelect, NativeSelectOption } from "@repo/ui/components/native-select";
 import { addHabit } from "./actions";
 
 // Inline text for the goal field, worded as the server's refusal; the server still checks.
-function dailyGoalError(goal: string): string {
+function dailyGoalError(goal: string, bad: boolean): string {
+  if (bad && !goal.trim()) return "";
   const number = Number(goal.trim());
-  return goal.trim() && Number.isInteger(number) && number >= 1 && number <= 99 ? "" : "Enter a whole-number daily goal between 1 and 99.";
+  return goal.trim() && Number.isInteger(number) && number >= 1 && number <= 99 ? "" : bad ? "Enter a whole-number limit between 1 and 99, or leave it empty." : "Enter a whole-number daily goal between 1 and 99.";
 }
 
 export function HabitForm() {
   const [name, setName] = useState("");
   const [trackMode, setTrackMode] = useState<"once" | "many">("once");
+  const [bad, setBad] = useState(false);
   const [goal, setGoal] = useState("");
   const [error, setError] = useState("");
   const [goalError, setGoalError] = useState("");
@@ -25,14 +28,14 @@ export function HabitForm() {
   return <form className="panel habit-form" noValidate onSubmit={(event) => {
     event.preventDefault();
     if (trackMode === "many") {
-      const problem = dailyGoalError(goal);
+      const problem = dailyGoalError(goal, bad);
       setGoalError(problem);
       if (problem) return;
     }
     start(async () => {
       setError("");
       try {
-        const result = await addHabit(name, trackMode, trackMode === "many" && goal.trim() ? Number(goal) : null);
+        const result = await addHabit(name, trackMode, trackMode === "many" && goal.trim() ? Number(goal) : null, bad);
         if ("error" in result) setError(result.error);
         else {
           setName("");
@@ -52,8 +55,12 @@ export function HabitForm() {
           <NativeSelectOption value="many">Many-times a day</NativeSelectOption>
         </NativeSelect>
       </Field>
-      {trackMode === "many" && <Field><FieldLabel htmlFor="habit-goal">Daily goal</FieldLabel>
-        <Input id="habit-goal" type="number" inputMode="numeric" min={1} max={99} step={1} required value={goal} onChange={(event) => { setGoal(event.target.value); if (goalError) setGoalError(""); }} aria-invalid={error || goalError ? true : undefined} aria-describedby={goalError ? "habit-goal-error" : error ? "habit-name-error" : undefined} disabled={pending} />
+      <Field orientation="horizontal">
+        <Checkbox id="habit-bad" checked={bad} onCheckedChange={(checked) => { setBad(checked); setGoalError(""); }} disabled={pending} />
+        <FieldLabel htmlFor="habit-bad">Bad</FieldLabel>
+      </Field>
+      {trackMode === "many" && <Field><FieldLabel htmlFor="habit-goal">{bad ? "Limit (optional)" : "Daily goal"}</FieldLabel>
+        <Input id="habit-goal" type="number" inputMode="numeric" min={1} max={99} step={1} required={!bad} value={goal} onChange={(event) => { setGoal(event.target.value); if (goalError) setGoalError(""); }} aria-invalid={error || goalError ? true : undefined} aria-describedby={goalError ? "habit-goal-error" : error ? "habit-name-error" : undefined} disabled={pending} />
         {goalError && <p id="habit-goal-error" className="field-error">{goalError}</p>}
       </Field>}
     </FieldGroup>

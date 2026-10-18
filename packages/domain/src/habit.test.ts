@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   changeHabitCount,
+  habitProgress,
+  habitIsDue,
+  habitOverGoal,
   habitPeriodDay,
   manyTimesProgress,
   validHabitGoal,
@@ -118,7 +121,7 @@ test("count changes refuse the cap and floor without clipping", () => {
   assert.equal(changeHabitCount(1, -1, "day"), 0);
   assert.equal(changeHabitCount(98, 1, "day"), 99);
   assert.equal(changeHabitCount(99, 1, "day"), null);
-  assert.equal(changeHabitCount(100, -1, "day"), null);
+  assert.equal(changeHabitCount(100, -1, "day"), 99);
   assert.equal(changeHabitCount(1.5, 1, "day"), null);
   assert.equal(changeHabitCount(998, 1, "week"), 999);
   assert.equal(changeHabitCount(999, 1, "week"), null);
@@ -130,7 +133,7 @@ test("many-times progress stays unfinished until the goal, allows over-goal, and
   for (const count of [1, 2, 3, 4, 99]) {
     assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-10-08", count }], "2026-10-08"), { count, done: count >= 3 });
   }
-  assert.equal(manyTimesProgress(habit, [{ day: "2026-10-08", count: 100 }], "2026-10-08"), null);
+  assert.equal(manyTimesProgress(habit, [{ day: "2026-10-08", count: 1000 }], "2026-10-08"), null);
   assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-10-07", count: 3 }], "2026-10-08"), { count: 0, done: false });
 });
 
@@ -141,4 +144,39 @@ test("weekly marks use the week's Monday across month and year boundaries", () =
   assert.equal(habitPeriodDay("week", "2026-02-31"), null);
   const habit: HabitTracking = { period: "week", trackMode: "many", goalCount: 100, bad: false };
   assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-12-28", count: 100 }], "2027-01-03"), { count: 100, done: true });
+});
+
+
+test("Bad once and many-times habits never contribute to the unfinished count or have streaks or records", () => {
+  const normal: HabitTracking = { period: "day", trackMode: "once", goalCount: null, bad: false };
+  const habits = [normal, { ...normal, bad: true }, { ...normal, trackMode: "many" as const, goalCount: 3, bad: true }];
+  for (const count of [0, 1, 2, 3, 4]) {
+    const marks = count ? [{ day: "2026-10-08", count }] : [];
+    const progress = habits.map((habit) => habitProgress(habit, marks, "2026-10-08")!);
+    for (const bad of progress.slice(1)) assert.deepEqual(bad, { count, done: false, streak: null, record: null });
+    assert.equal(progress.filter((row, i) => habitIsDue(habits[i]!, row.done)).length, count === 0 ? 1 : 0);
+    assert.equal(progress[0]!.streak, count === 0 ? 0 : 1);
+  }
+});
+
+test("Bad many-times without a goal counts occurrences up to 99 with no over-goal mark", () => {
+  const habit: HabitTracking = { period: "day", trackMode: "many", goalCount: null, bad: true };
+  assert.equal(validHabitGoal(habit), true);
+  assert.equal(validHabitGoal({ ...habit, bad: false }), false);
+  for (const count of [0, 1, 99]) {
+    assert.deepEqual(habitProgress(habit, [{ day: "2026-10-08", count }], "2026-10-08"), { count, done: false, streak: null, record: null });
+    assert.equal(habitOverGoal(habit, count), false);
+  }
+  assert.equal(changeHabitCount(98, 1, "day"), 99);
+  assert.equal(changeHabitCount(99, 1, "day"), null);
+});
+
+test("a Bad goal is a limit: only counts above it have the over-goal mark, never done or due", () => {
+  const habit: HabitTracking = { period: "day", trackMode: "many", goalCount: 3, bad: true };
+  for (const count of [0, 2, 3, 4, 99]) {
+    const progress = habitProgress(habit, [{ day: "2026-10-08", count }], "2026-10-08")!;
+    assert.equal(habitOverGoal(habit, count), count > 3);
+    assert.equal(progress.done, false);
+    assert.equal(habitIsDue(habit, progress.done), false);
+  }
 });

@@ -149,7 +149,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.deepEqual(await resumed.tools.listHabits.execute!({}, call(resumed, "listHabits")), output);
   });
 
-  test("the close-day habits read shows the Habits page's habits: daily and not Bad, until #90-#92", async () => {
+  test("the close-day habits read shows the Habits page's habits: including Bad daily habits and excluding weekly habits", async () => {
     const owner = await account();
     const rows = await db.insert(habits).values([
       { userId: owner.userId, name: "Daily due", position: 0 },
@@ -164,9 +164,16 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     const turn = await prepare(owner, message("Daily close"), { closeDay: day });
     const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
     assert.ok("habits" in output);
-    // Same adapter as the normal turn: weekly and Bad habits are not listed yet.
+    assert.equal(output.habits.find((habit) => habit.bad)?.streak, null);
+    assert.equal(output.habits.find((habit) => habit.bad)?.record, null);
+    assert.match(turn.system, /Bad habits are never due/);
+    assert.match(turn.system, /A check or count on a Bad habit means the lapse happened/);
+    assert.match(turn.system, /Never call an empty Bad day missed or a logged one a failure/);
+    assert.match(turn.system, /Do not praise or shame; report counts plainly/);
+    // Same daily-only adapter as the normal turn, including Bad habits.
     assert.deepEqual(output.habits.map(({ name, count, done, due }) => ({ name, count, done, due })), [
       { name: "Daily due", count: 0, done: false, due: true },
+      { name: "Bad daily", count: 1, done: false, due: false },
     ]);
   });
 

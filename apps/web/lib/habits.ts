@@ -1,5 +1,5 @@
 import { db as defaultDb, habitMarks, habits } from "@repo/db";
-import { changeHabitCount, dailyOnceProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, manyTimesProgress, maxHabitNameLength, validHabitGoal, type HabitTracking } from "@repo/domain";
+import { changeHabitCount, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitTracking } from "@repo/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
@@ -56,17 +56,12 @@ export async function listHabits(userId: string, today: string, week: readonly s
   return rows.map((row): HabitListItem => {
     const marks = byHabit.get(row.id) ?? [];
     const days = marks.map((mark) => mark.day).sort();
-    const count = marks.find((mark) => mark.day === habitPeriodDay(row.period, today))?.count ?? 0;
-    const progress = row.trackMode === "many"
-      ? { ...manyTimesProgress(row, marks, today)!, streak: null, record: null }
-      : row.period === "day" && !row.bad
-        ? dailyOnceProgress(marks, today)!
-        : { done: count > 0, streak: null, record: null };
+    const progress = habitProgress(row, marks, today)!;
     return {
       id: row.id, name: row.name, period: row.period, trackMode: row.trackMode, goalCount: row.goalCount, bad: row.bad,
       marked: days.filter((day) => shown.has(day)),
       counts: Object.fromEntries(week.map((day) => [day, marks.find((mark) => mark.day === habitPeriodDay(row.period, day))?.count ?? 0])),
-      count, ...progress,
+      ...progress,
     };
   });
 }
@@ -84,11 +79,12 @@ export async function countUnfinishedHabits(userId: string, today: string, db: D
 }
 
 // A new habit takes the position above the current top. Equal positions keep the older row first.
-export async function createHabit(userId: string, input: string | { name: string; trackMode?: "once" | "many"; goalCount?: number | null }, db: Db = defaultDb) {
+export async function createHabit(userId: string, input: string | { name: string; trackMode?: "once" | "many"; goalCount?: number | null; bad?: boolean }, db: Db = defaultDb) {
   const options = typeof input === "string" ? { name: input } : input;
-  const tracking: HabitTracking = { period: "day", trackMode: options.trackMode ?? "once", goalCount: options.goalCount ?? null, bad: false };
+  const tracking: HabitTracking = { period: "day", trackMode: options.trackMode ?? "once", goalCount: options.goalCount ?? null, bad: options.bad ?? false };
+  if (typeof tracking.bad !== "boolean") throw new HabitError("Choose whether this habit is Bad.");
   if (tracking.trackMode !== "once" && tracking.trackMode !== "many") throw new HabitError("Choose once or many-times for this habit.");
-  if (!validHabitGoal(tracking)) throw new HabitError(tracking.trackMode === "many" ? "Enter a whole-number daily goal between 1 and 99." : "Once-habits cannot have a goal.");
+  if (!validHabitGoal(tracking)) throw new HabitError(tracking.trackMode === "many" ? (tracking.bad ? "Enter a whole-number limit between 1 and 99, or leave it empty." : "Enter a whole-number daily goal between 1 and 99.") : "Once-habits cannot have a goal.");
   const problem = habitNameError(options.name);
   const name = problem ? null : habitName(options.name);
   if (!name) throw new HabitError(problem ?? blankName);
@@ -104,12 +100,13 @@ export async function setHabitDay(userId: string, habitId: string, day: string, 
   if (!isUuid(habitId) || !isCalendarDay(day) || !isCalendarDay(today) || typeof checked !== "boolean") throw new HabitError(unavailable);
   if (day > today) throw new HabitError(future);
   return db.transaction(async (tx) => {
-    const [habit] = await tx.select({ id: habits.id }).from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "once"), eq(habits.period, "day")));
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "once"), eq(habits.period, "day")));
     if (!habit) throw new HabitError(unavailable);
     if (checked) await tx.insert(habitMarks).values({ habitId, day }).onConflictDoNothing();
     else await tx.delete(habitMarks).where(and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, day)));
-    const marks = await tx.select({ day: habitMarks.day }).from(habitMarks).where(and(eq(habitMarks.habitId, habitId), lte(habitMarks.day, today)));
-    return dailyOnceProgress(marks.map((mark) => ({ day: asDay(mark.day) })), today)!;
+    const marks = await tx.select({ day: habitMarks.day, count: habitMarks.count }).from(habitMarks).where(and(eq(habitMarks.habitId, habitId), lte(habitMarks.day, today)));
+    const { done, streak, record } = habitProgress(habit, marks.map((mark) => ({ day: asDay(mark.day), count: mark.count })), today)!;
+    return { done, streak, record };
   });
 }
 
@@ -140,7 +137,7 @@ export async function changeHabitDayCount(userId: string, habitId: string, day: 
       if (count === 0) await tx.delete(habitMarks).where(target);
       else await tx.update(habitMarks).set({ count }).where(target);
     }
-    return { count, done: count >= habit.goalCount! };
+    return { count, done: !habit.bad && habit.goalCount !== null && count >= habit.goalCount };
   });
 }
 

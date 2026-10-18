@@ -21,12 +21,12 @@ export function validHabitGoal(habit: HabitTracking): boolean {
   return Number.isInteger(habit.goalCount) && habit.goalCount >= 1 && habit.goalCount <= habitCountCap(habit.period);
 }
 
-// Refuse counts outside the period's bounds; never clip to the cap or floor.
+// Plus stops at the period's cap; minus also repairs stored counts above it. Never clip.
 export function changeHabitCount(count: number, delta: 1 | -1, period: HabitPeriod): number | null {
   const cap = habitCountCap(period);
-  if (!Number.isInteger(count) || count < 0 || count > cap || (delta !== 1 && delta !== -1)) return null;
+  if (!Number.isInteger(count) || count < 0 || count > 999 || (delta !== 1 && delta !== -1)) return null;
   const next = count + delta;
-  return next >= 0 && next <= cap ? next : null;
+  return next >= 0 && (delta === -1 || next <= cap) ? next : null;
 }
 
 export function habitPeriodDay(period: HabitPeriod, day: string): string | null {
@@ -42,8 +42,29 @@ export function manyTimesProgress(
   const periodDay = habitPeriodDay(habit.period, day);
   if (!periodDay || habit.trackMode !== "many" || !validHabitGoal(habit)) return null;
   const count = marks.find((mark) => mark.day === periodDay)?.count ?? 0;
-  if (!Number.isInteger(count) || count < 0 || count > habitCountCap(habit.period)) return null;
-  return { count, done: habit.goalCount !== null && count >= habit.goalCount };
+  if (!Number.isInteger(count) || count < 0 || count > 999) return null;
+  return { count, done: !habit.bad && habit.goalCount !== null && count >= habit.goalCount };
+}
+
+export function habitIsDue(habit: Pick<HabitTracking, "bad">, done: boolean): boolean {
+  return !habit.bad && !done;
+}
+
+export function habitOverGoal(habit: HabitTracking, count: number): boolean {
+  return habit.trackMode === "many" && habit.goalCount !== null && count > habit.goalCount;
+}
+
+export function habitProgress(habit: HabitTracking, marks: readonly { day: string; count: number }[], day: string) {
+  const periodDay = habitPeriodDay(habit.period, day);
+  if (!periodDay || !validHabitGoal(habit)) return null;
+  const count = marks.find((mark) => mark.day === periodDay)?.count ?? 0;
+  if (habit.trackMode === "many") {
+    const progress = manyTimesProgress(habit, marks, day);
+    return progress && { ...progress, streak: null, record: null };
+  }
+  if (habit.bad) return { count, done: false, streak: null, record: null };
+  if (habit.period === "day") return { count, ...dailyOnceProgress(marks, day)! };
+  return { count, done: count > 0, streak: null, record: null };
 }
 
 export function habitName(value: string): string | null {
