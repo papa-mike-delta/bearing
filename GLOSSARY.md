@@ -10,3 +10,12 @@ The running of a Coach reply's tools with the person's turn context, attempt lim
 
 **Owned Task**:
 A Task that belongs to a person's account through its Area, including a hidden Area. Completed Tasks remain owned and available to read, but cannot be changed by open Task commands.
+
+**Many-times habit**:
+A habit tracked by the number of times it happens in a day, with a daily goal instead of a streak.
+
+**Habit goal**:
+The number of times a many-times habit needs to happen for the day to be done.
+
+**Habit count**:
+The number of times a many-times habit happened on a particular day. It can exceed the goal.

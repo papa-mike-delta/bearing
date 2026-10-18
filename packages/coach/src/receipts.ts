@@ -107,6 +107,13 @@ function show(part: ToolPart): Line | null {
     }
     return { line: "Couldn't read your list" };
   }
+  if (part.type === "tool-listHabits") {
+    if (pending(part.state)) return { line: "Reading your habits…" };
+    const habits = (part.output as { habits?: unknown } | undefined)?.habits;
+    return part.state === "output-available" && Array.isArray(habits)
+      ? { line: `Read your habits (${habits.length})`, href: "/habits" }
+      : { line: "Couldn't read your habits" };
+  }
   if (part.type === "tool-listNotebooks") {
     if (pending(part.state)) return { line: "Reading your notebooks…" };
     const books = (part.output as { notebooks?: unknown } | undefined)?.notebooks;

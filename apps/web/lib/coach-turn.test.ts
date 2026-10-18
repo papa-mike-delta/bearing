@@ -44,6 +44,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
+import { createHabit, changeHabitDayCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { createNotebook, fileDraftAsNote, getNote, listNotes, saveNote } from "./notes.ts";
 import {
@@ -69,6 +70,7 @@ function writeToolsOffered(
     "createTask",
     "completeTask",
     "listArea",
+    "listHabits",
     "listNotebooks",
     "createNote",
     "appendJournal",
@@ -237,6 +239,7 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
   | { listArea: string; toolCallId?: string }
+  | { listHabits: string; toolCallId?: string }
   | { listNotebooks: string; toolCallId?: string }
   | { createTask: string; toolCallId?: string }
   | { createNote: string; toolCallId?: string }
@@ -263,6 +266,8 @@ function scripted(...steps: Step[]) {
               input: step.listArea,
               id: step.toolCallId,
             }
+          : "listHabits" in step
+            ? { name: "listHabits" as const, input: step.listHabits, id: step.toolCallId }
           : "listNotebooks" in step
             ? {
                 name: "listNotebooks" as const,
@@ -531,6 +536,31 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       release();
       stub.mock.restore();
     }
+  });
+
+  test("a normal turn reads today's owned habits and saves a linked read receipt", async () => {
+    const c = await account();
+    const other = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    const many = await createHabit(c, { name: "Water", trackMode: "many", goalCount: 3 }, db);
+    const once = await createHabit(c, "Walk", db);
+    await createHabit(other, "Someone else's habit", db);
+    await changeHabitDayCount(c, many.id, day, 1, day, db);
+    await setHabitDay(c, once.id, day, true, day, db);
+    const model = scripted({ listHabits: JSON.stringify({ userId: other, today: "2026-10-09" }) }, { text: "Water is at one of three." });
+    await turn(c, thread, userMessage("How are my habits?"), model, day);
+    assert.ok(model.doStreamCalls[0]!.tools?.some((tool) => tool.name === "listHabits"));
+    const parts = (await threadMessages(c, thread, db))!.flatMap((message) => message.parts);
+    const read = parts.find((part) => part.type === "tool-listHabits" && "output" in part);
+    assert.ok(read && "output" in read);
+    const rows = (read.output as { habits: { id: string; count: number; done: boolean; streak: number | null }[] }).habits;
+    assert.equal(rows.length, 2);
+    assert.equal(rows.find((row) => row.id === many.id)?.count, 1);
+    assert.equal(rows.find((row) => row.id === many.id)?.done, false);
+    assert.equal(rows.find((row) => row.id === once.id)?.done, true);
+    assert.equal(rows.find((row) => row.id === once.id)?.streak, 1);
+    assert.ok(shownParts([read]).some((part) => "receipt" in part && part.receipt === "Read your habits (2)" && part.href === "/habits"));
   });
 
   test("finishing Daily close hides the banner mode and restores normal tools on the next turn", async () => {

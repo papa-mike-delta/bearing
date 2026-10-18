@@ -2,16 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { countUnfinishedHabits, createHabit, deleteHabit, HabitError, setHabitDay } from "../../lib/habits";
+import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, HabitError, setHabitDay } from "../../lib/habits";
 
 function failure(error: unknown, fallback: string) {
   return { error: error instanceof HabitError ? error.message : fallback };
 }
 
-export async function addHabit(name: string) {
+export async function addHabit(name: string, trackMode: "once" | "many" = "once", goalCount: number | null = null) {
   const user = await requireUser();
   try {
-    await createHabit(user.id, name);
+    await createHabit(user.id, { name, trackMode, goalCount });
     revalidatePath("/habits");
     return { ok: true };
   } catch (error) { return failure(error, "Could not add the habit. Please try again."); }
@@ -21,6 +21,15 @@ export async function markHabitDay(habitId: string, day: string, checked: boolea
   const user = await requireUser();
   try {
     const progress = await setHabitDay(user.id, habitId, day, checked, today);
+    revalidatePath("/habits");
+    return progress;
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
+export async function countHabitDay(habitId: string, day: string, delta: 1 | -1, today: string) {
+  const user = await requireUser();
+  try {
+    const progress = await changeHabitDayCount(user.id, habitId, day, delta, today);
     revalidatePath("/habits");
     return progress;
   } catch (error) { return failure(error, "Could not save. Please try again."); }

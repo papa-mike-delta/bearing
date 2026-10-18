@@ -7,9 +7,10 @@ import { mondayOf, shiftWeek, weekDays } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { formatJournalDay } from "../../lib/journal-day";
 import { useBrowserToday } from "../browser-today";
-import { markHabitDay, removeHabit } from "./actions";
+import type { HabitListItem } from "../../lib/habits";
+import { countHabitDay, markHabitDay, removeHabit } from "./actions";
 
-type HabitRow = { id: string; name: string; marked: string[]; done: boolean; streak: number; record: number };
+type HabitRow = HabitListItem;
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -87,6 +88,25 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
     });
   }
 
+  function changeCount(habit: HabitRow, day: string, delta: 1 | -1) {
+    setError("");
+    setPendingKey(`${habit.id}:${day}`);
+    start(async () => {
+      try {
+        const result = await countHabitDay(habit.id, day, delta, today);
+        if ("error" in result) setError(result.error);
+        else {
+          setRows((current) => current.map((row) => row.id === habit.id ? {
+            ...row, counts: { ...row.counts, [day]: result.count },
+            ...(day === today ? { count: result.count, done: result.done } : {}),
+          } : row));
+          saved();
+        }
+      } catch { setError("Could not save. Please try again."); }
+      finally { setPendingKey(null); }
+    });
+  }
+
   function remove(habit: HabitRow) {
     setConfirming(null);
     setError("");
@@ -120,25 +140,35 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
           {rows.map((habit) => <tr key={habit.id}>
             <th className="habit-name" scope="row">
               <span className="habit-title">{habit.name}</span>
-              <span className="habit-meta">Streak {habit.streak} · Record {habit.record}</span>
+              {habit.trackMode === "many"
+                ? <span className="habit-goal">Daily goal {habit.goalCount}</span>
+                : <span className="habit-meta">Streak {habit.streak} · Record {habit.record}</span>}
               {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
                 <span>Delete it and every marked day?</span>
                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(habit)}>Delete</Button>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(null)}>Keep</Button>
-              </span> : <Button type="button" variant="link" size="sm" className="habit-delete" disabled={pendingKey?.startsWith(habit.id) === true} aria-label={`Delete ${habit.name}`} onClick={() => setConfirming(habit.id)}>Delete</Button>}
+              </span> : <Button type="button" variant="link" size="sm" className="habit-delete" disabled={pendingKey !== null} aria-label={`Delete ${habit.name}`} onClick={() => setConfirming(habit.id)}>Delete</Button>}
             </th>
             {days.map((day) => {
               const closed = day > today;
+              const count = habit.counts[day] ?? 0;
+              if (habit.trackMode === "many") return <td key={day} className="day">
+                <div className="habit-counter" role="group" aria-label={`${habit.name} on ${formatJournalDay(day)}`}>
+                  <output className={count > habit.goalCount! ? "habit-over-goal" : undefined} aria-label={`${habit.name} count on ${formatJournalDay(day)}`} aria-live="polite">{count}<span className="sr-only"> of {habit.goalCount}{count >= habit.goalCount! ? ", done" : ""}</span></output>
+                  <Button type="button" size="icon-sm" variant="ghost" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
+                  <Button type="button" size="icon-sm" variant="ghost" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, -1)}>−</Button>
+                </div>
+              </td>;
               return <td key={day} className="day"><input
                 type="checkbox"
                 checked={habit.marked.includes(day)}
-                disabled={closed || pendingKey?.startsWith(habit.id) === true}
+                disabled={closed || pendingKey !== null}
                 aria-label={`${habit.name} on ${formatJournalDay(day)}`}
                 onChange={(event) => toggle(habit, day, event.target.checked)}
               /></td>;
             })}
-            <td className="habit-stat">{habit.streak}</td>
-            <td className="habit-stat">{habit.record}</td>
+            <td className="habit-stat">{habit.trackMode === "once" ? habit.streak : "—"}</td>
+            <td className="habit-stat">{habit.trackMode === "once" ? habit.record : "—"}</td>
           </tr>)}
         </tbody>
       </table>
@@ -149,7 +179,7 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
 export function HabitBoard({ today, week, habits }: { today: string; week: string; habits: HabitRow[] }) {
   const current = mondayOf(today);
   const open = current !== null && week <= current;
-  const signature = habits.map((habit) => [habit.id, habit.name, habit.streak, habit.record, habit.marked.join(",")].join(":")).join("|");
+  const signature = habits.map((habit) => [habit.id, habit.name, habit.streak, habit.record, habit.marked.join(","), habit.trackMode, habit.goalCount, JSON.stringify(habit.counts)].join(":")).join("|");
   return <>
     <TrackBrowserToday today={today} week={week} />
     <h2 className="habits-daily">Daily</h2>

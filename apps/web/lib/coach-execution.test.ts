@@ -21,6 +21,7 @@ import { DraftError } from "./draft-filing/index.ts";
 import { JournalError } from "./journal.ts";
 import { MoodError } from "./mood.ts";
 import { NoteError } from "./notes.ts";
+import { normalTurnToolNames } from "./coach-normal-turn.ts";
 import { closeTools } from "./daily-close/tools.ts";
 
 const userId = randomUUID();
@@ -69,6 +70,7 @@ test("registration and context retain their distinct original key orders", () =>
     "fileDraft",
     "appendJournal",
     "setMood",
+    "listHabits",
     "listNotebooks",
     "searchKnowledge",
     "createNote",
@@ -555,4 +557,18 @@ test("freshRead uses the same masked list execution and preserves its message an
       "PRIVATE SQL",
     ),
   );
+});
+
+
+test("habit reads are uncapped and use the account and browser today from context", async () => {
+  const asked: [string, string][] = [];
+  const tools = coachTools(data({ listHabits: async (account, day) => { asked.push([account, day]); return []; } }));
+  for (let index = 0; index < 8; index++) {
+    assert.deepEqual(await tools.listHabits.execute!({}, call(`habit_${index}`)), { habits: [] });
+  }
+  assert.deepEqual(asked, Array.from({ length: 8 }, () => [userId, today]));
+  await assert.rejects(Promise.resolve().then(() => tools.listHabits.execute!({}, call("invalid", "2026-02-31"))), /browser's Today/);
+  assert.equal(asked.length, 8);
+  assert.ok(normalTurnToolNames.includes("listHabits"));
+  assert.equal("listHabits" in closeTools(tools, data(), userId, today), false);
 });

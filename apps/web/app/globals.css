@@ -1117,3 +1117,28 @@ form.flex-row {
   line-height: 1.25rem;
   text-align: center;
 }
+
+.habit-grid .habit-goal {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.habit-counter output {
+  min-width: 1.5rem;
+}
+
+.habit-counter .habit-over-goal {
+  border-radius: 0.25rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}

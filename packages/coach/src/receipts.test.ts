@@ -423,3 +423,15 @@ test("a habits lookup receipt names the section and rejects a foreign link", () 
   );
 });
 
+
+
+test("habit read receipts show the count and link to Habits", () => {
+  const part = { type: "tool-listHabits", toolCallId: "habits" };
+  assert.equal(receipt({ ...part, state: "input-available" }), "Reading your habits…");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't read your habits");
+  assert.equal(receipt({ ...part, state: "output-available", output: {} }), "Couldn't read your habits");
+  assert.deepEqual(shownParts([{ ...part, state: "output-available", output: { habits: [{ name: "Walk" }] } }]), [
+    { key: "habits", receipt: "Read your habits (1)", calls: 1, href: "/habits" },
+  ]);
+  assert.equal(receipt({ ...part, state: "output-available", output: { habits: [] } }), "Read your habits (0)");
+});

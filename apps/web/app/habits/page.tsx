@@ -7,7 +7,7 @@ import { HabitBoard } from "./habit-board";
 import { HabitForm } from "./habit-form";
 import { OpenWeek } from "./open-week";
 
-export const metadata: Metadata = { title: "Habits · Bearing", description: "Mark daily habits on this week." };
+export const metadata: Metadata = { title: "Habits · Bearing", description: "Track daily habits on this week." };
 
 export default async function HabitsPage({ searchParams }: { searchParams: Promise<{ today?: string; week?: string }> }) {
   const user = await requireUser();
@@ -16,10 +16,10 @@ export default async function HabitsPage({ searchParams }: { searchParams: Promi
   if (!today || !isCalendarDay(today) || !days) {
     return <><Header email={user.email} /><main className="font-sans"><h1>Habits</h1><OpenWeek /></main></>;
   }
-  const habits = await listHabits(user.id, today, days);
+  const habits = (await listHabits(user.id, today, days)).filter((habit) => habit.period === "day" && !habit.bad);
   return <><Header email={user.email} /><main className="font-sans">
     <h1>Habits</h1>
-    <p>Check today, or a past day, when you do it. An empty today does not break the streak.</p>
+    <p>Check or count today, or a past day, when you do it. Once-habits show streaks; many-times habits show a count toward a daily goal.</p>
     <HabitForm />
     <HabitBoard today={today} week={week!} habits={habits} />
   </main></>;

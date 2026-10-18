@@ -10,6 +10,7 @@ export const normalTurnToolNames = [
   "scheduleTask",
   "updateTask",
   "listArea",
+  "listHabits",
   "listNotebooks",
   "searchKnowledge",
   "createNote",
