@@ -165,6 +165,18 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.equal((await listHabits(a, today, week, db)).find((row) => row.id === habit.id)?.count, 99);
   });
 
+  test("concurrent minus at count 1 succeeds once and deletes the mark once", async () => {
+    const habit = await createHabit(a, { name: "Minus race", trackMode: "many", goalCount: 2 }, db);
+    await changeHabitDayCount(a, habit.id, today, 1, today, db);
+    const results = await Promise.allSettled([1, 2].map(() => changeHabitDayCount(a, habit.id, today, -1, today, db)));
+    assert.deepEqual(results.filter((result) => result.status === "fulfilled").map((result) => result.value), [{ count: 0, done: false }]);
+    const rejected = results.filter((result) => result.status === "rejected");
+    assert.equal(rejected.length, 1);
+    assert.match(String(rejected[0]!.reason), /already 0/);
+    assert.equal((await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id))).length, 0);
+    await db.delete(habits).where(eq(habits.id, habit.id));
+  });
+
   test("the Coach adapter reads all habits for this account and the requested browser day", async () => {
     const many = await createHabit(b, { name: "Coach water", trackMode: "many", goalCount: 3 }, db);
     const once = await createHabit(b, "Coach walk", db);

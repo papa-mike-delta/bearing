@@ -1133,12 +1133,52 @@ form.flex-row {
   font-variant-numeric: tabular-nums;
 }
 
+/* The count reads n/goal on the habit name's line; met or over goal is the accent, never grey. */
 .habit-counter output {
   min-width: 1.5rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: nowrap;
 }
 
-.habit-counter .habit-over-goal {
-  border-radius: 0.25rem;
-  background: var(--muted);
+.habit-counter .habit-of-goal {
   color: var(--muted-foreground);
+}
+
+.habit-counter .habit-met-goal,
+.habit-counter .habit-met-goal .habit-of-goal {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Small outline steppers in the shared button style, at least 32 by 40. */
+.habit-counter .habit-step {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Many-times rows top-align so the count sits on the habit name's line. */
+.habit-grid tr.habit-many > th,
+.habit-grid tr.habit-many > td {
+  vertical-align: top;
+}
+
+.habit-grid tr.habit-many .habit-title {
+  line-height: 1.25rem;
+}
+
+.habits-intro {
+  margin-bottom: 2rem;
+}
+
+/* Below md the inputs are 16px; the Track select matches them. */
+@media (max-width: 47.99rem) {
+  .habit-form select {
+    font-size: 1rem;
+  }
 }
