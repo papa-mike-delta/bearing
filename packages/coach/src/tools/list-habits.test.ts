@@ -59,3 +59,22 @@ test("a weekly once-habit is due only while its current week is empty", async ()
   }
   assert.match(listHabits.description, /Monday to Sunday/);
 });
+
+
+test("weekly many-times exposes the requested week's count, goal and done with no streak or record", async () => {
+  const calls: [string, string][] = [];
+  for (const count of [199, 200, 201, 999]) {
+    const weekly: ListedHabit = { id: "weekly-many", name: "Weekly pages", period: "week", trackMode: "many", goalCount: 200, bad: false, count, done: count >= 200, streak: null, record: null };
+    const badOnce: ListedHabit = { ...rows[0]!, id: "weekly-bad-once", period: "week", bad: true };
+    const badMany: ListedHabit = { ...weekly, id: "weekly-bad-many", bad: true, goalCount: null, done: false };
+    const data = { listHabits: async (userId: string, day: string) => { calls.push([userId, day]); return [weekly, badOnce, badMany]; } } as unknown as CoachData;
+    const result = await listHabits.run({}, { userId: "owner", today: "2026-10-11", messageId: "message", toolCallId: "read", data });
+    assert.deepEqual(result.habits, [
+      { ...weekly, due: count < 200 },
+      { ...badOnce, done: false, due: false, streak: null, record: null },
+      { ...badMany, done: false, due: false, streak: null, record: null },
+    ]);
+  }
+  assert.deepEqual(calls, Array.from({ length: 4 }, () => ["owner", "2026-10-11"]));
+  assert.match(listHabits.description, /Weekly many-times returns count, goal and done/);
+});

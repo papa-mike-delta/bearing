@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
+import { habitPeriodDay, habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { formatJournalDay } from "../../lib/journal-day";
 import { useBrowserToday } from "../browser-today";
@@ -104,7 +104,7 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
         else {
           setRows((current) => current.map((row) => row.id === habit.id ? {
             ...row, counts: { ...row.counts, [day]: result.count },
-            ...(day === today ? { count: result.count, done: result.done } : {}),
+            ...(day === habitPeriodDay(habit.period, today) ? { count: result.count, done: result.done } : {}),
           } : row));
           saved();
         }
@@ -150,7 +150,7 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
               <span className="habit-title">{habit.name}</span>
               {habit.bad && <span className="habit-bad-label">Bad</span>}
               {habit.trackMode === "many"
-                ? habit.goalCount !== null && <span className="habit-goal">{`${habit.bad ? "Limit" : "Daily goal"} ${habit.goalCount}`}</span>
+                ? habit.goalCount !== null && <span className="habit-goal">{`${habit.bad ? "Limit" : weekly ? "Weekly goal" : "Daily goal"} ${habit.goalCount}`}</span>
                 : !habit.bad && <span className="habit-meta"><span>Streak {run(habit.streak)}</span><span className="habit-meta-sep" aria-hidden="true"> · </span><span>Record {run(habit.record)}</span></span>}
               {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
                 <span>Delete it and every marked day?</span>
@@ -164,10 +164,10 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
               const met = !habit.bad && habit.goalCount !== null && count >= habit.goalCount;
               const over = habitOverGoal(habit, count);
               if (habit.trackMode === "many") return <td key={day} className="day">
-                <div className="habit-counter" role="group" aria-label={`${habit.name} on ${formatJournalDay(day)}`}>
-                  <output className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")} aria-label={`${habit.name} count on ${formatJournalDay(day)}`} aria-live="polite">{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</output>
-                  <Button type="button" variant="outline" className="habit-step" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
-                  <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
+                <div className="habit-counter" role="group" aria-label={`${habit.name} ${label(day)}`}>
+                  <output className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")} aria-label={`${habit.name} count ${label(day)}`} aria-live="polite">{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</output>
+                  <Button type="button" variant="outline" className="habit-step" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
+                  <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
                 </div>
               </td>;
               return <td key={day} className="day"><label className="habit-hit"><input

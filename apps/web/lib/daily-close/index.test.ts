@@ -188,6 +188,48 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     ]);
   });
 
+  test("a past close reads weekly many-times counts and goals for its own week, including Bad, and receipts count them all", async () => {
+    const owner = await account();
+    const pastDay = "2026-09-27";
+    const many = await createHabit(owner.userId, { name: "Weekly pages", period: "week", trackMode: "many", goalCount: 200 }, db);
+    const badOnce = await createHabit(owner.userId, { name: "Weekly lapse", period: "week", bad: true }, db);
+    const badMany = await createHabit(owner.userId, { name: "Weekly lapses", period: "week", trackMode: "many", bad: true }, db);
+    const badLimit = await createHabit(owner.userId, { name: "Weekly limit", period: "week", trackMode: "many", bad: true, goalCount: 200 }, db);
+    await db.insert(habitMarks).values([
+      { habitId: many.id, day: "2026-09-21", count: 199 },
+      { habitId: many.id, day: "2026-10-05", count: 201 },
+      { habitId: badOnce.id, day: "2026-09-21", count: 1 },
+      { habitId: badMany.id, day: "2026-09-21", count: 999 },
+      { habitId: badLimit.id, day: "2026-09-21", count: 201 },
+    ]);
+    const incoming = message("Daily close");
+    const turn = await prepare(owner, incoming, { closeDay: pastDay });
+    const read = async () => {
+      const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
+      assert.ok("habits" in output && "day" in output);
+      assert.equal(output.day, pastDay);
+      return output;
+    };
+    const output = await read();
+    assert.deepEqual(output.habits.find((row) => row.id === many.id), { id: many.id, name: "Weekly pages", period: "week", trackMode: "many", goalCount: 200, bad: false, count: 199, done: false, due: true, streak: null, record: null });
+    for (const [id, count, goalCount] of [[badOnce.id, 1, null], [badMany.id, 999, null], [badLimit.id, 201, 200]] as const) {
+      const row = output.habits.find((row) => row.id === id)!;
+      assert.deepEqual({ count: row.count, goalCount: row.goalCount, done: row.done, due: row.due, streak: row.streak, record: row.record }, { count, goalCount, done: false, due: false, streak: null, record: null });
+    }
+    assert.equal((await coachData(db).listHabits!(owner.userId, today)).find((row) => row.id === many.id)?.count, 201);
+    assert.deepEqual(await changeHabitDayCount(owner.userId, many.id, pastDay, 1, today, db), { count: 200, done: true });
+    const met = (await read()).habits.find((row) => row.id === many.id)!;
+    assert.equal(met.count, 200);
+    assert.equal(met.done, true);
+    assert.equal(met.due, false);
+    const part = { type: "tool-listHabits" as const, toolCallId: "weekly-many-close", state: "output-available" as const, input: {}, output };
+    const expected = [{ key: part.toolCallId, receipt: `Read your habits for ${pastDay} (4)`, calls: 1, href: "/habits" }];
+    assert.deepEqual(shownParts([part]), expected);
+    await reply(owner, incoming, [part]);
+    const reloaded = (await threadMessages(owner.userId, owner.threadId, db))!;
+    assert.deepEqual(shownParts(reloaded.at(-1)!.parts), expected);
+  });
+
   test("start -> answer -> skip -> cancel preserves writes, progress, selected day and exact tool exposure", async () => {
     const owner = await account();
     const start = await prepare(owner, message("Start Daily close"), { closeDay: day });

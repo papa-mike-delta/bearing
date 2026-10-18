@@ -203,3 +203,40 @@ test("an ended empty week breaks the streak; record follows the longest remainin
   assert.deepEqual(weeklyOnceProgress([], "2026-10-18"), { done: false, streak: 0, record: 0 });
   assert.equal(weeklyOnceProgress(marks, "2026-13-40"), null);
 });
+
+
+test("weekly many-times keeps goals up to 999, stops at 0 and 999, and is done at its goal without a streak", () => {
+  const habit: HabitTracking = { period: "week", trackMode: "many", goalCount: 200, bad: false };
+  for (const goalCount of [1, 200, 999]) assert.equal(validHabitGoal({ ...habit, goalCount }), true);
+  for (const goalCount of [null, 0, 1000, 1.5]) assert.equal(validHabitGoal({ ...habit, goalCount }), false);
+  assert.equal(validHabitGoal({ ...habit, period: "day" }), false);
+  assert.equal(changeHabitCount(0, -1, "week"), null);
+  assert.equal(changeHabitCount(1, -1, "week"), 0);
+  assert.equal(changeHabitCount(998, 1, "week"), 999);
+  assert.equal(changeHabitCount(999, 1, "week"), null);
+  assert.equal(changeHabitCount(1000, 1, "week"), null);
+  for (const count of [0, 199, 200, 201, 999]) {
+    const marks = count ? [{ day: "2026-10-05", count }] : [];
+    for (const day of weekDays("2026-10-05")!) {
+      const progress = habitProgress(habit, marks, day)!;
+      assert.deepEqual(progress, { count, done: count >= 200, streak: null, record: null });
+      assert.equal(habitIsDue(habit, progress.done), count < 200);
+      assert.equal(habitOverGoal(habit, count), count > 200);
+    }
+    assert.deepEqual(habitProgress(habit, marks, "2026-10-12"), { count: 0, done: false, streak: null, record: null });
+  }
+});
+
+test("Bad weekly once and many-times habits never have completion, due, streak or record, including without a goal", () => {
+  const base: HabitTracking = { period: "week", trackMode: "many", goalCount: 200, bad: true };
+  const habits = [base, { ...base, goalCount: null }, { ...base, trackMode: "once" as const, goalCount: null }];
+  for (const habit of habits) {
+    assert.equal(validHabitGoal(habit), true);
+    for (const count of habit.trackMode === "many" ? [0, 199, 200, 201, 999] : [0, 1]) {
+      const progress = habitProgress(habit, count ? [{ day: "2026-10-05", count }] : [], "2026-10-11")!;
+      assert.deepEqual(progress, { count, done: false, streak: null, record: null });
+      assert.equal(habitIsDue(habit, progress.done), false);
+      assert.equal(habitOverGoal(habit, count), habit.goalCount !== null && count > habit.goalCount);
+    }
+  }
+});

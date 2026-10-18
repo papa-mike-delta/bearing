@@ -113,7 +113,7 @@ test("knowledge titles are listed and the article bodies are not", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
-  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page, once or many-times, including Bad habits, and weekly once-habits (Monday to Sunday)."));
+  assert.ok(prompt.includes("Bearing has daily and weekly Habits on the Habits page, once or many-times, including Bad habits in either period."));
   assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, but cannot create, mark or change habits"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
@@ -162,9 +162,19 @@ test("Bad habit tracking reports occurrences without shame", () => {
 
 test("weekly habits are due until done that week and close reads use the close week's progress", () => {
   const prompt = coachSystemPrompt();
-  assert.ok(prompt.includes("weekly once-habits (Monday to Sunday)"));
+  assert.ok(prompt.includes("Weekly means Monday to Sunday"));
   assert.ok(prompt.includes("A weekly habit is due until done that week"));
-  assert.ok(prompt.includes("its streak and record are in weeks"));
+  assert.ok(prompt.includes("has its streak and record in weeks"));
   assert.ok(prompt.includes('Say a streak or record of 1 in the singular ("1 day", "1 week")'));
   assert.ok(prompt.includes("judging weekly habits by the week containing the close day"));
+});
+
+
+test("many-times Habits name daily and weekly goal caps and keep Coach writes unavailable", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("daily goal up to 99, weekly goal up to 999"));
+  assert.ok(prompt.includes("including Bad habits in either period"));
+  assert.ok(prompt.includes("many-times habits show counts, with no streak or record"));
+  assert.ok(prompt.includes("week containing the browser's Today"));
+  assert.ok(prompt.includes("cannot create, mark or change habits"));
 });

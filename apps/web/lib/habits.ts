@@ -83,10 +83,11 @@ export async function createHabit(userId: string, input: string | { name: string
   const options = typeof input === "string" ? { name: input } : input;
   const tracking: HabitTracking = { period: options.period ?? "day", trackMode: options.trackMode ?? "once", goalCount: options.goalCount ?? null, bad: options.bad ?? false };
   if (tracking.period !== "day" && tracking.period !== "week") throw new HabitError("Choose Daily or Weekly for this habit.");
-  if (tracking.period === "week" && (tracking.trackMode !== "once" || tracking.bad)) throw new HabitError("Weekly habits must be once and cannot be Bad.");
   if (typeof tracking.bad !== "boolean") throw new HabitError("Choose whether this habit is Bad.");
   if (tracking.trackMode !== "once" && tracking.trackMode !== "many") throw new HabitError("Choose once or many-times for this habit.");
-  if (!validHabitGoal(tracking)) throw new HabitError(tracking.trackMode === "many" ? (tracking.bad ? "Enter a whole-number limit between 1 and 99, or leave it empty." : "Enter a whole-number daily goal between 1 and 99.") : "Once-habits cannot have a goal.");
+  const cap = habitCountCap(tracking.period);
+  const periodLabel = tracking.period === "week" ? "weekly" : "daily";
+  if (!validHabitGoal(tracking)) throw new HabitError(tracking.trackMode === "many" ? (tracking.bad ? `Enter a whole-number limit between 1 and ${cap}, or leave it empty.` : `Enter a whole-number ${periodLabel} goal between 1 and ${cap}.`) : "Once-habits cannot have a goal.");
   const problem = habitNameError(options.name);
   const name = problem ? null : habitName(options.name);
   if (!name) throw new HabitError(problem ?? blankName);
@@ -105,7 +106,6 @@ export async function setHabitDay(userId: string, habitId: string, day: string, 
     if (!habit) throw new HabitError(unavailable);
     const periodDay = habitPeriodDay(habit.period, day)!;
     if (periodDay > habitPeriodDay(habit.period, today)!) throw new HabitError(future);
-    if (habit.period === "week" && habit.bad) throw new HabitError(unavailable);
     if (checked) await tx.insert(habitMarks).values({ habitId, day: periodDay }).onConflictDoNothing();
     else await tx.delete(habitMarks).where(and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, periodDay)));
     const marks = await tx.select({ day: habitMarks.day, count: habitMarks.count }).from(habitMarks).where(and(eq(habitMarks.habitId, habitId), lte(habitMarks.day, today)));
@@ -117,21 +117,22 @@ export async function setHabitDay(userId: string, habitId: string, day: string, 
 // Lock the owned habit so decrement/delete and concurrent increments take turns.
 export async function changeHabitDayCount(userId: string, habitId: string, day: string, delta: 1 | -1, today: string, db: Db = defaultDb) {
   if (!isUuid(habitId) || !isCalendarDay(day) || !isCalendarDay(today) || (delta !== 1 && delta !== -1)) throw new HabitError(unavailable);
-  if (day > today) throw new HabitError(future);
   return db.transaction(async (tx) => {
-    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "many"), eq(habits.period, "day"))).for("update");
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "many"))).for("update");
     if (!habit) throw new HabitError(unavailable);
+    const periodDay = habitPeriodDay(habit.period, day)!;
+    if (periodDay > habitPeriodDay(habit.period, today)!) throw new HabitError(future);
     // The SQL mirrors changeHabitCount: plus stops at habitCountCap, minus at 0 (no row).
     const cap = habitCountCap(habit.period);
-    const target = and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, day));
+    const target = and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, periodDay));
     let count: number;
     if (delta === 1) {
-      const [row] = await tx.insert(habitMarks).values({ habitId, day, count: 1 }).onConflictDoUpdate({
+      const [row] = await tx.insert(habitMarks).values({ habitId, day: periodDay, count: 1 }).onConflictDoUpdate({
         target: [habitMarks.habitId, habitMarks.day],
         set: { count: sql`${habitMarks.count} + 1` },
         setWhere: lt(habitMarks.count, cap),
       }).returning({ count: habitMarks.count });
-      if (!row) throw new HabitError(`This habit's daily count can be at most ${cap}.`);
+      if (!row) throw new HabitError(`This habit's ${habit.period === "week" ? "weekly" : "daily"} count can be at most ${cap}.`);
       count = row.count;
     } else {
       const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
