@@ -1233,6 +1233,10 @@ form.flex-row {
   font-weight: 400;
 }
 
+.habit-grid .habit-bad .habit-counter output {
+  color: var(--muted-foreground);
+}
+
 .habit-grid .habit-bad input[type="checkbox"] {
   accent-color: var(--muted-foreground);
 }
@@ -1248,4 +1252,7 @@ form.flex-row {
 .habit-weekly-grid .day { min-width: 3rem; }
 @media (max-width: 480px) {
   .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
+  /* Leave room for four full 999/999 counts beside the habit name at 393px. */
+  .habit-weekly-grid .habit-name { width: 6.5rem; max-width: 6.5rem; }
+  .habit-weekly-grid .habit-counter output { font-size: 0.6875rem; }
 }

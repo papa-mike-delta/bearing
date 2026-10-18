@@ -429,7 +429,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(names.includes("createHabit"), false);
     assert.ok(promptText(model).includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
     assert.equal(promptText(model).includes("median of 66 days"), false);
-    assert.ok(promptText(model).includes("Bearing has daily Habits on the Habits page"));
+    assert.ok(promptText(model).includes("Bearing has daily and weekly Habits on the Habits page"));
     const saved = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts);
     const looked = saved.find((p) => p.type === "tool-searchKnowledge" && "output" in p) as { output?: { match?: boolean; heading?: string; section?: string; title?: string } } | undefined;
     assert.equal(looked?.output?.match, true);

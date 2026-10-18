@@ -21,7 +21,7 @@ export default async function HabitsPage({ searchParams }: { searchParams: Promi
   const habits = await listHabits(user.id, today, [...days, ...weeks]);
   return <><Header email={user.email} /><main className="font-sans">
     <h1>Habits</h1>
-    <p className="habits-intro">Check or count a day, or check a Monday–Sunday week, when you do it. Bad habits count lapses without streaks. Other once-habits show streaks; many-times habits show a count toward a daily goal.</p>
+    <p className="habits-intro">Check or count a day or a Monday–Sunday week, when you do it. Bad habits count lapses without streaks. Other once-habits show streaks; many-times habits show a count toward a daily or weekly goal.</p>
     <HabitForm />
     <HabitBoard today={today} week={week!} weeklyWeek={weeklyWeek} habits={habits} />
   </main></>;

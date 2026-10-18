@@ -1,5 +1,6 @@
 "use client";
 
+import { habitCountCap, type HabitPeriod } from "@repo/domain";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui/components/button";
@@ -10,10 +11,12 @@ import { NativeSelect, NativeSelectOption } from "@repo/ui/components/native-sel
 import { addHabit } from "./actions";
 
 // Inline text for the goal field, worded as the server's refusal; the server still checks.
-function dailyGoalError(goal: string, bad: boolean): string {
+function habitGoalError(goal: string, bad: boolean, period: HabitPeriod): string {
   if (bad && !goal.trim()) return "";
+  const cap = habitCountCap(period);
+  const periodLabel = period === "week" ? "weekly" : "daily";
   const number = Number(goal.trim());
-  return goal.trim() && Number.isInteger(number) && number >= 1 && number <= 99 ? "" : bad ? "Enter a whole-number limit between 1 and 99, or leave it empty." : "Enter a whole-number daily goal between 1 and 99.";
+  return goal.trim() && Number.isInteger(number) && number >= 1 && number <= cap ? "" : bad ? `Enter a whole-number limit between 1 and ${cap}, or leave it empty.` : `Enter a whole-number ${periodLabel} goal between 1 and ${cap}.`;
 }
 
 export function HabitForm() {
@@ -29,7 +32,7 @@ export function HabitForm() {
   return <form className="panel habit-form" noValidate onSubmit={(event) => {
     event.preventDefault();
     if (trackMode === "many") {
-      const problem = dailyGoalError(goal, bad);
+      const problem = habitGoalError(goal, bad, period);
       setGoalError(problem);
       if (problem) return;
     }
@@ -54,7 +57,6 @@ export function HabitForm() {
         <NativeSelect id="habit-period" value={period} onChange={(event) => {
           const next = event.target.value as "day" | "week";
           setPeriod(next);
-          if (next === "week") { setTrackMode("once"); setBad(false); setGoal(""); }
           setGoalError("");
         }} disabled={pending}>
           <NativeSelectOption value="day">Daily</NativeSelectOption>
@@ -62,17 +64,17 @@ export function HabitForm() {
         </NativeSelect>
       </Field>
       <Field><FieldLabel htmlFor="habit-mode">Track</FieldLabel>
-        <NativeSelect id="habit-mode" value={trackMode} onChange={(event) => { setTrackMode(event.target.value as "once" | "many"); setGoalError(""); }} disabled={pending || period === "week"}>
+        <NativeSelect id="habit-mode" value={trackMode} onChange={(event) => { setTrackMode(event.target.value as "once" | "many"); setGoalError(""); }} disabled={pending}>
           <NativeSelectOption value="once">{period === "week" ? "Once a week" : "Once a day"}</NativeSelectOption>
-          <NativeSelectOption value="many">Many-times a day</NativeSelectOption>
+          <NativeSelectOption value="many">{period === "week" ? "Many-times a week" : "Many-times a day"}</NativeSelectOption>
         </NativeSelect>
       </Field>
       <Field orientation="horizontal">
-        <Checkbox id="habit-bad" checked={bad} onCheckedChange={(checked) => { setBad(checked); setGoalError(""); }} disabled={pending || period === "week"} />
+        <Checkbox id="habit-bad" checked={bad} onCheckedChange={(checked) => { setBad(checked); setGoalError(""); }} disabled={pending} />
         <FieldLabel htmlFor="habit-bad">Bad</FieldLabel>
       </Field>
-      {trackMode === "many" && <Field><FieldLabel htmlFor="habit-goal">{bad ? "Limit (optional)" : "Daily goal"}</FieldLabel>
-        <Input id="habit-goal" type="number" inputMode="numeric" min={1} max={99} step={1} required={!bad} value={goal} onChange={(event) => { setGoal(event.target.value); if (goalError) setGoalError(""); }} aria-invalid={error || goalError ? true : undefined} aria-describedby={goalError ? "habit-goal-error" : error ? "habit-name-error" : undefined} disabled={pending} />
+      {trackMode === "many" && <Field><FieldLabel htmlFor="habit-goal">{bad ? "Limit (optional)" : period === "week" ? "Weekly goal" : "Daily goal"}</FieldLabel>
+        <Input id="habit-goal" type="number" inputMode="numeric" min={1} max={habitCountCap(period)} step={1} required={!bad} value={goal} onChange={(event) => { setGoal(event.target.value); if (goalError) setGoalError(""); }} aria-invalid={error || goalError ? true : undefined} aria-describedby={goalError ? "habit-goal-error" : error ? "habit-name-error" : undefined} disabled={pending} />
         {goalError && <p id="habit-goal-error" className="field-error">{goalError}</p>}
       </Field>}
     </FieldGroup>
