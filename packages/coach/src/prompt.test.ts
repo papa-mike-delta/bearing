@@ -118,7 +118,8 @@ test("knowledge titles are listed and the article bodies are not", () => {
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
   assert.equal(prompt.includes("You can create a habit"), false);
-  assert.ok(prompt.includes("A habit not yet done today is due"));
+  assert.ok(prompt.includes("A habit not yet done today and not Bad is due"));
+  assert.ok(prompt.includes("Daily close reads the close day's habits after mood and before Inbox drafts"));
 });
 
 test("a valid today is named in the system prompt", () => {

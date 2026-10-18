@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
-import { coachMessages, createDb, dayScores, journalOperations, users } from "@repo/db";
+import { coachMessages, createDb, dayScores, habitMarks, habits, journalOperations, users } from "@repo/db";
 import { CloseRefusal, coachSystemPrompt, shownParts, type CoachData } from "@repo/coach";
 import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -15,6 +15,7 @@ import { createArea } from "../areas.ts";
 import { captureDraft, inboxDrafts } from "../drafts.ts";
 import { getJournalDay, saveJournalDay } from "../journal.ts";
 import { getMood } from "../mood.ts";
+import { changeHabitDayCount, createHabit, setHabitDay } from "../habits.ts";
 import { normalTurnToolNames } from "../coach-normal-turn.ts";
 import { dailyCloseDay, prepareCoachTurn, type CoachTurn } from "./index.ts";
 
@@ -30,7 +31,7 @@ if (!url && process.env.CI) {
 const today = "2026-10-09";
 const day = "2026-10-08";
 const closeTools = [
-  "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listInboxDrafts",
+  "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listHabits", "listInboxDrafts",
   "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
 ];
 const message = (text: string) => ({ id: randomUUID(), text });
@@ -110,6 +111,67 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.equal(turn.system, coachSystemPrompt(today));
     assert.doesNotMatch(turn.system, /user-initiated Daily close|Daily close cancelled/);
     assert.equal(await dailyCloseDay(owner.userId, owner.threadId, db), null);
+  });
+
+  test("a past Daily close reads only owned habits with that day's counts and marks, and reloads its dated receipt", async () => {
+    const owner = await account();
+    const other = await account();
+    const many = await createHabit(owner.userId, { name: "Water", trackMode: "many", goalCount: 3 }, db);
+    const yesterday = await createHabit(owner.userId, "Walk yesterday", db);
+    const now = await createHabit(owner.userId, "Walk today", db);
+    await createHabit(other.userId, "Other account's secret", db);
+    await changeHabitDayCount(owner.userId, many.id, day, 1, today, db);
+    for (let i = 0; i < 3; i++) await changeHabitDayCount(owner.userId, many.id, today, 1, today, db);
+    await setHabitDay(owner.userId, yesterday.id, day, true, today, db);
+    await setHabitDay(owner.userId, now.id, today, true, today, db);
+    const base = coachData(db, today);
+    const current = await base.listHabits!(owner.userId, today);
+    assert.equal(current.find((habit) => habit.id === many.id)?.count, 3);
+    const incoming = message("Daily close");
+    const turn = await prepare(owner, incoming, { closeDay: day });
+    assertCloseTools(turn);
+    const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
+    assert.ok("habits" in output && "day" in output);
+    assert.deepEqual(output.habits.map((habit) => [habit.name, habit.count, habit.done, habit.due, habit.streak]), [
+      ["Walk today", 0, false, true, 0],
+      ["Walk yesterday", 1, true, false, 1],
+      ["Water", 1, false, true, null],
+    ]);
+    assert.equal(output.day, day);
+    const part = { type: "tool-listHabits" as const, toolCallId: randomUUID(), state: "output-available" as const, input: {}, output };
+    const expected = [{ key: part.toolCallId, receipt: `Read your habits for ${day} (3)`, calls: 1, href: "/habits" }];
+    assert.deepEqual(shownParts([part]), expected);
+    await reply(owner, incoming, [part]);
+    const reloaded = (await threadMessages(owner.userId, owner.threadId, db))!.at(-1)!;
+    assert.deepEqual(shownParts(reloaded.parts), expected);
+    const resumed = await prepare(owner, message("skip"));
+    assert.doesNotMatch(resumed.system, /Walk today|Walk yesterday|Water/);
+    assert.deepEqual(await resumed.tools.listHabits.execute!({}, call(resumed, "listHabits")), output);
+  });
+
+  test("the shared habits read retains weekly period progress and excludes Bad habits from due", async () => {
+    const owner = await account();
+    const weekly = await db.insert(habits).values([
+      { userId: owner.userId, name: "Weekly done", period: "week", trackMode: "once", position: 0 },
+      { userId: owner.userId, name: "Weekly due", period: "week", trackMode: "many", goalCount: 3, position: 1 },
+      { userId: owner.userId, name: "Bad weekly", period: "week", trackMode: "many", bad: true, position: 2 },
+      { userId: owner.userId, name: "Bad daily", bad: true, position: 0 },
+    ]).returning();
+    await db.insert(habitMarks).values([
+      { habitId: weekly[0]!.id, day: "2026-10-05", count: 1 },
+      { habitId: weekly[1]!.id, day: "2026-10-05", count: 2 },
+      // A later week's mark must not change this close's open-period progress.
+      { habitId: weekly[1]!.id, day: "2026-10-12", count: 3 },
+    ]);
+    const turn = await prepare(owner, message("Daily close"), { closeDay: day });
+    const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
+    assert.ok("habits" in output);
+    assert.deepEqual(output.habits.map(({ name, count, done, due }) => ({ name, count, done, due })), [
+      { name: "Bad daily", count: 0, done: false, due: false },
+      { name: "Weekly done", count: 1, done: true, due: false },
+      { name: "Weekly due", count: 2, done: false, due: true },
+      { name: "Bad weekly", count: 0, done: false, due: false },
+    ]);
   });
 
   test("start -> answer -> skip -> cancel preserves writes, progress, selected day and exact tool exposure", async () => {

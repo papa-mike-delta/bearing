@@ -395,6 +395,20 @@ test("two creates in a row stay two lines", () => {
   );
 });
 
+test("a Daily close habits receipt keeps its selected day and Habits link after serialization", () => {
+  for (const habits of [[], [{ name: "Walk" }]]) {
+    const part = { type: "tool-listHabits", toolCallId: "close-habits", state: "output-available", output: { day: "2026-10-08", habits } };
+    const expected = [{ key: "close-habits", receipt: `Read your habits for 2026-10-08 (${habits.length})`, calls: 1, href: "/habits" }];
+    assert.deepEqual(shownParts([part]), expected);
+    assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
+  }
+  for (const day of ["2026-02-30", "https://untrusted.invalid", null, 42]) {
+    assert.deepEqual(shownParts([{ type: "tool-listHabits", state: "output-available", output: { day, habits: [] } }]), [
+      { key: "part-0", receipt: "Couldn't read your habits", calls: 1 },
+    ]);
+  }
+});
+
 test("a habits lookup receipt names the section and rejects a foreign link", () => {
   const part = {
     type: "tool-searchKnowledge",

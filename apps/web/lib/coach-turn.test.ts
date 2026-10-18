@@ -13,6 +13,8 @@ import { after, before, describe, mock, test } from "node:test";
 import {
   coachMessages,
   drafts,
+  habitMarks,
+  habits,
   createDb,
   notebooks,
   noteOperations,
@@ -240,6 +242,8 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 type Step =
   | { listArea: string; toolCallId?: string }
   | { listHabits: string; toolCallId?: string }
+  | { createHabit: string; toolCallId?: string }
+  | { trackHabit: string; toolCallId?: string }
   | { listNotebooks: string; toolCallId?: string }
   | { createTask: string; toolCallId?: string }
   | { createNote: string; toolCallId?: string }
@@ -268,6 +272,10 @@ function scripted(...steps: Step[]) {
             }
           : "listHabits" in step
             ? { name: "listHabits" as const, input: step.listHabits, id: step.toolCallId }
+          : "createHabit" in step
+            ? { name: "createHabit" as const, input: step.createHabit, id: step.toolCallId }
+          : "trackHabit" in step
+            ? { name: "trackHabit" as const, input: step.trackHabit, id: step.toolCallId }
           : "listNotebooks" in step
             ? {
                 name: "listNotebooks" as const,
@@ -618,9 +626,79 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
     assert.equal(await getMood(c, "2026-10-09", db), null);
     assert.deepEqual(model.doStreamCalls[0]!.tools?.map((tool) => tool.name).sort(), [
-      "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
+      "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listHabits", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
     ]);
     assert.equal(readIn(await threadMessages(c, thread, db)), undefined);
+  });
+
+  test("Daily close has no handler for emitted habit writes", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const habit = await createHabit(c, "Walk", db);
+    const before = await db.select().from(habits).where(eq(habits.userId, c));
+    for (const emitted of [
+      { createHabit: JSON.stringify({ name: "Unwanted" }) },
+      { trackHabit: JSON.stringify({ habitId: habit.id, day: "2026-10-09", count: 1 }) },
+    ]) {
+      const model = scripted(emitted, { text: "You can mark habits on the Habits page." });
+      await turn(c, thread, userMessage("Daily close"), model);
+      const names = model.doStreamCalls[0]!.tools?.map((tool) => tool.name);
+      assert.ok(!names?.includes("createHabit"));
+      assert.ok(!names?.includes("trackHabit"));
+      // The SDK reports an absent handler, rather than executing a hidden write.
+      assert.match(JSON.stringify(model.doStreamCalls[1]!.prompt), /(?:not available|NoSuchToolError)/i);
+      assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, c)), before);
+      assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), []);
+    }
+  });
+
+  test("Daily close orders mood, habits, then drafts; skipping habits writes nothing and filing and finish still work", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    const habit = await createHabit(c, "Walk", db);
+    await captureDraft(c, "A quiet evening", db);
+    const [draft] = await inboxDrafts(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"), "2026-10-09", undefined, day);
+    await turn(c, thread, userMessage("skip"), replying("What mood would you choose?"));
+    const review = scripted(
+      { setMood: JSON.stringify({ day, mood: "Good" }) },
+      { listHabits: "{}" },
+      { text: "Walk is still due. You can mark it in [Habits](/habits), or skip." },
+    );
+    await turn(c, thread, userMessage("Good"), review);
+    assert.match(promptText(review), /reflection questions, mood, habits, Inbox drafts, then finishDailyClose/);
+    const reviewed = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.deepEqual(reviewed.parts.filter((part) => part.type.startsWith("tool-")).map((part) => part.type), ["tool-setMood", "tool-listHabits"]);
+    assert.ok(shownParts(reviewed.parts).some((part) => "receipt" in part && part.receipt === `Read your habits for ${day} (1)` && part.href === "/habits"));
+    const habitBefore = await db.select().from(habits).where(eq(habits.userId, c));
+    const skip = scripted(
+      { appendJournal: JSON.stringify({ day, text: "skip" }) },
+      { setMood: JSON.stringify({ day, mood: "Okay" }) },
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day } }) },
+      { listInboxDrafts: "{}" },
+      { text: `File "A quiet evening" in the Journal for ${day}?` },
+    );
+    await turn(c, thread, userMessage("skip"), skip);
+    assert.equal(await getJournalDay(c, day, db), null);
+    assert.equal(await getMood(c, day, db), "Good");
+    assert.equal((await inboxDrafts(c, db)).length, 1);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, c)), habitBefore);
+    assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), []);
+    const complete = scripted(
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day } }) },
+      { finishDailyClose: "{}" },
+      { text: "Mood Good was saved, and your draft was filed." },
+    );
+    await turn(c, thread, userMessage("Yes"), complete);
+    assert.equal((await inboxDrafts(c, db)).length, 0);
+    assert.equal((await getJournalDay(c, day, db))!.body, "A quiet evening");
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    const progress = promptText(complete).split("Close progress (data)")[1]!.split("Template data")[0]!;
+    assert.doesNotMatch(progress, /Walk/);
+    const reloaded = (await threadMessages(c, thread, db))!;
+    const successful = reloaded.flatMap((message) => message.parts).filter((part) => "state" in part && part.state === "output-available").map((part) => part.type);
+    assert.deepEqual(successful, ["tool-setMood", "tool-listHabits", "tool-listInboxDrafts", "tool-fileDraft", "tool-finishDailyClose"]);
   });
 
   test("Daily close start, skip and cancel reject writes; answers and explicit mood stay on the selected day", async () => {
