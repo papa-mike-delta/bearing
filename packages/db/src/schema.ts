@@ -427,3 +427,15 @@ export const habitMarks = pgTable(
     check("habit_marks_count", sql`${t.count} between 1 and 999`),
   ],
 );
+
+// Durable receipts for Coach habit writes (#95), so a retried tool call never
+// applies twice. habit_id is set null on delete: the ledger row outlives the
+// habit, so an old operation can never recreate or re-mark it.
+export const habitOperations = pgTable("habit_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  operationId: text("operation_id").notNull(),
+  habitId: uuid("habit_id").references(() => habits.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("habit_operations_operation_unique").on(t.userId, t.operationId)]);

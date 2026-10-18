@@ -19,3 +19,6 @@ The number of times a many-times habit needs to happen for the day to be done.
 
 **Habit count**:
 The number of times a many-times habit happened on a particular day. It can exceed the goal.
+
+**Due habit**:
+A habit that is not yet done today: a once-habit with no check today, or a many-times habit whose count today is below its goal. The Coach calls these habits due.
