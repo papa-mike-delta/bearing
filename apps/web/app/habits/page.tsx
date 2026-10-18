@@ -16,10 +16,10 @@ export default async function HabitsPage({ searchParams }: { searchParams: Promi
   if (!today || !isCalendarDay(today) || !days) {
     return <><Header email={user.email} /><main className="font-sans"><h1>Habits</h1><OpenWeek /></main></>;
   }
-  const habits = (await listHabits(user.id, today, days)).filter((habit) => habit.period === "day" && !habit.bad);
+  const habits = (await listHabits(user.id, today, days)).filter((habit) => habit.period === "day");
   return <><Header email={user.email} /><main className="font-sans">
     <h1>Habits</h1>
-    <p className="habits-intro">Check or count today, or a past day, when you do it. Once-habits show streaks; many-times habits show a count toward a daily goal.</p>
+    <p className="habits-intro">Check or count today, or a past day, when you do it. Bad habits count lapses without streaks. Other once-habits show streaks; many-times habits show a count toward a daily goal.</p>
     <HabitForm />
     <HabitBoard today={today} week={week!} habits={habits} />
   </main></>;

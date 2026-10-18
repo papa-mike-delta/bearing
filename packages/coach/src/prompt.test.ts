@@ -113,7 +113,7 @@ test("knowledge titles are listed and the article bodies are not", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
-  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page, once or many-times with a daily goal."));
+  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page, once or many-times, including Bad habits."));
   assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, but cannot create, mark or change habits"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
@@ -144,4 +144,15 @@ test("Inbox filing offers explicit choices and never mass-files a vague request"
   assert.ok(prompt.includes("Never mass-file"));
   assert.ok(prompt.includes("Offer Task, Note in an existing Notebook, or today/past Journal"));
   assert.ok(!prompt.includes("or file Inbox drafts"));
+});
+
+
+test("Bad habit tracking reports occurrences without shame", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("a Bad goal is an optional limit"));
+  assert.ok(prompt.includes("Bad habits have no streak or record and are never done or due"));
+  assert.ok(prompt.includes("A check or count on a Bad habit means the lapse happened"));
+  assert.ok(prompt.includes("Never call an empty Bad day missed or a logged one a failure"));
+  assert.ok(prompt.includes("Do not praise or shame; report counts plainly"));
+  assert.ok(prompt.includes("cannot create, mark or change habits"));
 });

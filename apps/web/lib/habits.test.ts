@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { createDb, habitMarks, habits, users } from "@repo/db";
+import { listHabits as coachListHabits, receipt } from "@repo/coach";
 import { eq, inArray } from "drizzle-orm";
 import { coachData } from "./coach-tools.ts";
 import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, listHabits, setHabitDay } from "./habits.ts";
@@ -191,6 +192,86 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.equal(rows.find((row) => row.id === once.id)?.done, true);
     assert.equal((await adapter.listHabits!(b, "2026-10-07")).find((row) => row.id === many.id)?.count, 0);
     assert.equal((await adapter.listHabits!(a, today)).some((row) => row.id === many.id), false);
+    await db.delete(habits).where(eq(habits.userId, b));
+  });
+
+  test("Bad once-habits check and uncheck without completion, streaks, records or unfinished counts", async () => {
+    const before = await countUnfinishedHabits(a, today, db);
+    const habit = await createHabit(a, { name: "Late scrolling", bad: true }, db);
+    for (const checked of [false, true, false]) {
+      assert.deepEqual(await setHabitDay(a, habit.id, today, checked, today, db), { done: false, streak: null, record: null });
+      const row = (await listHabits(a, today, week, db)).find((row) => row.id === habit.id)!;
+      assert.equal(row.bad, true);
+      assert.equal(row.done, false);
+      assert.equal(row.streak, null);
+      assert.equal(row.record, null);
+      assert.equal(row.marked.includes(today), checked);
+      assert.equal(await countUnfinishedHabits(a, today, db), before);
+    }
+  });
+
+  test("Bad many-times may omit a goal and counts to 99; a supplied goal is a limit, never completion", async () => {
+    const before = await countUnfinishedHabits(a, today, db);
+    for (const goalCount of [undefined, null, 3]) {
+      const habit = await createHabit(a, { name: "Occurrences", trackMode: "many", goalCount, bad: true }, db);
+      const read = async () => (await listHabits(a, today, week, db)).find((row) => row.id === habit.id)!;
+      assert.equal((await read()).goalCount, goalCount ?? null);
+      assert.equal((await read()).bad, true);
+      assert.deepEqual(await changeHabitDayCount(a, habit.id, today, 1, today, db), { count: 1, done: false });
+      await db.update(habitMarks).set({ count: 98 }).where(eq(habitMarks.habitId, habit.id));
+      assert.deepEqual(await changeHabitDayCount(a, habit.id, today, 1, today, db), { count: 99, done: false });
+      await assert.rejects(changeHabitDayCount(a, habit.id, today, 1, today, db), /at most 99/);
+      assert.equal((await read()).count, 99);
+      assert.equal((await read()).done, false);
+      assert.equal((await read()).streak, null);
+      assert.equal((await read()).record, null);
+      assert.equal(await countUnfinishedHabits(a, today, db), before);
+      assert.deepEqual(await changeHabitDayCount(a, habit.id, today, -1, today, db), { count: 98, done: false });
+    }
+    const stored = (await listHabits(a, today, week, db)).length;
+    for (const goalCount of [0, 100, 1.5]) await assert.rejects(createHabit(a, { name: "Invalid limit", trackMode: "many", goalCount, bad: true }, db), /whole-number limit/);
+    assert.equal((await listHabits(a, today, week, db)).length, stored);
+  });
+
+  test("another account cannot flip, log or count Bad habits", async () => {
+    const once = await createHabit(a, { name: "Private lapse", bad: true }, db);
+    const many = await createHabit(a, { name: "Private count", bad: true, trackMode: "many" }, db);
+    await setHabitDay(a, once.id, today, true, today, db);
+    await changeHabitDayCount(a, many.id, today, 1, today, db);
+    for (const checked of [true, false]) {
+      for (const day of [today, "2026-10-07"]) await assert.rejects(setHabitDay(b, once.id, day, checked, today, db), /unavailable/);
+    }
+    for (const delta of [1, -1] as const) await assert.rejects(changeHabitDayCount(b, many.id, today, delta, today, db), /unavailable/);
+    const rows = await listHabits(a, today, week, db);
+    assert.equal(rows.find((row) => row.id === once.id)?.marked.includes(today), true);
+    assert.equal(rows.find((row) => row.id === many.id)?.count, 1);
+    assert.equal((await listHabits(b, today, week, db)).some((row) => [once.id, many.id].includes(row.id)), false);
+  });
+
+  test("minus decrements a stored daily count above 99 normally", async () => {
+    const habit = await createHabit(a, { name: "High stored count", trackMode: "many", goalCount: 3 }, db);
+    await db.insert(habitMarks).values({ habitId: habit.id, day: today, count: 101 });
+    assert.equal((await listHabits(a, today, week, db)).find((row) => row.id === habit.id)?.done, true);
+    assert.deepEqual(await changeHabitDayCount(a, habit.id, today, -1, today, db), { count: 100, done: true });
+    assert.deepEqual(await changeHabitDayCount(a, habit.id, today, -1, today, db), { count: 99, done: true });
+  });
+
+  test("the Coach includes Bad daily habits, excludes weekly habits, and receipts count every listed habit", async () => {
+    const once = await createHabit(b, { name: "Bad once", bad: true }, db);
+    const many = await createHabit(b, { name: "Bad many", trackMode: "many", bad: true }, db);
+    await setHabitDay(b, once.id, today, true, today, db);
+    await changeHabitDayCount(b, many.id, today, 1, today, db);
+    await db.insert(habits).values([
+      { userId: b, name: "Weekly", period: "week", position: 0 },
+      { userId: b, name: "Bad weekly", period: "week", bad: true, position: 1 },
+    ]);
+    const data = coachData(db);
+    const rows = await data.listHabits!(b, today);
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((row) => row.bad && row.period === "day" && !row.done && row.streak === null && row.record === null));
+    const { habits: listed } = await coachListHabits.run({}, { userId: b, today, data, messageId: "message", toolCallId: "read" });
+    assert.ok(listed.every((row) => row.bad && !row.due && row.streak === null && row.record === null));
+    assert.equal(receipt({ type: "tool-listHabits", state: "output-available", output: { habits: listed } }), "Read your habits (2)");
     await db.delete(habits).where(eq(habits.userId, b));
   });
 

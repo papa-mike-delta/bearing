@@ -1182,3 +1182,31 @@ form.flex-row {
     font-size: 1rem;
   }
 }
+
+/* A hairline marks counts above either a goal or a Bad limit. */
+.habit-counter .habit-over-goal {
+  box-shadow: 0 -1px 0 var(--muted-foreground);
+}
+
+.habit-counter .habit-met-goal {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.habit-grid .habit-bad-label {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid .habit-bad input[type="checkbox"] {
+  accent-color: var(--muted-foreground);
+}
+
+@media (max-width: 480px) {
+  .habit-counter .habit-step {
+    width: calc(100% - 3px);
+    min-width: 0;
+  }
+}
