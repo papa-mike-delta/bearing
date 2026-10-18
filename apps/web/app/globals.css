@@ -1010,6 +1010,7 @@ form.flex-row {
 }
 
 .habit-grid .habit-delete {
+  border: 0;
   height: auto;
   padding: 0;
   color: var(--muted-foreground);
@@ -1209,4 +1210,11 @@ form.flex-row {
     width: calc(100% - 3px);
     min-width: 0;
   }
+}
+
+/* Four whole weeks, with Monday dates that stay readable on a phone. */
+.habit-weekly-grid .day { min-width: 3rem; }
+@media (max-width: 480px) {
+  .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
+  .habit-weekly-grid .habit-meta { white-space: normal; }
 }

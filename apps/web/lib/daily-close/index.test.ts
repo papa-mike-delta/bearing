@@ -149,31 +149,42 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.deepEqual(await resumed.tools.listHabits.execute!({}, call(resumed, "listHabits")), output);
   });
 
-  test("the close-day habits read shows the Habits page's habits: including Bad daily habits and excluding weekly habits", async () => {
+  test("a past close reads weekly once-habits for the close day's week, with daily and Bad habits", async () => {
     const owner = await account();
+    const pastDay = "2026-09-27"; // Sunday, two weeks before browser Today.
     const rows = await db.insert(habits).values([
       { userId: owner.userId, name: "Daily due", position: 0 },
-      { userId: owner.userId, name: "Weekly due", period: "week", trackMode: "many", goalCount: 3, position: 0 },
-      { userId: owner.userId, name: "Bad weekly", period: "week", trackMode: "many", bad: true, position: 1 },
+      { userId: owner.userId, name: "Weekly done then", period: "week", position: 0 },
+      { userId: owner.userId, name: "Weekly due then", period: "week", position: 1 },
       { userId: owner.userId, name: "Bad daily", bad: true, position: 1 },
     ]).returning();
     await db.insert(habitMarks).values([
-      { habitId: rows[1]!.id, day: "2026-10-05", count: 2 },
-      { habitId: rows[3]!.id, day, count: 1 },
+      { habitId: rows[1]!.id, day: "2026-09-21", count: 1 },
+      { habitId: rows[2]!.id, day: "2026-10-05", count: 1 },
+      { habitId: rows[3]!.id, day: pastDay, count: 1 },
     ]);
-    const turn = await prepare(owner, message("Daily close"), { closeDay: day });
+    const turn = await prepare(owner, message("Daily close"), { closeDay: pastDay });
     const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
     assert.ok("habits" in output);
     assert.equal(output.habits.find((habit) => habit.bad)?.streak, null);
     assert.equal(output.habits.find((habit) => habit.bad)?.record, null);
     assert.match(turn.system, /Bad habits are never due/);
     assert.match(turn.system, /A check or count on a Bad habit means the lapse happened/);
-    assert.match(turn.system, /Never call an empty Bad day missed or a logged one a failure/);
+    assert.match(turn.system, /Never call an empty Bad day missed/);
+    assert.match(turn.system, /recorded today/);
+    assert.match(turn.system, /over your limit of 2/);
     assert.match(turn.system, /Do not praise or shame; report counts plainly/);
-    // Same daily-only adapter as the normal turn, including Bad habits.
-    assert.deepEqual(output.habits.map(({ name, count, done, due }) => ({ name, count, done, due })), [
-      { name: "Daily due", count: 0, done: false, due: true },
-      { name: "Bad daily", count: 1, done: false, due: false },
+    assert.deepEqual(output.habits.map(({ name, period, count, done, due, streak, record }) => ({ name, period, count, done, due, streak, record })), [
+      { name: "Daily due", period: "day", count: 0, done: false, due: true, streak: 0, record: 0 },
+      { name: "Bad daily", period: "day", count: 1, done: false, due: false, streak: null, record: null },
+      { name: "Weekly done then", period: "week", count: 1, done: true, due: false, streak: 1, record: 1 },
+      { name: "Weekly due then", period: "week", count: 0, done: false, due: true, streak: 0, record: 0 },
+    ]);
+    const current = await coachData(db).listHabits!(owner.userId, today);
+    assert.equal(current.find((habit) => habit.id === rows[1]!.id)?.done, false);
+    assert.equal(current.find((habit) => habit.id === rows[2]!.id)?.done, true);
+    assert.deepEqual(shownParts([{ type: "tool-listHabits", toolCallId: "weekly-close", state: "output-available", output }]), [
+      { key: "weekly-close", receipt: `Read your habits for ${pastDay} (4)`, calls: 1, href: "/habits" },
     ]);
   });
 

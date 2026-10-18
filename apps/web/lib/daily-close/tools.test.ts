@@ -28,3 +28,21 @@ test("Daily close adds exactly the bound listHabits read and omits every habit w
   const shared = await listHabits.run({}, { userId: "owner", today: "2026-10-08", messageId: "message", toolCallId: "read", data });
   assert.deepEqual(result, { ...shared, day: "2026-10-08" });
 });
+
+test("Daily close masks and logs a failed habit read, including an invalid bound day before reading", async (t) => {
+  const logs: string[] = [];
+  t.mock.method(console, "error", (line: string) => { logs.push(line); });
+  let reads = 0;
+  const data = { listHabits: async () => { reads++; throw new Error("private database details", { cause: { code: "XX001" } }); } } as unknown as CoachData;
+  for (const day of ["2026-13-40", "2026-10-08"]) {
+    const tools = closeTools(coachTools(data), data, "owner", day, "message");
+    await assert.rejects(async () => tools.listHabits.execute!({}, { toolCallId: day, messages: [], context: {} }), { message: "Couldn't read your habits." });
+    if (day === "2026-13-40") assert.equal(reads, 0);
+  }
+  assert.equal(reads, 1);
+  assert.deepEqual(logs.map((line) => JSON.parse(line)), [
+    { event: "coach.tool.error", tool: "listHabits", toolCallId: "2026-13-40", error: "Error" },
+    { event: "coach.tool.error", tool: "listHabits", toolCallId: "2026-10-08", error: "Error", code: "XX001" },
+  ]);
+  assert.ok(logs.every((line) => !line.includes("private database details")));
+});

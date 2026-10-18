@@ -256,22 +256,22 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.deepEqual(await changeHabitDayCount(a, habit.id, today, -1, today, db), { count: 99, done: true });
   });
 
-  test("the Coach includes Bad daily habits, excludes weekly habits, and receipts count every listed habit", async () => {
+  test("the Coach includes daily and weekly habits and receipts count every listed habit", async () => {
     const once = await createHabit(b, { name: "Bad once", bad: true }, db);
     const many = await createHabit(b, { name: "Bad many", trackMode: "many", bad: true }, db);
     await setHabitDay(b, once.id, today, true, today, db);
     await changeHabitDayCount(b, many.id, today, 1, today, db);
     await db.insert(habits).values([
       { userId: b, name: "Weekly", period: "week", position: 0 },
-      { userId: b, name: "Bad weekly", period: "week", bad: true, position: 1 },
     ]);
     const data = coachData(db);
     const rows = await data.listHabits!(b, today);
-    assert.equal(rows.length, 2);
-    assert.ok(rows.every((row) => row.bad && row.period === "day" && !row.done && row.streak === null && row.record === null));
+    assert.equal(rows.length, 3);
+    assert.ok(rows.filter((row) => row.period === "day").every((row) => row.bad && row.period === "day" && !row.done && row.streak === null && row.record === null));
     const { habits: listed } = await coachListHabits.run({}, { userId: b, today, data, messageId: "message", toolCallId: "read" });
-    assert.ok(listed.every((row) => row.bad && !row.due && row.streak === null && row.record === null));
-    assert.equal(receipt({ type: "tool-listHabits", state: "output-available", output: { habits: listed } }), "Read your habits (2)");
+    assert.ok(listed.filter((row) => row.period === "day").every((row) => row.bad && !row.due && row.streak === null && row.record === null));
+    assert.deepEqual(listed.find((row) => row.period === "week"), { ...rows.find((row) => row.period === "week"), due: true });
+    assert.equal(receipt({ type: "tool-listHabits", state: "output-available", output: { habits: listed } }), "Read your habits (3)");
     await db.delete(habits).where(eq(habits.userId, b));
   });
 
@@ -286,4 +286,57 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.equal(await countUnfinishedHabits(b, today, db), 0);
     await assert.rejects(countUnfinishedHabits(a, "2026-02-31", db), /calendar day/);
   });
+  test("weekly once creation has no gate or limit and refuses unsupported weekly tracking", async () => {
+    const before = (await listHabits(a, today, week, db)).length;
+    for (let i = 0; i < 10; i++) await createHabit(a, { name: `Weekly ${i}`, period: "week" }, db);
+    for (const options of [{ trackMode: "many" as const, goalCount: 3 }, { bad: true }, { trackMode: "many" as const, bad: true }]) {
+      await assert.rejects(createHabit(a, { name: "Refused weekly", period: "week", ...options }, db), /Weekly habits must be once and cannot be Bad/);
+    }
+    assert.equal((await listHabits(a, today, week, db)).length, before + 10);
+  });
+
+  test("weekly checks store Monday whichever day was clicked, refuse future weeks and enforce ownership", async () => {
+    const habit = await createHabit(a, { name: "Weekly walk", period: "week" }, db);
+    const baseline = await countUnfinishedHabits(a, today, db);
+    for (const day of week) {
+      assert.deepEqual(await setHabitDay(a, habit.id, day, true, today, db), { done: true, streak: 1, record: 1 });
+      const marks = await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id));
+      assert.deepEqual(marks.map(({ day }) => day), ["2026-10-05"]);
+      assert.equal(await countUnfinishedHabits(a, today, db), baseline - 1);
+      await setHabitDay(a, habit.id, day, false, today, db);
+      assert.equal((await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id))).length, 0);
+    }
+    for (const checked of [true, false]) {
+      await assert.rejects(setHabitDay(a, habit.id, "2026-10-12", checked, today, db), /not open yet/);
+      await assert.rejects(setHabitDay(b, habit.id, today, checked, today, db), /unavailable/);
+    }
+    assert.equal((await listHabits(b, today, week, db)).some((row) => row.id === habit.id), false);
+    for (const day of ["2026-09-20", "2026-09-27", "2026-10-04"]) await setHabitDay(a, habit.id, day, true, today, db);
+    const shown = ["2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"];
+    const read = async (days = shown) => (await listHabits(a, today, days, db)).find((row) => row.id === habit.id)!;
+    assert.deepEqual((await read()).marked, shown.slice(0, 3));
+    assert.equal((await read()).streak, 3);
+    assert.equal((await read()).record, 3);
+    assert.equal((await read()).done, false);
+    assert.equal(await countUnfinishedHabits(a, today, db), baseline);
+    await setHabitDay(a, habit.id, today, true, today, db);
+    assert.equal((await read()).streak, 4);
+    assert.equal((await read()).record, 4);
+    // Showing an earlier week changes neither current progress nor the link count.
+    const earlier = await read(["2026-09-14"]);
+    assert.equal(earlier.done, true);
+    assert.equal(earlier.streak, 4);
+    assert.equal(await countUnfinishedHabits(a, today, db), baseline - 1);
+    const coached = (await coachData(db).listHabits!(a, today)).find((row) => row.id === habit.id)!;
+    assert.equal(coached.period, "week");
+    assert.equal(coached.done, true);
+    assert.equal(coached.streak, 4);
+    assert.equal(coached.record, 4);
+    await setHabitDay(a, habit.id, "2026-10-11", false, today, db);
+    assert.equal(await countUnfinishedHabits(a, today, db), baseline);
+    const ended = (await listHabits(a, "2026-10-12", shown, db)).find((row) => row.id === habit.id)!;
+    assert.equal(ended.streak, 0);
+    assert.equal(ended.record, 3);
+  });
+
 });

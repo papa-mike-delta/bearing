@@ -64,7 +64,7 @@ export function habitProgress(habit: HabitTracking, marks: readonly { day: strin
   }
   if (habit.bad) return { count, done: false, streak: null, record: null };
   if (habit.period === "day") return { count, ...dailyOnceProgress(marks, day)! };
-  return { count, done: count > 0, streak: null, record: null };
+  return { count, ...weeklyOnceProgress(marks, day)! };
 }
 
 export function habitName(value: string): string | null {
@@ -131,26 +131,35 @@ export function dailyOnceProgress(
   };
 }
 
-function longestRun(days: readonly string[]): number {
+// Weekly once-habits share the daily rules, with Monday as the period date.
+export function weeklyOnceProgress(marks: readonly DayMark[], today: string) {
+  const monday = mondayOf(today);
+  if (!monday) return null;
+  const weeks = [...new Set(marks.map((mark) => mondayOf(mark.day))
+    .filter((week): week is string => week !== null && week <= monday))].sort();
+  return { done: weeks.includes(monday), streak: currentStreak(weeks, monday, 7), record: longestRun(weeks, 7) };
+}
+
+function longestRun(days: readonly string[], step = 1): number {
   let best = 0;
   let run = 0;
   let previous = "";
   for (const day of days) {
-    run = previous && addCalendarDays(previous, 1) === day ? run + 1 : 1;
+    run = previous && addCalendarDays(previous, step) === day ? run + 1 : 1;
     previous = day;
     if (run > best) best = run;
   }
   return best;
 }
 
-function currentStreak(days: readonly string[], today: string): number {
+function currentStreak(days: readonly string[], today: string, step = 1): number {
   const done = new Set(days);
-  let cursor = done.has(today) ? today : addCalendarDays(today, -1);
+  let cursor = done.has(today) ? today : addCalendarDays(today, -step);
   if (!cursor || !done.has(cursor)) return 0;
   let streak = 0;
   while (cursor && done.has(cursor)) {
     streak += 1;
-    cursor = addCalendarDays(cursor, -1);
+    cursor = addCalendarDays(cursor, -step);
   }
   return streak;
 }

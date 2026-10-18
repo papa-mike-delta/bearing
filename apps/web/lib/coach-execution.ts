@@ -81,7 +81,7 @@ function checkDay(day: string | undefined, today: string | undefined) {
     throw new Error("This day is not open yet.");
 }
 
-function logToolError(toolName: string, toolCallId: string, error: unknown) {
+export function logToolError(toolName: string, toolCallId: string, error: unknown) {
   console.error(
     JSON.stringify({
       event: "coach.tool.error",

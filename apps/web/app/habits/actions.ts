@@ -8,10 +8,10 @@ function failure(error: unknown, fallback: string) {
   return { error: error instanceof HabitError ? error.message : fallback };
 }
 
-export async function addHabit(name: string, trackMode: "once" | "many" = "once", goalCount: number | null = null, bad = false) {
+export async function addHabit(name: string, trackMode: "once" | "many" = "once", goalCount: number | null = null, bad = false, period: "day" | "week" = "day") {
   const user = await requireUser();
   try {
-    await createHabit(user.id, { name, trackMode, goalCount, bad });
+    await createHabit(user.id, { name, period, trackMode, goalCount, bad });
     revalidatePath("/habits");
     return { ok: true };
   } catch (error) { return failure(error, "Could not add the habit. Please try again."); }

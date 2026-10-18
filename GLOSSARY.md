@@ -20,6 +20,9 @@ The number of times a many-times habit needs to happen for the day to be done, o
 **Habit count**:
 The number of times a many-times habit happened on a particular day. It can exceed the goal.
 
+**Weekly habit**:
+A habit tracked once for a Monday–Sunday week in the person’s local dates, with streak and record counted in weeks.
+
 **Due habit**:
 A habit that is not yet done for its period, and never Bad. The Coach calls these habits due.
 

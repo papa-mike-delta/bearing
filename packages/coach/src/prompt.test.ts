@@ -113,7 +113,7 @@ test("knowledge titles are listed and the article bodies are not", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
-  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page, once or many-times, including Bad habits."));
+  assert.ok(prompt.includes("Bearing has daily Habits on the Habits page, once or many-times, including Bad habits, and weekly once-habits (Monday to Sunday)."));
   assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, but cannot create, mark or change habits"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
@@ -150,9 +150,20 @@ test("Inbox filing offers explicit choices and never mass-files a vague request"
 test("Bad habit tracking reports occurrences without shame", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("a Bad goal is an optional limit"));
+  assert.ok(prompt.includes('say "over your limit of 2" using the actual limit'));
+  assert.ok(prompt.includes('logged lapses simply as "recorded today"'));
+  assert.ok(!prompt.includes("not failures"));
   assert.ok(prompt.includes("Bad habits have no streak or record and are never done or due"));
   assert.ok(prompt.includes("A check or count on a Bad habit means the lapse happened"));
-  assert.ok(prompt.includes("Never call an empty Bad day missed or a logged one a failure"));
+  assert.ok(prompt.includes("Never call an empty Bad day missed"));
   assert.ok(prompt.includes("Do not praise or shame; report counts plainly"));
   assert.ok(prompt.includes("cannot create, mark or change habits"));
+});
+
+test("weekly habits are due until done that week and close reads use the close week's progress", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("weekly once-habits (Monday to Sunday)"));
+  assert.ok(prompt.includes("A weekly habit is due until done that week"));
+  assert.ok(prompt.includes("its streak and record are in weeks"));
+  assert.ok(prompt.includes("judging weekly habits by the week containing the close day"));
 });
