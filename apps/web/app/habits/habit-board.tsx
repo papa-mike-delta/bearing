@@ -151,7 +151,7 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
               {habit.bad && <span className="habit-bad-label">Bad</span>}
               {habit.trackMode === "many"
                 ? habit.goalCount !== null && <span className="habit-goal">{`${habit.bad ? "Limit" : "Daily goal"} ${habit.goalCount}`}</span>
-                : !habit.bad && <span className="habit-meta">Streak {run(habit.streak)} · Record {run(habit.record)}</span>}
+                : !habit.bad && <span className="habit-meta"><span>Streak {run(habit.streak)}</span><span className="habit-meta-sep" aria-hidden="true"> · </span><span>Record {run(habit.record)}</span></span>}
               {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
                 <span>Delete it and every marked day?</span>
                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(habit)}>Delete</Button>
