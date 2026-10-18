@@ -5,6 +5,7 @@ import {
   completeTask,
   createNote,
   listNotebooks,
+  listHabits,
   createTask,
   listArea,
   maxCreatesPerTurn,
@@ -198,6 +199,10 @@ const vocabulary = [
     closeRefusal: true,
     safeErrors: [MoodError],
     validateDay: (input, context) => checkDay(input.day, context.today),
+  }),
+  executionTool("listHabits", listHabits, {
+    failure: "Couldn't read your habits.",
+    validateDay: (_input, context) => checkDay(undefined, context.today),
   }),
   executionTool("listNotebooks", listNotebooks, {
     failure: "Couldn't read your notebooks.",

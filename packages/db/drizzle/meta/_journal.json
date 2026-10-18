@@ -127,6 +127,13 @@
       "when": 1791773977578,
       "tag": "0017_daily_habits",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792338101217,
+      "tag": "0018_habit_counts",
+      "breakpoints": true
     }
   ]
 }

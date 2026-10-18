@@ -2,7 +2,7 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
-import type { FileDraftInput, FiledDraft } from "@repo/domain";
+import type { FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
@@ -13,7 +13,17 @@ export type ListedTask = {
   isNext: boolean;
 };
 
+export type ListedHabit = HabitTracking & {
+  id: string;
+  name: string;
+  count: number;
+  done: boolean;
+  streak: number | null;
+  record: number | null;
+};
+
 export type CoachData = {
+  listHabits?(userId: string, today: string): Promise<ListedHabit[]>;
   getMood(userId: string, day: string): Promise<CoachMood | null>;
   readJournalDay?(userId: string, day: string): Promise<{ day: string; body: string; truncated: boolean }>;
   getJournalTemplate?(userId: string): Promise<{ template: string }>;

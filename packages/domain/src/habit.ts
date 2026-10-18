@@ -2,6 +2,50 @@ import { isCalendarDay } from "./areas.ts";
 
 export const maxHabitNameLength = 200;
 
+export type HabitPeriod = "day" | "week";
+export type HabitTrackMode = "once" | "many";
+export type HabitTracking = {
+  period: HabitPeriod;
+  trackMode: HabitTrackMode;
+  goalCount: number | null;
+  bad: boolean;
+};
+
+export function habitCountCap(period: HabitPeriod): number {
+  return period === "day" ? 99 : 999;
+}
+
+export function validHabitGoal(habit: HabitTracking): boolean {
+  if (habit.trackMode === "once") return habit.goalCount === null;
+  if (habit.goalCount === null) return habit.bad;
+  return Number.isInteger(habit.goalCount) && habit.goalCount >= 1 && habit.goalCount <= habitCountCap(habit.period);
+}
+
+// Refuse counts outside the period's bounds; never clip to the cap or floor.
+export function changeHabitCount(count: number, delta: 1 | -1, period: HabitPeriod): number | null {
+  const cap = habitCountCap(period);
+  if (!Number.isInteger(count) || count < 0 || count > cap || (delta !== 1 && delta !== -1)) return null;
+  const next = count + delta;
+  return next >= 0 && next <= cap ? next : null;
+}
+
+export function habitPeriodDay(period: HabitPeriod, day: string): string | null {
+  if (!isCalendarDay(day)) return null;
+  return period === "week" ? mondayOf(day) : day;
+}
+
+export function manyTimesProgress(
+  habit: HabitTracking,
+  marks: readonly { day: string; count: number }[],
+  day: string,
+): { count: number; done: boolean } | null {
+  const periodDay = habitPeriodDay(habit.period, day);
+  if (!periodDay || habit.trackMode !== "many" || !validHabitGoal(habit)) return null;
+  const count = marks.find((mark) => mark.day === periodDay)?.count ?? 0;
+  if (!Number.isInteger(count) || count < 0 || count > habitCountCap(habit.period)) return null;
+  return { count, done: habit.goalCount !== null && count >= habit.goalCount };
+}
+
 export function habitName(value: string): string | null {
   const name = value.trim();
   if (!name || name.length > maxHabitNameLength) return null;

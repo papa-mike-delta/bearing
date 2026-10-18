@@ -375,7 +375,7 @@ export const coachMessages = pgTable(
   ],
 );
 
-// A daily once-habit. Global to the account. A row in habit_marks is a checked day.
+// Habits are global to the account. Marks store a period's checked day or count.
 export const habits = pgTable(
   "habits",
   {
@@ -384,6 +384,10 @@ export const habits = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    period: text("period").$type<"day" | "week">().notNull().default("day"),
+    trackMode: text("track_mode").$type<"once" | "many">().notNull().default("once"),
+    goalCount: integer("goal_count"),
+    bad: boolean("bad").notNull().default(false),
     position: integer("position").notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
@@ -394,8 +398,18 @@ export const habits = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    index("habits_user_position_idx").on(t.userId, t.position, t.createdAt),
+    index("habits_user_position_idx").on(t.userId, t.period, t.position, t.createdAt),
     check("habits_name_length", sql`char_length(${t.name}) between 1 and 200`),
+    check("habits_period", sql`${t.period} in ('day', 'week')`),
+    check("habits_track_mode", sql`${t.trackMode} in ('once', 'many')`),
+    check("habits_goal_count", sql`
+      (${t.trackMode} = 'once' and ${t.goalCount} is null) or
+      (${t.trackMode} = 'many' and (
+        (${t.goalCount} is null and ${t.bad}) or
+        (${t.goalCount} is not null and ${t.goalCount} between 1 and
+          case when ${t.period} = 'day' then 99 else 999 end)
+      ))
+    `),
   ],
 );
 
@@ -406,6 +420,23 @@ export const habitMarks = pgTable(
       .notNull()
       .references(() => habits.id, { onDelete: "cascade" }),
     day: date("day").notNull(),
+    count: integer("count").notNull().default(1),
   },
-  (t) => [primaryKey({ columns: [t.habitId, t.day] })],
+  (t) => [
+    primaryKey({ columns: [t.habitId, t.day] }),
+    check("habit_marks_count", sql`${t.count} between 1 and 999`),
+  ],
 );
+
+// Replay record for Coach habit writes (#95), like note_operations and
+// journal_operations. No habit foreign key: a deleted habit's old operation
+// must never recreate it or apply again. #89 writes nothing here.
+export const habitOperations = pgTable("habit_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  operationId: text("operation_id").notNull(),
+  habitId: uuid("habit_id").notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("habit_operations_source_unique").on(t.userId, t.source, t.operationId)]);

@@ -1,7 +1,7 @@
 // Tool definitions, skill files, and knowledge markdown.
 // No model calls and no AI SDK. apps/web wraps the tools and owns the route.
 
-export type { CoachData, ListedTask, ToolRunContext } from "./data.ts";
+export type { CoachData, ListedHabit, ListedTask, ToolRunContext } from "./data.ts";
 export {
   coachSystemPrompt,
   maxCoachSteps,
@@ -36,3 +36,5 @@ export { coachMoods } from "./moods.ts";
 export { fileDraft, type FileDraftInput, type FiledDraft } from "./tools/file-draft.ts";
 export { listInboxDrafts, maxListedInboxDrafts } from "./tools/list-inbox-drafts.ts";
 export { CloseRefusal, closeRefusalPrefix } from "./close-refusal.ts";
+
+export { listHabits } from "./tools/list-habits.ts";

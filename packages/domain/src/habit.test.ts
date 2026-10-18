@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  changeHabitCount,
+  habitPeriodDay,
+  manyTimesProgress,
+  validHabitGoal,
+  type HabitTracking,
   addCalendarDays,
   dailyOnceProgress,
   habitName,
@@ -95,4 +100,45 @@ test("calendar addition stays on the real day", () => {
   assert.equal(addCalendarDays("2026-12-31", 1), "2027-01-01");
   assert.equal(addCalendarDays("2026-02-31", 1), null);
   assert.equal(dailyOnceProgress(days("2026-10-05"), "nope"), null);
+});
+
+test("many-times goals are required whole numbers within the period's cap", () => {
+  const daily: HabitTracking = { period: "day", trackMode: "many", goalCount: 3, bad: false };
+  for (const goalCount of [null, 0, 100, 1.5, NaN]) assert.equal(validHabitGoal({ ...daily, goalCount }), false);
+  for (const goalCount of [1, 3, 99]) assert.equal(validHabitGoal({ ...daily, goalCount }), true);
+  assert.equal(validHabitGoal({ ...daily, period: "week", goalCount: 999 }), true);
+  assert.equal(validHabitGoal({ ...daily, period: "week", goalCount: 1000 }), false);
+  assert.equal(validHabitGoal({ ...daily, bad: true, goalCount: null }), true);
+  assert.equal(validHabitGoal({ ...daily, trackMode: "once" }), false);
+  assert.equal(validHabitGoal({ ...daily, trackMode: "once", goalCount: null }), true);
+});
+
+test("count changes refuse the cap and floor without clipping", () => {
+  assert.equal(changeHabitCount(0, -1, "day"), null);
+  assert.equal(changeHabitCount(1, -1, "day"), 0);
+  assert.equal(changeHabitCount(98, 1, "day"), 99);
+  assert.equal(changeHabitCount(99, 1, "day"), null);
+  assert.equal(changeHabitCount(100, -1, "day"), null);
+  assert.equal(changeHabitCount(1.5, 1, "day"), null);
+  assert.equal(changeHabitCount(998, 1, "week"), 999);
+  assert.equal(changeHabitCount(999, 1, "week"), null);
+});
+
+test("many-times progress stays unfinished until the goal, allows over-goal, and has no streak", () => {
+  const habit: HabitTracking = { period: "day", trackMode: "many", goalCount: 3, bad: false };
+  assert.deepEqual(manyTimesProgress(habit, [], "2026-10-08"), { count: 0, done: false });
+  for (const count of [1, 2, 3, 4, 99]) {
+    assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-10-08", count }], "2026-10-08"), { count, done: count >= 3 });
+  }
+  assert.equal(manyTimesProgress(habit, [{ day: "2026-10-08", count: 100 }], "2026-10-08"), null);
+  assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-10-07", count: 3 }], "2026-10-08"), { count: 0, done: false });
+});
+
+test("weekly marks use the week's Monday across month and year boundaries", () => {
+  assert.equal(habitPeriodDay("week", "2027-01-03"), "2026-12-28");
+  assert.equal(habitPeriodDay("week", "2027-01-04"), "2027-01-04");
+  assert.equal(habitPeriodDay("day", "2027-01-03"), "2027-01-03");
+  assert.equal(habitPeriodDay("week", "2026-02-31"), null);
+  const habit: HabitTracking = { period: "week", trackMode: "many", goalCount: 100, bad: false };
+  assert.deepEqual(manyTimesProgress(habit, [{ day: "2026-12-28", count: 100 }], "2027-01-03"), { count: 100, done: true });
 });

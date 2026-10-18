@@ -84,19 +84,23 @@ Each close turn, including the cancel turn, injects **Close progress** into the 
 
 ## Habits
 
-`/habits` lists daily once-habits for the signed-in account. A signed-out visit goes to sign-in. Habits are not inside an Area, and there is no detail page.
+`/habits` lists daily once-habits and many-times habits for the signed-in account. A signed-out visit goes to sign-in. Habits are not inside an Area, and there is no detail page.
 
-**Add habit** needs only a name. It is trimmed, 1–200 characters, and the same name can be used more than once. A blank or longer name is refused (`Use a habit name between 1 and 200 characters.`) and nothing is stored. The habit is daily and once, and it is placed at the top of the list.
+**Add habit** takes a name and a choice of once or many-times. It is trimmed, 1–200 characters, and the same name can be used more than once. A blank name is refused (`Enter a habit name.`), as is a name longer than 200 characters and nothing is stored. The habit is daily and placed at the top of the list. Many-times needs a whole-number daily goal from 1 to 99; a missing goal, 0, 100, or a fraction is refused and stores nothing.
 
 The grid is Monday–Sunday of the week that contains the browser's today. **Previous** opens earlier weeks with no horizon. **Next** stops at the current week. A later week says **This week is not open yet** and has no checks. Checking or unchecking today or a past day saves immediately. A future day cannot be checked.
 
-The streak and the record are computed from the marks that remain. They are not stored. The streak is consecutive done days and does not reset on Monday. An empty today does not break it or lower the record. A day that has already ended without a mark does. Unchecking a day can lower the record. Sunday and the next Monday are two consecutive days.
+For once-habits, the streak and the record are computed from the marks that remain. They are not stored. The streak is consecutive done days and does not reset on Monday. An empty today does not break it or lower the record. A day that has already ended without a mark does. Unchecking a day can lower the record. Sunday and the next Monday are two consecutive days.
 
-The Habits link shows how many of these habits are still unmarked for the browser's today, including 0 once today is known. Looking at an earlier week does not change that number.
+Many-times rows show each shown day's count with **+** and **−**, saving immediately. The count starts at 0; minus cannot pass 0. The habit is done at its goal and further pluses can reach 99. Another plus at 99 is refused without changing the count. Over-goal counts have one muted mark. These habits have no streak or record. Today and past days can be changed; future days are refused.
 
-**Delete** asks `Delete this habit and every marked day?`, then removes the habit and its marks. Cancel leaves them. There is no archive. Another account cannot read, check, or delete the habit.
+The Habits link shows how many habits are unfinished for the browser's today (unmarked once-habits and many-times counts below their goal), including 0 once today is known. Looking at an earlier week does not change that number.
 
-Migration `0017_daily_habits` adds `habits` and `habit_marks`. Deleting a habit, or the account, removes the marks. Domain tests cover the streak and record without a database. Persistence tests use `TEST_POSTGRES_URL`.
+**Delete** asks `Delete this habit and every marked day?`, then removes the habit and its marks. Cancel leaves them. There is no archive. Another account cannot read, check, count, or delete the habit.
+
+The Coach can read all your habits with `listHabits`, using the browser's today for count/done and once-habit streaks. It cannot create, mark, or change habits; use the Habits page. This read is not part of Daily close.
+
+Migration `0017_daily_habits` adds `habits` and `habit_marks`; `0018_habit_counts` adds counts and the habits epic schema defaults (period, mode, goal, Bad). Weekly and Bad controls are not exposed. Deleting a habit, or the account, removes the marks. Domain tests cover streaks, counts, goals, caps and period dates without a database. Persistence tests use `TEST_POSTGRES_URL`.
 
 ## Related
 
