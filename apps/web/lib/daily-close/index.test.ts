@@ -149,28 +149,24 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.deepEqual(await resumed.tools.listHabits.execute!({}, call(resumed, "listHabits")), output);
   });
 
-  test("the shared habits read retains weekly period progress and excludes Bad habits from due", async () => {
+  test("the close-day habits read shows the Habits page's habits: daily and not Bad, until #90-#92", async () => {
     const owner = await account();
-    const weekly = await db.insert(habits).values([
-      { userId: owner.userId, name: "Weekly done", period: "week", trackMode: "once", position: 0 },
-      { userId: owner.userId, name: "Weekly due", period: "week", trackMode: "many", goalCount: 3, position: 1 },
-      { userId: owner.userId, name: "Bad weekly", period: "week", trackMode: "many", bad: true, position: 2 },
-      { userId: owner.userId, name: "Bad daily", bad: true, position: 0 },
+    const rows = await db.insert(habits).values([
+      { userId: owner.userId, name: "Daily due", position: 0 },
+      { userId: owner.userId, name: "Weekly due", period: "week", trackMode: "many", goalCount: 3, position: 0 },
+      { userId: owner.userId, name: "Bad weekly", period: "week", trackMode: "many", bad: true, position: 1 },
+      { userId: owner.userId, name: "Bad daily", bad: true, position: 1 },
     ]).returning();
     await db.insert(habitMarks).values([
-      { habitId: weekly[0]!.id, day: "2026-10-05", count: 1 },
-      { habitId: weekly[1]!.id, day: "2026-10-05", count: 2 },
-      // A later week's mark must not change this close's open-period progress.
-      { habitId: weekly[1]!.id, day: "2026-10-12", count: 3 },
+      { habitId: rows[1]!.id, day: "2026-10-05", count: 2 },
+      { habitId: rows[3]!.id, day, count: 1 },
     ]);
     const turn = await prepare(owner, message("Daily close"), { closeDay: day });
     const output = await turn.tools.listHabits.execute!({}, call(turn, "listHabits"));
     assert.ok("habits" in output);
+    // Same adapter as the normal turn: weekly and Bad habits are not listed yet.
     assert.deepEqual(output.habits.map(({ name, count, done, due }) => ({ name, count, done, due })), [
-      { name: "Bad daily", count: 0, done: false, due: false },
-      { name: "Weekly done", count: 1, done: true, due: false },
-      { name: "Weekly due", count: 2, done: false, due: true },
-      { name: "Bad weekly", count: 0, done: false, due: false },
+      { name: "Daily due", count: 0, done: false, due: true },
     ]);
   });
 

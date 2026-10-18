@@ -137,7 +137,7 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
           <th className="habit-stat" scope="col">Record</th>
         </tr></thead>
         <tbody>
-          {rows.map((habit) => <tr key={habit.id}>
+          {rows.map((habit) => <tr key={habit.id} className={habit.trackMode === "many" ? "habit-many" : undefined}>
             <th className="habit-name" scope="row">
               <span className="habit-title">{habit.name}</span>
               {habit.trackMode === "many"
@@ -154,9 +154,9 @@ function HabitGrid({ today, week, habits }: { today: string; week: string; habit
               const count = habit.counts[day] ?? 0;
               if (habit.trackMode === "many") return <td key={day} className="day">
                 <div className="habit-counter" role="group" aria-label={`${habit.name} on ${formatJournalDay(day)}`}>
-                  <output className={count > habit.goalCount! ? "habit-over-goal" : undefined} aria-label={`${habit.name} count on ${formatJournalDay(day)}`} aria-live="polite">{count}<span className="sr-only"> of {habit.goalCount}{count >= habit.goalCount! ? ", done" : ""}</span></output>
-                  <Button type="button" size="icon-sm" variant="ghost" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
-                  <Button type="button" size="icon-sm" variant="ghost" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, -1)}>−</Button>
+                  <output className={count >= habit.goalCount! ? "habit-met-goal" : undefined} aria-label={`${habit.name} count on ${formatJournalDay(day)}`} aria-live="polite">{count}<span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only"> of {habit.goalCount}{count >= habit.goalCount! ? ", done" : ""}</span></output>
+                  <Button type="button" variant="outline" className="habit-step" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
+                  <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} on ${formatJournalDay(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
                 </div>
               </td>;
               return <td key={day} className="day"><input
