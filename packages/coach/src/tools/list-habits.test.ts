@@ -33,7 +33,7 @@ test("Bad habits are never due, including unfinished once and many-times habits"
   assert.match(listHabits.description, /Bad habits have no streak or record, are never done or due/);
 });
 
-test("weekly habits are excluded and Bad daily habits have no streak, record or due state", async () => {
+test("weekly habits retain weekly progress and due; Bad habits have no streak, record or due state", async () => {
   const bad = { ...rows[0]!, id: "bad", bad: true };
   const data = { listHabits: async () => [
     ...rows, bad,
@@ -45,5 +45,17 @@ test("weekly habits are excluded and Bad daily habits have no streak, record or 
     { ...rows[0]!, due: false },
     { ...rows[1]!, due: true },
     { ...bad, done: false, due: false, streak: null, record: null },
+    { ...rows[0]!, period: "week", due: false },
+    { ...rows[1]!, period: "week", bad: true, done: false, due: false, streak: null, record: null },
   ]);
+});
+
+test("a weekly once-habit is due only while its current week is empty", async () => {
+  const weekly = { ...rows[0]!, period: "week" as const, streak: 3, record: 5 };
+  for (const done of [false, true]) {
+    const data = { listHabits: async () => [{ ...weekly, done, count: Number(done) }] } as unknown as CoachData;
+    const result = await listHabits.run({}, { userId: "owner", today: "2026-10-18", messageId: "message", toolCallId: "weekly", data });
+    assert.deepEqual(result.habits, [{ ...weekly, done, count: Number(done), due: !done }]);
+  }
+  assert.match(listHabits.description, /Monday to Sunday/);
 });

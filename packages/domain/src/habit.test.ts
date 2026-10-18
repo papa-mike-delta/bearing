@@ -11,6 +11,7 @@ import {
   type HabitTracking,
   addCalendarDays,
   dailyOnceProgress,
+  weeklyOnceProgress,
   habitName,
   mondayOf,
   shiftWeek,
@@ -179,4 +180,26 @@ test("a Bad goal is a limit: only counts above it have the over-goal mark, never
     assert.equal(progress.done, false);
     assert.equal(habitIsDue(habit, progress.done), false);
   }
+});
+
+test("weekly once progress crosses Sunday to Monday and is independent of the clicked day", () => {
+  const marks = days("2026-09-21", "2026-09-28", "2026-10-05");
+  assert.deepEqual(weeklyOnceProgress(marks, "2026-10-11"), { done: true, streak: 3, record: 3 });
+  assert.deepEqual(weeklyOnceProgress(marks, "2026-10-12"), { done: false, streak: 3, record: 3 });
+  assert.deepEqual(weeklyOnceProgress(marks, "2026-10-18"), { done: false, streak: 3, record: 3 });
+  for (const day of weekDays("2026-10-12")!) {
+    assert.deepEqual(weeklyOnceProgress([...marks, { day }], "2026-10-18"), { done: true, streak: 4, record: 4 });
+  }
+  const habit: HabitTracking = { period: "week", trackMode: "once", goalCount: null, bad: false };
+  assert.deepEqual(habitProgress(habit, marks.map((mark) => ({ ...mark, count: 1 })), "2026-10-18"), { count: 0, done: false, streak: 3, record: 3 });
+});
+
+test("an ended empty week breaks the streak; record follows the longest remaining weekly run", () => {
+  const marks = days("2026-09-21", "2026-09-28", "2026-10-05");
+  assert.deepEqual(weeklyOnceProgress(marks, "2026-10-19"), { done: false, streak: 0, record: 3 });
+  assert.deepEqual(weeklyOnceProgress([...marks, { day: "2026-10-19" }], "2026-10-19"), { done: true, streak: 1, record: 3 });
+  assert.deepEqual(weeklyOnceProgress([marks[0]!, marks[2]!], "2026-10-12"), { done: false, streak: 1, record: 1 });
+  assert.deepEqual(weeklyOnceProgress(days("2026-10-19"), "2026-10-18"), { done: false, streak: 0, record: 0 });
+  assert.deepEqual(weeklyOnceProgress([], "2026-10-18"), { done: false, streak: 0, record: 0 });
+  assert.equal(weeklyOnceProgress(marks, "2026-13-40"), null);
 });

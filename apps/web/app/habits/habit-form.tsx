@@ -18,6 +18,7 @@ function dailyGoalError(goal: string, bad: boolean): string {
 
 export function HabitForm() {
   const [name, setName] = useState("");
+  const [period, setPeriod] = useState<"day" | "week">("day");
   const [trackMode, setTrackMode] = useState<"once" | "many">("once");
   const [bad, setBad] = useState(false);
   const [goal, setGoal] = useState("");
@@ -35,7 +36,7 @@ export function HabitForm() {
     start(async () => {
       setError("");
       try {
-        const result = await addHabit(name, trackMode, trackMode === "many" && goal.trim() ? Number(goal) : null, bad);
+        const result = await addHabit(name, trackMode, trackMode === "many" && goal.trim() ? Number(goal) : null, bad, period);
         if ("error" in result) setError(result.error);
         else {
           setName("");
@@ -49,14 +50,25 @@ export function HabitForm() {
     <FieldGroup><Field><FieldLabel htmlFor="habit-name">New habit</FieldLabel>
       <Input id="habit-name" value={name} onChange={(event) => { setName(event.target.value); if (error) setError(""); }} aria-invalid={error ? true : undefined} aria-describedby={error ? "habit-name-error" : undefined} autoComplete="off" disabled={pending} />
     </Field>
+      <Field><FieldLabel htmlFor="habit-period">Period</FieldLabel>
+        <NativeSelect id="habit-period" value={period} onChange={(event) => {
+          const next = event.target.value as "day" | "week";
+          setPeriod(next);
+          if (next === "week") { setTrackMode("once"); setBad(false); setGoal(""); }
+          setGoalError("");
+        }} disabled={pending}>
+          <NativeSelectOption value="day">Daily</NativeSelectOption>
+          <NativeSelectOption value="week">Weekly</NativeSelectOption>
+        </NativeSelect>
+      </Field>
       <Field><FieldLabel htmlFor="habit-mode">Track</FieldLabel>
-        <NativeSelect id="habit-mode" value={trackMode} onChange={(event) => { setTrackMode(event.target.value as "once" | "many"); setGoalError(""); }} disabled={pending}>
-          <NativeSelectOption value="once">Once a day</NativeSelectOption>
+        <NativeSelect id="habit-mode" value={trackMode} onChange={(event) => { setTrackMode(event.target.value as "once" | "many"); setGoalError(""); }} disabled={pending || period === "week"}>
+          <NativeSelectOption value="once">{period === "week" ? "Once a week" : "Once a day"}</NativeSelectOption>
           <NativeSelectOption value="many">Many-times a day</NativeSelectOption>
         </NativeSelect>
       </Field>
       <Field orientation="horizontal">
-        <Checkbox id="habit-bad" checked={bad} onCheckedChange={(checked) => { setBad(checked); setGoalError(""); }} disabled={pending} />
+        <Checkbox id="habit-bad" checked={bad} onCheckedChange={(checked) => { setBad(checked); setGoalError(""); }} disabled={pending || period === "week"} />
         <FieldLabel htmlFor="habit-bad">Bad</FieldLabel>
       </Field>
       {trackMode === "many" && <Field><FieldLabel htmlFor="habit-goal">{bad ? "Limit (optional)" : "Daily goal"}</FieldLabel>

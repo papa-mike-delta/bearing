@@ -16,8 +16,8 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     async listHabits(userId, browserToday) {
-      // The same daily once and many-times habits the Habits page shows.
-      const rows = (await habitRows(userId, browserToday, [browserToday], db)).filter((habit) => habit.period === "day");
+      // The same daily and weekly habits the Habits page shows.
+      const rows = await habitRows(userId, browserToday, [browserToday], db);
       return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }) =>
         ({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }));
     },
