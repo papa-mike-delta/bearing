@@ -1035,19 +1035,53 @@ form.flex-row {
   margin-top: 0.125rem;
 }
 
+.habit-grid .habit-controls > button,
+.habit-grid .habit-delete {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.habit-grid .habit-delete {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .habit-grid .habit-controls .habit-edit {
-  margin-right: 0.25rem;
+  justify-content: flex-start;
 }
 
 .habit-grid .habit-edit-cell {
   text-align: left;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .habit-edit-form {
+  /* A spanning form must not contribute an intrinsic width to the table. */
+  contain: inline-size;
+  min-width: 0;
   width: 100%;
-  max-width: 28rem;
+  max-width: min(100%, 28rem);
   margin: 0.5rem 0;
   font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.habit-edit-form :is([data-slot="field-group"], [data-slot="field"], [data-slot="native-select-wrapper"], input, select) {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.habit-edit-form [data-slot="field-label"] {
+  min-width: 0;
+  white-space: normal;
+}
+
+.habit-edit-form > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .habit-grid .habit-confirm {
@@ -1088,9 +1122,9 @@ form.flex-row {
     padding: 0.3rem 0;
   }
   .habit-grid .habit-name {
-    width: 7.5rem;
+    width: 8rem;
     min-width: 0;
-    max-width: 7.5rem;
+    max-width: 8rem;
     padding-right: 0.25rem;
   }
   .habit-grid .day {
@@ -1286,5 +1320,6 @@ form.flex-row {
   .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
   /* Leave room for four full 999/999 counts beside the habit name at 393px. */
   .habit-weekly-grid .habit-name { width: 6.5rem; max-width: 6.5rem; }
+  .habit-weekly-grid .habit-controls .habit-edit { flex-basis: 100%; }
   .habit-weekly-grid .habit-counter output { font-size: 0.6875rem; }
 }
