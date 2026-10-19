@@ -505,10 +505,10 @@ A script-kiddie sequence. Each phase is deployable.
 4. Notes and journal, markdown, links between entities. Coach learns `appendJournal` and `createNote`. Daily-close skill.
 5. Habits, daily only. Grid and a checkbox. Habit-design skill. `trackHabit`.
 6. People, groups, reconnect rule, timeline note. Reconnect skill.
-7. Must/Should/Want and Eisenhower. Premium flag is a column, not a billing system, until you want Stripe.
-8. Calendar column. ICS read-only. Time blocks. Then Google one-way.
-9. Recurrence, email-in (inbound parse on a Vercel route), public API, webhooks, full-text search (Postgres `tsvector`). Coach `search` switches to full-text.
-10. PIN lock on a notebook. Weather never, unless bored. Coach skips locked notebooks.
+7. Calendar column. Time blocks. Then ICS read-only, Google one-way (nice to haves).
+8. Must/Should/Want and Eisenhower, Recurring tasks.
+9. Public API, webhooks, full-text search (Postgres `tsvector`). Coach `search` switches to full-text.
+10. PIN lock on a notebook. Coach skips locked notebooks. Weather attached to Journal (nice to have).
 
 Out of v1, matching their own gaps plus the user's cut: E2E, week/month calendar, two-way calendar, widgets, native mobile, voice, MCP, note folders, Plan Ahead workflow. Also out: a vector store, autonomous overnight coaching, email the coach sends on its own.
 
