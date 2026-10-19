@@ -50,3 +50,11 @@ test("Daily close knows weekly many-times, both caps and optional Bad limits", (
   assert.match(prompt, /Weekly many-times count, goal and done refer to that close week, with no streak or record/);
   assert.match(prompt, /Bad many-times goal is an optional limit and it is never done/);
 });
+
+
+test("Daily close describes Habits page order and keeps edits and reorder on that page", () => {
+  const prompt = dailyClosePrompt("2026-10-08", "2026-10-08", "");
+  assert.match(prompt, /Daily by position, then Weekly by position/);
+  assert.match(prompt, /Habits are renamed, edited, reordered and deleted on the Habits page/);
+  assert.match(prompt, /you cannot rename, edit, reorder or delete them/);
+});

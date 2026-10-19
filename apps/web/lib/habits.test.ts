@@ -4,8 +4,10 @@ import { after, before, describe, test } from "node:test";
 import { createDb, habitMarks, habits, users } from "@repo/db";
 import { listHabits as coachListHabits, receipt } from "@repo/coach";
 import { eq, inArray } from "drizzle-orm";
-import { coachData } from "./coach-tools.ts";
-import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, listHabits, setHabitDay } from "./habits.ts";
+import { coachData, coachTools } from "./coach-tools.ts";
+import { closeTools } from "./daily-close/tools.ts";
+import type { HabitEdit } from "@repo/domain";
+import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Habit database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
@@ -455,4 +457,134 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     assert.equal((await data.listHabits!(a, today)).some((row) => row.id === many.id), false);
     await db.delete(habits).where(eq(habits.userId, b));
   });
+
+  test("edits preserve all marks, Bad hides and restores streaks, and goal edits rejudge today", async () => {
+    const habit = await createHabit(a, "Edit me", db);
+    await setHabitDay(a, habit.id, "2026-10-07", true, today, db);
+    await setHabitDay(a, habit.id, today, true, today, db);
+    const marks = await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id));
+    const renamed = await editHabit(a, habit.id, { name: "  Read  " }, today, db);
+    assert.equal(renamed.name, "Read");
+    assert.equal(renamed.streak, 2);
+    assert.equal((await editHabit(a, habit.id, { bad: true }, today, db)).streak, null);
+    assert.equal((await editHabit(a, habit.id, { bad: false }, today, db)).streak, 2);
+    assert.equal((await editHabit(a, habit.id, { trackMode: "many", goalCount: 3 }, today, db)).count, 1);
+    assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), marks);
+    await changeHabitDayCount(a, habit.id, today, 1, today, db);
+    assert.equal((await editHabit(a, habit.id, { goalCount: 1 }, today, db)).done, true);
+    assert.equal((await editHabit(a, habit.id, { goalCount: 3 }, today, db)).done, false);
+    assert.equal((await listHabits(a, today, week, db)).find((row) => row.id === habit.id)!.count, 2);
+  });
+
+  test("every refused edit leaves the entire habit row and all history unchanged", async () => {
+    const once = await createHabit(a, "Refuse once", db);
+    await setHabitDay(a, once.id, "2026-09-01", true, today, db);
+    const many = await createHabit(a, { name: "Refuse many", trackMode: "many", goalCount: 3 }, db);
+    await changeHabitDayCount(a, many.id, "2026-09-01", 1, today, db);
+    await changeHabitDayCount(a, many.id, "2026-09-01", 1, today, db);
+    const bad = await createHabit(a, { name: "Refuse Bad off", trackMode: "many", bad: true }, db);
+    await changeHabitDayCount(a, bad.id, today, 1, today, db);
+    const weekly = await createHabit(a, { name: "Refuse weekly", period: "week", trackMode: "many", goalCount: 200 }, db);
+    const markedWeekly = await createHabit(a, { name: "Marked weekly", period: "week" }, db);
+    await setHabitDay(a, markedWeekly.id, today, true, today, db);
+    const cases: [string, HabitEdit, RegExp][] = [
+      [once.id, { name: "  " }, /Enter a habit name/],
+      [once.id, { name: "x".repeat(201) }, /at most 200/],
+      [once.id, { name: "Lost rename", trackMode: "many" }, /daily goal/],
+      [once.id, { period: "week" }, /no marks or counts/],
+      [markedWeekly.id, { period: "day" }, /no marks or counts/],
+      [many.id, { name: "Lost rename", trackMode: "once" }, /count above 1/],
+      [many.id, { goalCount: 100 }, /daily goal/],
+      [many.id, { goalCount: null }, /daily goal/],
+      [bad.id, { name: "Lost rename", bad: false }, /daily goal/],
+      [bad.id, { bad: false, goalCount: 100 }, /daily goal/],
+      [weekly.id, { period: "day" }, /daily goal/],
+      [weekly.id, { goalCount: 1000 }, /weekly goal/],
+    ];
+    for (const [id, changes, message] of cases) {
+      const row = await db.select().from(habits).where(eq(habits.id, id));
+      const marks = await db.select().from(habitMarks).where(eq(habitMarks.habitId, id));
+      await assert.rejects(editHabit(a, id, changes, today, db), message);
+      assert.deepEqual(await db.select().from(habits).where(eq(habits.id, id)), row);
+      assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, id)), marks);
+    }
+    const edited = await editHabit(a, bad.id, { bad: false, goalCount: 1 }, today, db);
+    assert.equal(edited.bad, false);
+    assert.equal(edited.count, 1);
+    assert.equal(edited.done, true);
+  });
+
+  test("allowed conversions keep checks as 1, and period switches move to the destination top", async () => {
+    const habit = await createHabit(a, { name: "Convert weekly", period: "week" }, db);
+    await setHabitDay(a, habit.id, today, true, today, db);
+    const marks = await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id));
+    await editHabit(a, habit.id, { trackMode: "many", goalCount: 2 }, undefined, db);
+    await editHabit(a, habit.id, { trackMode: "once" }, undefined, db);
+    assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), marks);
+    const empty = await createHabit(a, { name: "Switch sections", trackMode: "many", goalCount: 99 }, db);
+    const dailyBefore = (await listHabits(a, today, week, db)).filter((row) => row.period === "day" && row.id !== empty.id).map((row) => row.id);
+    await editHabit(a, empty.id, { period: "week" }, today, db);
+    let rows = await listHabits(a, today, week, db);
+    assert.equal(rows.find((row) => row.period === "week")!.id, empty.id);
+    assert.deepEqual(rows.filter((row) => row.period === "day").map((row) => row.id), dailyBefore);
+    await editHabit(a, empty.id, { period: "day" }, today, db);
+    rows = await listHabits(a, today, week, db);
+    assert.equal(rows[0]!.id, empty.id);
+    assert.equal(rows[0]!.goalCount, 99);
+  });
+
+  test("another account cannot edit or move a habit, even with otherwise valid changes", async () => {
+    const habit = await createHabit(a, "Owned edit", db);
+    await setHabitDay(a, habit.id, today, true, today, db);
+    const row = await db.select().from(habits).where(eq(habits.id, habit.id));
+    const marks = await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id));
+    await assert.rejects(editHabit(b, habit.id, { name: "Stolen" }, today, db), /unavailable/);
+    for (const direction of ["up", "down"] as const) await assert.rejects(moveHabit(b, habit.id, direction, db), /unavailable/);
+    await assert.rejects(editHabit(a, "invalid", { name: "Invalid" }, today, db), /unavailable/);
+    await assert.rejects(moveHabit(a, "invalid", "up", db), /unavailable/);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.id, habit.id)), row);
+    assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), marks);
+  });
+
+  test("up/down normalize duplicate positions, stay inside the section, refuse ends and match Coach and Daily close order", async () => {
+    const owner = randomUUID();
+    await db.insert(users).values({ id: owner, email: `${owner}@test.invalid`, passwordHash: "-" });
+    try {
+      const d1 = await createHabit(owner, "Daily first", db);
+      const w1 = await createHabit(owner, { name: "Weekly first", period: "week" }, db);
+      const d2 = await createHabit(owner, "Daily second", db);
+      const w2 = await createHabit(owner, { name: "Weekly second", period: "week" }, db);
+      const d3 = await createHabit(owner, "Daily third", db);
+      const ids = [d1.id, w1.id, d2.id, w2.id, d3.id];
+      for (const [index, id] of ids.entries()) {
+        await db.update(habits).set({ position: 7, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index)) }).where(eq(habits.id, id));
+      }
+      const otherRows = await db.select().from(habits).where(eq(habits.userId, a));
+      const order = async () => (await listHabits(owner, today, week, db)).map((row) => row.id);
+      assert.deepEqual(await order(), [d1.id, d2.id, d3.id, w1.id, w2.id]);
+      await moveHabit(owner, d2.id, "up", db);
+      assert.deepEqual(await order(), [d2.id, d1.id, d3.id, w1.id, w2.id]);
+      await moveHabit(owner, d2.id, "down", db);
+      await moveHabit(owner, w2.id, "up", db);
+      assert.deepEqual(await order(), [d1.id, d2.id, d3.id, w2.id, w1.id]);
+      for (const [id, direction] of [[d1.id, "up"], [d3.id, "down"], [w2.id, "up"], [w1.id, "down"]] as const) {
+        const before = await db.select().from(habits).where(eq(habits.userId, owner));
+        await assert.rejects(moveHabit(owner, id, direction, db), /already (first|last)/);
+        assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, owner)), before);
+      }
+      assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, a)), otherRows);
+      await editHabit(owner, d2.id, { name: "Edited daily", trackMode: "many", goalCount: 4, bad: true }, today, db);
+      const data = coachData(db);
+      const context = { userId: owner, today, messageId: "order", toolCallId: "read", data };
+      const core = await coachListHabits.run({}, context);
+      assert.deepEqual(core.habits.map((row) => row.id), await order());
+      assert.deepEqual(core.habits.find((row) => row.id === d2.id), { id: d2.id, name: "Edited daily", period: "day", trackMode: "many", goalCount: 4, bad: true, count: 0, done: false, due: false, streak: null, record: null });
+      const close = closeTools(coachTools(data), data, owner, today, "order");
+      const closed = await close.listHabits.execute!({}, { toolCallId: "close-order", messages: [], context: {} });
+      assert.deepEqual(closed, { ...core, day: today });
+    } finally {
+      await db.delete(users).where(eq(users.id, owner));
+    }
+  });
+
 });

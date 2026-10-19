@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { habitPeriodDay, habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
@@ -9,7 +9,8 @@ import { formatJournalDay } from "../../lib/journal-day";
 import { useBrowserToday } from "../browser-today";
 import { habitRunLength } from "../../lib/habit-units";
 import type { HabitListItem } from "../../lib/habits";
-import { countHabitDay, markHabitDay, removeHabit } from "./actions";
+import { countHabitDay, markHabitDay, removeHabit, reorderHabit } from "./actions";
+import { HabitForm } from "./habit-form";
 
 type HabitRow = HabitListItem;
 
@@ -61,9 +62,16 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
   const run = (value: number | null) => habitRunLength(value ?? 0, period);
   const label = (day: string) => weekly ? `week of ${weekLabel(day)}` : `on ${formatJournalDay(day)}`;
   const [rows, setRows] = useState(habits);
+  const [source, setSource] = useState(habits);
+  // Keep keyed rows mounted through a refresh so keyboard focus survives moves.
+  if (source !== habits) {
+    setSource(habits);
+    setRows(habits);
+  }
   const [error, setError] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [, start] = useTransition();
   const router = useRouter();
 
@@ -130,6 +138,19 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
     });
   }
 
+  function move(habit: HabitRow, direction: "up" | "down") {
+    setError("");
+    setPendingKey(habit.id);
+    start(async () => {
+      try {
+        const result = await reorderHabit(habit.id, direction);
+        if ("error" in result) setError(result.error);
+        else saved();
+      } catch { setError("Could not move the habit. Please try again."); }
+      finally { setPendingKey(null); }
+    });
+  }
+
   if (!rows.length) return <p className="empty-state">No {weekly ? "weekly" : "daily"} habits yet. Add one to start marking {weekly ? "weeks" : "days"}.</p>;
   return <>
     {error && <p role="alert">{error}</p>}
@@ -145,13 +166,18 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
           <th className="habit-stat" scope="col">Record</th>
         </tr></thead>
         <tbody>
-          {rows.map((habit) => <tr key={habit.id} className={[habit.trackMode === "many" ? "habit-many" : "", habit.bad ? "habit-bad" : ""].join(" ")}>
+          {rows.map((habit, index) => <Fragment key={habit.id}><tr className={[habit.trackMode === "many" ? "habit-many" : "", habit.bad ? "habit-bad" : ""].join(" ")}>
             <th className="habit-name" scope="row">
               <span className="habit-title">{habit.name}</span>
               {habit.bad && <span className="habit-bad-label">Bad</span>}
               {habit.trackMode === "many"
                 ? habit.goalCount !== null && <span className="habit-goal">{`${habit.bad ? "Limit" : weekly ? "Weekly goal" : "Daily goal"} ${habit.goalCount}`}</span>
                 : !habit.bad && <span className="habit-meta"><span>Streak {run(habit.streak)}</span><span className="habit-meta-sep" aria-hidden="true"> · </span><span>Record {run(habit.record)}</span></span>}
+              <span className="habit-controls">
+                <Button type="button" variant="link" size="sm" className="habit-edit" disabled={pendingKey !== null} aria-label={`Edit ${habit.name}`} aria-expanded={editing === habit.id} onClick={() => { setConfirming(null); setEditing(editing === habit.id ? null : habit.id); }}>Edit</Button>
+                <Button type="button" variant="ghost" size="icon-sm" disabled={index === 0 || pendingKey !== null} aria-label={`Move ${habit.name} up`} onClick={() => move(habit, "up")}>↑</Button>
+                <Button type="button" variant="ghost" size="icon-sm" disabled={index === rows.length - 1 || pendingKey !== null} aria-label={`Move ${habit.name} down`} onClick={() => move(habit, "down")}>↓</Button>
+              </span>
               {confirming === habit.id ? <span className="habit-confirm" role="group" aria-label={`Delete ${habit.name}?`}>
                 <span>Delete it and every marked day?</span>
                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(habit)}>Delete</Button>
@@ -180,7 +206,9 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
             })}
             <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? run(habit.streak) : "—"}</td>
             <td className="habit-stat">{habit.trackMode === "once" && !habit.bad ? run(habit.record) : "—"}</td>
-          </tr>)}
+          </tr>{editing === habit.id && <tr><td colSpan={days.length + 3} className="habit-edit-cell">
+            <HabitForm habit={habit} today={today} onSaved={() => setEditing(null)} onCancel={() => setEditing(null)} />
+          </td></tr>}</Fragment>)}
         </tbody>
       </table>
     </div>
@@ -189,14 +217,13 @@ function HabitGrid({ today, week, habits, weekly = false }: { today: string; wee
 
 export function HabitBoard({ today, week, weeklyWeek, habits }: { today: string; week: string; weeklyWeek: string; habits: HabitRow[] }) {
   const current = mondayOf(today);
-  const signature = JSON.stringify(habits);
   return <>
     <TrackBrowserToday today={today} week={week} weeklyWeek={weeklyWeek} />
     <h2 className="habits-daily">Daily</h2>
     <WeekNav today={today} week={week} weeklyWeek={weeklyWeek} current={current} />
-    {current && week <= current ? <HabitGrid key={`day:${week}:${signature}`} today={today} week={week} habits={habits.filter((habit) => habit.period === "day")} /> : <p>This week is not open yet.</p>}
+    {current && week <= current ? <HabitGrid key={`day:${week}`} today={today} week={week} habits={habits.filter((habit) => habit.period === "day")} /> : <p>This week is not open yet.</p>}
     <h2 className="habits-daily">Weekly</h2>
     <WeekNav today={today} week={week} weeklyWeek={weeklyWeek} current={current} weekly />
-    {current && weeklyWeek <= current ? <HabitGrid key={`week:${weeklyWeek}:${signature}`} today={today} week={weeklyWeek} habits={habits.filter((habit) => habit.period === "week")} weekly /> : <p>This week is not open yet.</p>}
+    {current && weeklyWeek <= current ? <HabitGrid key={`week:${weeklyWeek}`} today={today} week={weeklyWeek} habits={habits.filter((habit) => habit.period === "week")} weekly /> : <p>This week is not open yet.</p>}
   </>;
 }

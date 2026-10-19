@@ -78,3 +78,22 @@ test("weekly many-times exposes the requested week's count, goal and done with n
   assert.deepEqual(calls, Array.from({ length: 4 }, () => ["owner", "2026-10-11"]));
   assert.match(listHabits.description, /Weekly many-times returns count, goal and done/);
 });
+
+test("listHabits preserves the data adapter's Daily and Weekly position order and reads edits again", async () => {
+  let ordered = [
+    { ...rows[1]!, id: "day-position-0" },
+    { ...rows[0]!, id: "day-position-1" },
+    { ...rows[1]!, id: "week-position-0", period: "week" as const },
+    { ...rows[0]!, id: "week-position-1", period: "week" as const },
+  ];
+  const data = { listHabits: async () => ordered } as unknown as CoachData;
+  const context = { userId: "owner", today: "2026-10-08", messageId: "order", toolCallId: "read", data };
+  assert.deepEqual((await listHabits.run({}, context)).habits.map((row) => row.id), ordered.map((row) => row.id));
+  ordered = [ordered[1]!, { ...ordered[0]!, name: "Edited", goalCount: 5, bad: true }, ordered[3]!, ordered[2]!];
+  const next = await listHabits.run({}, context);
+  assert.deepEqual(next.habits.map((row) => row.id), ordered.map((row) => row.id));
+  assert.equal(next.habits[1]!.name, "Edited");
+  assert.equal(next.habits[1]!.goalCount, 5);
+  assert.equal(next.habits[1]!.bad, true);
+  assert.match(listHabits.description, /Daily by position, then Weekly by position/);
+});
