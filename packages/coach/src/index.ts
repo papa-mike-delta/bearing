@@ -38,3 +38,7 @@ export { listInboxDrafts, maxListedInboxDrafts } from "./tools/list-inbox-drafts
 export { CloseRefusal, closeRefusalPrefix } from "./close-refusal.ts";
 
 export { listHabits } from "./tools/list-habits.ts";
+
+export { createHabit, coachHabitOperationId } from "./tools/create-habit.ts";
+export { trackHabit } from "./tools/track-habit.ts";
+export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "./data.ts";

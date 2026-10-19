@@ -14,7 +14,7 @@ test("Daily close adds exactly the bound listHabits read and omits every habit w
   ];
   const data = { listHabits: async (userId: string, day: string) => { reads.push([userId, day]); return rows; } } as CoachData;
   const unreachable = () => assert.fail("A habit write must have no handler during Daily close");
-  const allTools = { ...coachTools(data), createHabit: { execute: unreachable }, trackHabit: { execute: unreachable } };
+  const allTools = { ...coachTools(data), createHabit: { ...coachTools(data).createHabit, execute: unreachable }, trackHabit: { ...coachTools(data).trackHabit, execute: unreachable } };
   const tools = closeTools(allTools, data, "owner", "2026-10-08", "message");
   const expected = ["appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listHabits", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood"];
   assert.deepEqual([...dailyCloseToolNames].sort(), expected);

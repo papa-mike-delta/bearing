@@ -4,7 +4,7 @@ import { getMood, setMood as setMoodRow } from "./mood.ts";
 import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate } from "./journal.ts";
 import { listInboxDrafts as inboxRows } from "./drafts.ts";
 import { fileDraft as fileDraftRow } from "./draft-filing/index.ts";
-import { listHabits as habitRows } from "./habits.ts";
+import { createCoachHabit, trackCoachHabit, listHabits as habitRows } from "./habits.ts";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 import { createNote as createNoteRow, listNotebooks as notebookRows } from "./notes.ts";
@@ -23,6 +23,8 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
       return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }) =>
         ({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }));
     },
+    createHabit(userId, input) { return createCoachHabit(userId, input, db); },
+    trackHabit(userId, input) { return trackCoachHabit(userId, input, db); },
     getMood(userId, day) { return getMood(userId, day, db); },
     async readJournalDay(userId, day) {
       const entry = await getJournalDay(userId, day, db);

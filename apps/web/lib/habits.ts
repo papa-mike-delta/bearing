@@ -1,5 +1,6 @@
-import { db as defaultDb, habitMarks, habits, users } from "@repo/db";
-import { changeHabitCount, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
+import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "@repo/coach";
+import { db as defaultDb, habitMarks, habitOperations, habits, users } from "@repo/db";
+import { changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
@@ -197,4 +198,74 @@ export async function deleteHabit(userId: string, habitId: string, db: Db = defa
   if (!isUuid(habitId)) return false;
   const [row] = await db.delete(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId))).returning({ id: habits.id });
   return Boolean(row);
+}
+
+// Lock the account before checking the ledger. Concurrent resends, creation,
+// edits and section ordering therefore share one transaction order. The ledger
+// stores the complete original state independently of the editable habit.
+async function habitOperation<Result extends HabitWriteState>(userId: string, input: HabitOperation, db: Db, apply: (tx: Db) => Promise<Result>): Promise<Result> {
+  if (input.source !== "coach" || !input.operationId?.trim() || input.operationId.length > 250) throw new HabitError(unavailable);
+  return db.transaction(async (tx) => {
+    const [account] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    if (!account) throw new HabitError(unavailable);
+    const [previous] = await tx.select({ result: habitOperations.result }).from(habitOperations).where(and(
+      eq(habitOperations.userId, userId), eq(habitOperations.source, input.source), eq(habitOperations.operationId, input.operationId),
+    ));
+    if (previous) return previous.result as Result;
+    if (!isCalendarDay(input.today)) throw new HabitError(todayError);
+    const result = await apply(tx);
+    // "I didn't" on an empty Bad period is entirely read-only, including the
+    // ledger. It reports no change and must not claim a successful write.
+    if (!("action" in result && result.action === "didnt" && "changed" in result && !result.changed)) {
+      await tx.insert(habitOperations).values({ userId, source: input.source, operationId: input.operationId, habitId: result.id, result });
+    }
+    return result;
+  });
+}
+
+async function habitWriteState(userId: string, habitId: string, day: string, tx: Db): Promise<HabitWriteState> {
+  const row = (await listHabits(userId, day, [day], tx)).find((row) => row.id === habitId);
+  if (!row) throw new HabitError(unavailable);
+  const { id, name, period, trackMode, goalCount, bad, count, done, streak, record } = row;
+  return { id, name, period, trackMode, goalCount, bad, count, done, streak, record, due: habitIsDue(row, done) };
+}
+
+export async function createCoachHabit(userId: string, input: HabitTracking & { name: string } & HabitOperation, db: Db = defaultDb) {
+  return habitOperation(userId, input, db, async (tx) => {
+    // Use the same validation and section insertion as the Habits page.
+    const row = await createHabit(userId, input, tx);
+    return habitWriteState(userId, row.id, input.today, tx);
+  });
+}
+
+export async function trackCoachHabit(userId: string, input: { habitId: string; day: string; action: HabitAction } & HabitOperation, db: Db = defaultDb): Promise<HabitTrackResult> {
+  return habitOperation(userId, input, db, async (tx) => {
+    if (!isUuid(input.habitId) || !isCalendarDay(input.day) || !["did", "undo", "didnt", "markDone"].includes(input.action)) throw new HabitError(unavailable);
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, userId))).for("update");
+    if (!habit) throw new HabitError(unavailable);
+    const day = habitPeriodDay(habit.period, input.day)!;
+    if (day > habitPeriodDay(habit.period, input.today)!) throw new HabitError(future);
+    const target = and(eq(habitMarks.habitId, habit.id), eq(habitMarks.day, day));
+    const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
+    const previousCount = mark?.count ?? 0;
+    let count: number;
+    if (input.action === "didnt") {
+      if (!habit.bad) throw new HabitError(`"I didn't" clears only a Bad habit. Did you mean undo?`);
+      count = 0;
+    } else if (input.action === "markDone") {
+      if (habit.trackMode === "many" && habit.goalCount === null) throw new HabitError("What count should be recorded? This Bad habit has no goal.");
+      count = habit.trackMode === "once" ? 1 : habit.goalCount!;
+    } else if (habit.trackMode === "once") {
+      count = input.action === "did" ? 1 : 0;
+    } else {
+      const next = changeHabitCount(previousCount, input.action === "did" ? 1 : -1, habit.period);
+      if (next === null) throw new HabitError(input.action === "undo" ? "This habit's count is already 0." : `This habit's ${habit.period === "week" ? "weekly" : "daily"} count can be at most ${habitCountCap(habit.period)}.`);
+      count = next;
+    }
+    if (count !== previousCount) {
+      if (count === 0) await tx.delete(habitMarks).where(target);
+      else await tx.insert(habitMarks).values({ habitId: habit.id, day, count }).onConflictDoUpdate({ target: [habitMarks.habitId, habitMarks.day], set: { count } });
+    }
+    return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: count !== previousCount };
+  });
 }

@@ -2,7 +2,7 @@
 // streamed tool part; null for parts that aren't a Coach tool call.
 
 import { coachMoods } from "./moods.ts";
-import { isCalendarDay, noteHref, taskHref } from "@repo/domain";
+import { isCalendarDay, habitPeriodDay, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
@@ -106,6 +106,21 @@ function show(part: ToolPart): Line | null {
       return { line: `Read your list (${open} open)` };
     }
     return { line: "Couldn't read your list" };
+  }
+  if (part.type === "tool-createHabit" || part.type === "tool-trackHabit") {
+    const creating = part.type === "tool-createHabit";
+    if (pending(part.state)) return { line: creating ? "Creating a habit…" : "Tracking a habit…" };
+    const output = part.output as { id?: unknown; name?: unknown; href?: unknown; day?: unknown; period?: unknown; action?: unknown; changed?: unknown } | undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name && output.href === "/habits") {
+      if (creating) return { line: `Created habit '${output.name}'`, href: "/habits" };
+      if (typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week") && habitPeriodDay(output.period, output.day) === output.day && ["did", "undo", "didnt", "markDone"].includes(String(output.action)) && typeof output.changed === "boolean") {
+        const period = output.period === "week" ? `week of ${output.day}` : output.day;
+        if (!output.changed) return { line: `No change to '${output.name}' for ${period}`, href: "/habits" };
+        const verb = output.action === "undo" || output.action === "didnt" ? "Undid" : "Tracked";
+        return { line: `${verb} '${output.name}' for ${period}`, href: "/habits" };
+      }
+    }
+    return { line: creating ? "Couldn't create that habit" : "Couldn't track that habit" };
   }
   if (part.type === "tool-listHabits") {
     if (pending(part.state)) return { line: "Reading your habits…" };

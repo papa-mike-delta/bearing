@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { createDb, habitMarks, habits, users } from "@repo/db";
+import { createDb, habitMarks, habitOperations, habits, users } from "@repo/db";
 import { listHabits as coachListHabits, receipt } from "@repo/coach";
 import { eq, inArray } from "drizzle-orm";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { closeTools } from "./daily-close/tools.ts";
 import type { HabitEdit } from "@repo/domain";
-import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
+import { createCoachHabit, trackCoachHabit, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Habit database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
@@ -587,4 +587,163 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     }
   });
 
+});
+
+
+describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", concurrency: 1 }, () => {
+  const db = createDb(url!);
+  const owner = randomUUID(), other = randomUUID();
+  const operation = () => ({ source: "coach" as const, operationId: `${randomUUID()}:call:1`, today });
+  const dailyOnce = { name: "Walk", period: "day" as const, trackMode: "once" as const, goalCount: null, bad: false };
+  before(async () => {
+    await db.insert(users).values([owner, other].map((id) => ({ id, email: `${id}@test.invalid`, passwordHash: "-" })));
+  });
+  after(async () => { await db.delete(users).where(inArray(users.id, [owner, other])); await db.$client.end(); });
+  const ledger = (userId = owner) => db.select().from(habitOperations).where(eq(habitOperations.userId, userId));
+  const marks = (id: string) => db.select().from(habitMarks).where(eq(habitMarks.habitId, id));
+
+  test("concurrent creates replay one habit and one operation; edits and deletion keep the original result", async () => {
+    const input = { ...dailyOnce, ...operation() };
+    const results = await Promise.all(Array.from({ length: 3 }, () => createCoachHabit(owner, input, db)));
+    const first = results[0]!;
+    assert.deepEqual(results, [first, first, first]);
+    assert.equal((await ledger()).filter((row) => row.operationId === input.operationId).length, 1);
+    assert.equal((await listHabits(owner, today, week, db)).filter((row) => row.id === first.id).length, 1);
+    assert.equal(first.count, 0);
+    assert.equal(first.due, true);
+    await editHabit(owner, first.id, { name: "Edited", bad: true, trackMode: "many", goalCount: 5 }, today, db);
+    const edited = await db.select().from(habits).where(eq(habits.id, first.id));
+    const before = await ledger();
+    assert.deepEqual(await createCoachHabit(owner, input, db), first);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.id, first.id)), edited);
+    assert.equal(await deleteHabit(owner, first.id, db), true);
+    assert.deepEqual(await createCoachHabit(owner, input, db), first);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.id, first.id)), []);
+    assert.deepEqual(await ledger(), before);
+  });
+
+  test("concurrent tracking applies once; replay after edit returns the original state without a second count", async () => {
+    const habit = await createHabit(owner, { name: "Water", trackMode: "many", goalCount: 3 }, db);
+    const input = { habitId: habit.id, action: "did" as const, day: today, ...operation() };
+    const results = await Promise.all(Array.from({ length: 3 }, () => trackCoachHabit(owner, input, db)));
+    const original = results[0]!;
+    assert.deepEqual(results, [original, original, original]);
+    assert.equal(original.count, 1);
+    assert.equal((await ledger()).filter((row) => row.operationId === input.operationId).length, 1);
+    assert.equal((await marks(habit.id))[0]?.count, 1);
+    await editHabit(owner, habit.id, { name: "Glasses", goalCount: 1, bad: true }, today, db);
+    const before = await ledger();
+    const history = await marks(habit.id);
+    assert.deepEqual(await trackCoachHabit(owner, input, db), original);
+    assert.deepEqual(await marks(habit.id), history);
+    assert.deepEqual(await ledger(), before);
+    await deleteHabit(owner, habit.id, db);
+    assert.deepEqual(await trackCoachHabit(owner, input, db), original);
+    assert.deepEqual(await marks(habit.id), []);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.id, habit.id)), []);
+    assert.deepEqual(await ledger(), before);
+  });
+
+  test("another account cannot list or track an owned habit or use its replay record", async () => {
+    const own = { ...dailyOnce, ...operation() };
+    const habit = await createCoachHabit(owner, own, db);
+    const input = { habitId: habit.id, day: today, action: "did" as const, ...operation() };
+    await trackCoachHabit(owner, input, db);
+    const before = await marks(habit.id);
+    assert.equal((await coachListHabits.run({}, { userId: other, messageId: "message", toolCallId: "read", today, data: coachData(db, today) })).habits.some((row) => row.id === habit.id), false);
+    await assert.rejects(trackCoachHabit(other, input, db), /unavailable/);
+    assert.deepEqual(await ledger(other), []);
+    assert.deepEqual(await marks(habit.id), before);
+    // An operation id is scoped to an account; it cannot expose another's result.
+    const otherHabit = await createCoachHabit(other, own, db);
+    assert.notEqual(otherHabit.id, habit.id);
+  });
+
+  test("daily and weekly once did/undo affect one open or past period and future periods write nothing", async () => {
+    for (const period of ["day", "week"] as const) {
+      const habit = await createHabit(owner, { name: "Once", period }, db);
+      for (const day of [today, "2026-09-28"]) {
+        const did = await trackCoachHabit(owner, { habitId: habit.id, day, action: "did", ...operation() }, db);
+        assert.equal(did.count, 1);
+        assert.equal(did.done, true);
+        assert.equal(did.due, false);
+        const undo = await trackCoachHabit(owner, { habitId: habit.id, day, action: "undo", ...operation() }, db);
+        assert.equal(undo.count, 0);
+        assert.equal(undo.done, false);
+        assert.equal(undo.due, true);
+      }
+      const before = await ledger();
+      await assert.rejects(trackCoachHabit(owner, { habitId: habit.id, day: "2026-10-12", action: "did", ...operation() }, db), /not open yet/);
+      assert.deepEqual(await marks(habit.id), []);
+      assert.deepEqual(await ledger(), before);
+    }
+  });
+
+  test("many-times did and undo change exactly one, markDone sets the goal in daily and weekly periods", async () => {
+    for (const period of ["day", "week"] as const) {
+      const goalCount = period === "week" ? 200 : 3;
+      const habit = await createHabit(owner, { name: "Pages", period, trackMode: "many", goalCount }, db);
+      for (const day of [today, "2026-09-28"]) {
+        const track = (action: "did" | "undo" | "markDone") => trackCoachHabit(owner, { habitId: habit.id, day, action, ...operation() }, db);
+        assert.equal((await track("did")).count, 1);
+        assert.equal((await track("did")).count, 2);
+        assert.equal((await track("undo")).count, 1);
+        const done = await track("markDone");
+        assert.equal(done.count, goalCount);
+        assert.equal(done.done, true);
+        assert.equal((await track("did")).count, goalCount + 1);
+        assert.equal((await track("markDone")).count, goalCount);
+        assert.equal((await track("undo")).count, goalCount - 1);
+      }
+    }
+  });
+
+  test("Bad didnt on empty writes nothing; an existing once check or many-times log is cleared", async () => {
+    for (const period of ["day", "week"] as const) for (const trackMode of ["once", "many"] as const) {
+      const habit = await createHabit(owner, { name: "Smoking", period, trackMode, bad: true }, db);
+      const track = (action: "did" | "didnt" | "markDone") => trackCoachHabit(owner, { habitId: habit.id, day: today, action, ...operation() }, db);
+      const before = await ledger();
+      const empty = await track("didnt");
+      assert.equal(empty.changed, false);
+      assert.equal(empty.count, 0);
+      assert.deepEqual(await marks(habit.id), []);
+      assert.deepEqual(await ledger(), before);
+      if (trackMode === "many") {
+        await assert.rejects(track("markDone"), /What count.*no goal/);
+        assert.deepEqual(await ledger(), before);
+        await track("did");
+      }
+      await track("did");
+      const cleared = await track("didnt");
+      assert.equal(cleared.changed, true);
+      assert.equal(cleared.count, 0);
+      assert.equal(cleared.done, false);
+      assert.equal(cleared.due, false);
+      assert.deepEqual(await marks(habit.id), []);
+    }
+  });
+
+  test("Bad many-times markDone uses its limit and remains neither done nor due", async () => {
+    const habit = await createHabit(owner, { name: "Cigarettes", trackMode: "many", goalCount: 2, bad: true }, db);
+    const result = await trackCoachHabit(owner, { habitId: habit.id, day: today, action: "markDone", ...operation() }, db);
+    assert.equal(result.count, 2);
+    assert.equal(result.done, false);
+    assert.equal(result.due, false);
+  });
+
+  test("Coach counts refuse above 99/999 and undo at zero without recording an operation", async () => {
+    for (const period of ["day", "week"] as const) {
+      const cap = period === "day" ? 99 : 999;
+      const habit = await createHabit(owner, { name: "Cap", period, trackMode: "many", goalCount: cap }, db);
+      const track = (action: "did" | "undo" | "markDone") => trackCoachHabit(owner, { habitId: habit.id, day: today, action, ...operation() }, db);
+      const before = await ledger();
+      await assert.rejects(track("undo"), /already 0/);
+      assert.deepEqual(await ledger(), before);
+      await track("markDone");
+      const filled = await ledger();
+      await assert.rejects(track("did"), new RegExp(`at most ${cap}`));
+      assert.deepEqual(await ledger(), filled);
+      assert.equal((await marks(habit.id))[0]?.count, cap);
+    }
+  });
 });
