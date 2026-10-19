@@ -2,7 +2,7 @@
 // streamed tool part; null for parts that aren't a Coach tool call.
 
 import { coachMoods } from "./moods.ts";
-import { isCalendarDay, habitPeriodDay, noteHref, taskHref } from "@repo/domain";
+import { addCalendarDays, isCalendarDay, habitPeriodDay, mondayOf, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
@@ -26,13 +26,30 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
 
 type Line = { line: string; href?: string };
 
+const utcDay = (day: string) => new Date(`${day}T00:00:00Z`);
+const weekdayMonthDay = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+const monthDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+// A habit period in words: "today", "yesterday" or "Sun, Oct 18"; "this week"
+// or "the week of Oct 12". The receipt stores only the absolute day (or
+// Monday); today is the viewer's current browser Today, passed at render, so
+// "today" is only said while it is true. Without it (server render, before
+// hydration) the absolute form shows.
+export function habitPeriodWords(period: "day" | "week", day: string, today?: unknown): string {
+  const known = typeof today === "string" && isCalendarDay(today) ? today : undefined;
+  if (period === "week") return known && mondayOf(known) === day ? "this week" : `the week of ${monthDay.format(utcDay(day))}`;
+  if (known === day) return "today";
+  if (known && addCalendarDays(known, -1) === day) return "yesterday";
+  return weekdayMonthDay.format(utcDay(day));
+}
+
 function taskReceipt(line: string, output: unknown): Line {
   const id = (output as { id?: unknown } | undefined)?.id;
   return { line, ...(typeof id === "string" && receiptId.test(id) ? { href: taskHref(id) } : {}) };
 }
 
 // Rebuild local links from validated successful outputs, including on reload.
-function show(part: ToolPart): Line | null {
+function show(part: ToolPart, today?: string | null): Line | null {
   if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
   if (part.type === "tool-readJournalingArticle") {
     if (pending(part.state)) return { line: "Reading journaling knowledge…" };
@@ -114,7 +131,7 @@ function show(part: ToolPart): Line | null {
     if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name && output.href === "/habits") {
       if (creating) return { line: `Created habit '${output.name}'`, href: "/habits" };
       if (typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week") && habitPeriodDay(output.period, output.day) === output.day && ["did", "undo", "didnt", "markDone"].includes(String(output.action)) && typeof output.changed === "boolean") {
-        const period = output.period === "week" ? `week of ${output.day}` : output.day;
+        const period = habitPeriodWords(output.period, output.day, today);
         if (!output.changed) return { line: `No change to '${output.name}' for ${period}`, href: "/habits" };
         const verb = output.action === "undo" || output.action === "didnt" ? "Undid" : "Tracked";
         return { line: `${verb} '${output.name}' for ${period}`, href: "/habits" };
@@ -129,7 +146,7 @@ function show(part: ToolPart): Line | null {
     const day = output?.day;
     return part.state === "output-available" && Array.isArray(habits)
       && (day === undefined || (typeof day === "string" && isCalendarDay(day)))
-      ? { line: `Read your habits${day === undefined ? "" : ` for ${day}`} (${habits.length})`, href: "/habits" }
+      ? { line: `Read your habits${day === undefined ? "" : ` for ${habitPeriodWords("day", day, today)}`} (${habits.length})`, href: "/habits" }
       : { line: "Couldn't read your habits" };
   }
   if (part.type === "tool-listNotebooks") {
@@ -193,15 +210,18 @@ function show(part: ToolPart): Line | null {
   return null;
 }
 
-export function receipt(part: ToolPart): string | null {
-  return show(part)?.line ?? null;
+export function receipt(part: ToolPart, today?: string | null): string | null {
+  return show(part, today)?.line ?? null;
 }
 
 type Part = ToolPart & { toolCallId?: string; text?: string };
 
 export type ShownPart =
   | { key: string; text: string }
-  | { key: string; receipt: string; calls: number; href?: string };
+  | { key: string; receipt: string; calls: number; href?: string; read?: true };
+
+// Reads show muted and plain; only writes look like actions.
+const readTools = new Set(["tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
 // What a message shows: its text and its receipts, in order. A finished
 // listArea read with the same result as the receipt just before it (nothing
@@ -214,9 +234,9 @@ export type ShownPart =
 // id is present in the successful output.
 // Every real failure keeps its receipt, even when a later call succeeds; a
 // Daily close refusal renders nothing (see show()).
-export function shownParts(parts: readonly Part[]): ShownPart[] {
+export function shownParts(parts: readonly Part[], today?: string | null): ShownPart[] {
   const shown: ShownPart[] = [];
-  const lines = parts.map(show);
+  const lines = parts.map((part) => show(part, today));
   let lastPart: Part | undefined;
   parts.forEach((part, i) => {
     if (part.type === "text") {
@@ -240,6 +260,7 @@ export function shownParts(parts: readonly Part[]): ShownPart[] {
         receipt: line.line,
         calls: 1,
         ...(line.href && { href: line.href }),
+        ...(readTools.has(part.type) && { read: true as const }),
       });
     }
     lastPart = part;

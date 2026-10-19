@@ -665,9 +665,16 @@
     font-size: 12px;
   }
 
+  /* Writes are the only underlined, foreground-coloured receipt lines;
+     reads stay muted and plain, even when they link. */
   .thread p.receipt a {
-    color: var(--primary);
+    color: var(--foreground);
     text-decoration: underline;
+  }
+
+  .thread p.receipt-read a {
+    color: inherit;
+    text-decoration: none;
   }
 
   .thread p.receipt + p:not(.receipt) {

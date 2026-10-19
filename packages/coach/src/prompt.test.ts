@@ -198,9 +198,30 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "A goal above 99 with no period is a question", "maximum 99", "maximum 999", "Weekly 200 is allowed",
     "habitId from listHabits", "If two habits share a name, ask which one", "adds exactly one",
     "Undo clears the check or removes one", `"I didn't" leaves an empty period empty`,
-    "clears the whole period only if already logged", "sets a many-times count to the goal",
+    "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
     "on Bad many-times without a goal, ask", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
+  ]) assert.ok(prompt.includes(rule), rule);
+});
+
+test("an answered habit question creates without a second confirmation; a bare ask defaults to daily once (spec §8.2, AC 56, AC 59)", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of [
+    "A message asking for a habit is the confirmation",
+    "An explicit ask with nothing else given (one name or several) creates daily once-habits, not Bad, straight away",
+    "do not ask habit or Task, daily or weekly, or once or many",
+    "When the person answers your clarifying question about a habit they asked for, create it straight away with that answer",
+    'never ask a second confirmation such as "Should I go ahead?"',
+  ]) assert.ok(prompt.includes(rule), rule);
+});
+
+test("each new I-did-it message adds one without asking about repeats; mark it done calls trackHabit (AC 61, AC 64)", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of [
+    "Each new message reporting it done adds one, even moments after the last",
+    "never ask whether it is a repeat or a separate session",
+    "Bearing already ignores a resend of the same message, and undo fixes an accidental extra",
+    "Call trackHabit with markDone even when listHabits shows it done already",
   ]) assert.ok(prompt.includes(rule), rule);
 });
 

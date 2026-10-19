@@ -254,7 +254,8 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
       count = 0;
     } else if (input.action === "markDone") {
       if (habit.trackMode === "many" && habit.goalCount === null) throw new HabitError("What count should be recorded? This Bad habit has no goal.");
-      count = habit.trackMode === "once" ? 1 : habit.goalCount!;
+      // Never lower a count: at or above the goal nothing changes ("No change to …").
+      count = habit.trackMode === "once" ? Math.max(previousCount, 1) : Math.max(previousCount, habit.goalCount!);
     } else if (habit.trackMode === "once") {
       count = input.action === "did" ? 1 : 0;
     } else {
