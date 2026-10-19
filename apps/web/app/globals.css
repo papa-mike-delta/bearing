@@ -941,23 +941,31 @@ li[draggable="true"] {
 }
 
 /* Theme chips: a wrapping row inside the Theme panel. */
-form.themes fieldset {
+form.themes fieldset,
+.color-mode fieldset {
   margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
 
-form.themes legend {
+form.themes legend,
+.color-mode legend {
   margin-bottom: 0.5rem;
   font-size: 12px;
   font-weight: 500;
 }
 
-form.themes .choices {
+form.themes .choices,
+.color-mode .choices {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+/* Light or dark sits above the palette chips. */
+.color-mode {
+  margin-bottom: 1.5rem;
 }
 
 form.flex-row {
