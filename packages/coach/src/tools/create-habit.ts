@@ -25,7 +25,7 @@ export function coachHabitOperationId(messageId: string, tool: "createHabit" | "
 }
 
 export const createHabit = {
-  description: "Create a habit only on an explicit ask or acceptance of a proposal. A name alone defaults to daily once, not Bad. Infer Bad for stop/cut down/do less and name the lapse: Quit smoking means Smoking, Bad daily once; say you marked it Bad, without asking again. Count my cigarettes means Bad daily many-times with no goal; ask nothing. Ask if the behaviour is unclear. Non-Bad many-times needs a goal; above 99 with no period asks, never guesses weekly. Daily maximum 99; weekly maximum 999. Returns the new state in listHabits form, with a Habits link.",
+  description: "Create a habit only on an explicit ask or acceptance of a proposal. A name alone defaults to daily once, not Bad, with no questions. Once the person answers your clarifying question, create without asking for confirmation again. Infer Bad for stop/cut down/do less and name the lapse: Quit smoking means Smoking, Bad daily once; say you marked it Bad, without asking again. Count my cigarettes means Bad daily many-times with no goal; ask nothing. Ask if the behaviour is unclear. Non-Bad many-times needs a goal; above 99 with no period asks, never guesses weekly. Daily maximum 99; weekly maximum 999. Returns the new state in listHabits form, with a Habits link.",
   inputSchema,
   async run(input: z.infer<typeof inputSchema>, { userId, messageId, today, data, habitOrdinal }: ToolRunContext & { habitOrdinal: number }) {
     const parsed = inputSchema.parse(input);

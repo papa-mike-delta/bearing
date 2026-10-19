@@ -204,6 +204,27 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
   ]) assert.ok(prompt.includes(rule), rule);
 });
 
+test("an answered habit question creates without a second confirmation; a bare ask defaults to daily once (spec §8.2, AC 56, AC 59)", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of [
+    "A message asking for a habit is the confirmation",
+    "An explicit ask with nothing else given (one name or several) creates daily once-habits, not Bad, straight away",
+    "do not ask habit or Task, daily or weekly, or once or many",
+    "When the person answers your clarifying question about a habit they asked for, create it straight away with that answer",
+    'never ask a second confirmation such as "Should I go ahead?"',
+  ]) assert.ok(prompt.includes(rule), rule);
+});
+
+test("each new I-did-it message adds one without asking about repeats; mark it done calls trackHabit (AC 61, AC 64)", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of [
+    "Each new message reporting it done adds one, even moments after the last",
+    "never ask whether it is a repeat or a separate session",
+    "Bearing already ignores a resend of the same message, and undo fixes an accidental extra",
+    "Call trackHabit with markDone even when listHabits shows it done already",
+  ]) assert.ok(prompt.includes(rule), rule);
+});
+
 test("habit-building questions look up evidence, propose one habit and wait without offering a skill", () => {
   const prompt = coachSystemPrompt();
   for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "habit-design skill is not available; do not offer it"]) assert.ok(prompt.includes(rule), rule);
