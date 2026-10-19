@@ -14,7 +14,7 @@ function fake() {
 
 test("tracking uses the listed habit id, browser Today and reserved call position", async () => {
   const { calls, context } = fake();
-  assert.deepEqual(await trackHabit.run({ habitId: id, action: "did" }, context), { ...state, href: "/habits" });
+  assert.deepEqual(await trackHabit.run({ habitId: id, action: "did" }, context), { ...state, today: state.day, href: "/habits" });
   assert.deepEqual(calls, [["owner", { habitId: id, action: "did", day: state.day, today: state.day, source: "coach", operationId: "message:trackHabit:2" }]]);
 });
 

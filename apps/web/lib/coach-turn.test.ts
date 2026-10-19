@@ -441,13 +441,13 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal((await listHabits(c, "2026-10-09", [], db))[0]!.count, 1);
     assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 2);
     const reloaded = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
-    assert.ok(reloaded.some((part) => "receipt" in part && part.receipt === "Tracked 'Walk' for 2026-10-09" && part.href === "/habits"));
+    assert.ok(reloaded.some((part) => "receipt" in part && part.receipt === "Tracked 'Walk' for today" && part.href === "/habits"));
     const undoMessage = userMessage("Undo Walk outdoors");
     await turn(c, thread, undoMessage, failingAfterWrite("trackHabit", { ...track, action: "undo" }));
     await deleteHabit(c, habit.id, db);
     const replay = await turn(c, thread, undoMessage, scripted({ trackHabit: JSON.stringify({ ...track, action: "undo" }), toolCallId: "deleted_replay" }, { text: "Already undone." }));
     assert.ok(!("refused" in replay));
-    assert.ok(shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts).some((part) => "receipt" in part && part.receipt === "Undid 'Walk outdoors' for 2026-10-09" && part.href === "/habits"));
+    assert.ok(shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts).some((part) => "receipt" in part && part.receipt === "Undid 'Walk outdoors' for today" && part.href === "/habits"));
     assert.deepEqual(await listHabits(c, "2026-10-09", [], db), []);
   });
 

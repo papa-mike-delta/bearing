@@ -135,7 +135,7 @@ export function Chat({
               <small>{message.role === "user" ? "You" : "Coach"}</small>
               {message.parts.map((part) =>
                 "receipt" in part ? (
-                  <p key={part.key} className="receipt" data-calls={part.calls}>
+                  <p key={part.key} className={part.read ? "receipt receipt-read" : "receipt"} data-calls={part.calls}>
                     {part.href ? (
                       <Link href={part.href}>{part.receipt}</Link>
                     ) : (
