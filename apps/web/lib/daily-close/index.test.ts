@@ -139,7 +139,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     ]);
     assert.equal(output.day, day);
     const part = { type: "tool-listHabits" as const, toolCallId: randomUUID(), state: "output-available" as const, input: {}, output };
-    const expected = [{ key: part.toolCallId, receipt: `Read your habits for ${day} (3)`, calls: 1, href: "/habits", read: true }];
+    const expected = [{ key: part.toolCallId, receipt: `Read your habits for Thu, Oct 8 (3)`, calls: 1, href: "/habits", read: true }];
     assert.deepEqual(shownParts([part]), expected);
     await reply(owner, incoming, [part]);
     const reloaded = (await threadMessages(owner.userId, owner.threadId, db))!.at(-1)!;
@@ -184,7 +184,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.equal(current.find((habit) => habit.id === rows[1]!.id)?.done, false);
     assert.equal(current.find((habit) => habit.id === rows[2]!.id)?.done, true);
     assert.deepEqual(shownParts([{ type: "tool-listHabits", toolCallId: "weekly-close", state: "output-available", output }]), [
-      { key: "weekly-close", receipt: `Read your habits for ${pastDay} (4)`, calls: 1, href: "/habits", read: true },
+      { key: "weekly-close", receipt: `Read your habits for Sun, Sep 27 (4)`, calls: 1, href: "/habits", read: true },
     ]);
   });
 
@@ -223,7 +223,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.equal(met.done, true);
     assert.equal(met.due, false);
     const part = { type: "tool-listHabits" as const, toolCallId: "weekly-many-close", state: "output-available" as const, input: {}, output };
-    const expected = [{ key: part.toolCallId, receipt: `Read your habits for ${pastDay} (4)`, calls: 1, href: "/habits", read: true }];
+    const expected = [{ key: part.toolCallId, receipt: `Read your habits for Sun, Sep 27 (4)`, calls: 1, href: "/habits", read: true }];
     assert.deepEqual(shownParts([part]), expected);
     await reply(owner, incoming, [part]);
     const reloaded = (await threadMessages(owner.userId, owner.threadId, db))!;

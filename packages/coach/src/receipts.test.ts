@@ -398,7 +398,7 @@ test("two creates in a row stay two lines", () => {
 test("a Daily close habits receipt keeps its selected day and Habits link after serialization", () => {
   for (const habits of [[], [{ name: "Walk" }]]) {
     const part = { type: "tool-listHabits", toolCallId: "close-habits", state: "output-available", output: { day: "2026-10-08", habits } };
-    const expected = [{ key: "close-habits", receipt: `Read your habits for 2026-10-08 (${habits.length})`, calls: 1, href: "/habits", read: true }];
+    const expected = [{ key: "close-habits", receipt: `Read your habits for Thu, Oct 8 (${habits.length})`, calls: 1, href: "/habits", read: true }];
     assert.deepEqual(shownParts([part]), expected);
     assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
   }
@@ -483,21 +483,40 @@ test("markDone at or above the goal is shown as unchanged, not tracked", () => {
   assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Pages", href: "/habits", period: "week", day: "2026-10-05", action: "markDone", changed: false } }), "No change to 'Pages' for the week of Oct 5");
 });
 
-test("habit receipts use the stored browser Today: today, yesterday, a weekday date, this week or the week of", () => {
-  const out = (period: "day" | "week", day: string, today?: string, action = "did", changed = true) => receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period, day, action, changed, ...(today && { today }) } });
-  assert.equal(out("day", "2026-10-18", "2026-10-18"), "Tracked 'Reading' for today");
+test("habit receipts word the saved day against the viewer's Today at render", () => {
+  const out = (period: "day" | "week", day: string, today?: string | null, action = "did", changed = true) => receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period, day, action, changed } }, today);
   assert.equal(out("day", "2026-10-17", "2026-10-18", "undo"), "Undid 'Reading' for yesterday");
-  assert.equal(out("day", "2026-10-16", "2026-10-18"), "Tracked 'Reading' for Fri, Oct 16");
   assert.equal(out("day", "2026-09-30", "2026-10-01"), "Tracked 'Reading' for yesterday");
+  assert.equal(out("day", "2026-10-18", null), "Tracked 'Reading' for Sun, Oct 18");
   assert.equal(out("day", "2026-10-18"), "Tracked 'Reading' for Sun, Oct 18");
   assert.equal(out("day", "2026-10-18", "not-a-day"), "Tracked 'Reading' for Sun, Oct 18");
-  assert.equal(out("week", "2026-10-12", "2026-10-18", "markDone", false), "No change to 'Reading' for this week");
   assert.equal(out("week", "2026-10-12", "2026-10-12"), "Tracked 'Reading' for this week");
-  assert.equal(out("week", "2026-10-05", "2026-10-18"), "Tracked 'Reading' for the week of Oct 5");
-  assert.equal(out("week", "2026-10-12"), "Tracked 'Reading' for the week of Oct 12");
-  // Same text after a reload: the receipt only reads the stored output.
-  const part = { type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period: "day", day: "2026-10-18", today: "2026-10-18", action: "markDone", changed: false } };
-  assert.equal(receipt(JSON.parse(JSON.stringify(part))), "No change to 'Reading' for today");
+  assert.equal(out("week", "2026-10-12", "2026-10-18", "markDone", false), "No change to 'Reading' for this week");
+  assert.equal(out("week", "2026-10-12", null), "Tracked 'Reading' for the week of Oct 12");
+});
+
+test("one saved receipt read the same day, the next day and a week later", () => {
+  const part = JSON.parse(JSON.stringify({ type: "tool-trackHabit", toolCallId: "t", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period: "day", day: "2026-10-16", action: "markDone", changed: false } }));
+  assert.equal(receipt(part, "2026-10-16"), "No change to 'Reading' for today");
+  assert.equal(receipt(part, "2026-10-17"), "No change to 'Reading' for yesterday");
+  assert.equal(receipt(part, "2026-10-23"), "No change to 'Reading' for Fri, Oct 16");
+  // The stored output holds the absolute day only, never the word.
+  assert.deepEqual(Object.keys(part.output).sort(), ["action", "changed", "day", "href", "id", "name", "period"]);
+});
+
+test("a weekly receipt says this week only during its week", () => {
+  const part = { type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Long run", href: "/habits", period: "week", day: "2026-10-05", action: "did", changed: true } };
+  for (const today of ["2026-10-05", "2026-10-08", "2026-10-11"]) assert.equal(receipt(part, today), "Tracked 'Long run' for this week", today);
+  for (const today of ["2026-10-12", "2026-10-04"]) assert.equal(receipt(part, today), "Tracked 'Long run' for the week of Oct 5", today);
+});
+
+test("the Daily close read line uses the same words", () => {
+  const part = { type: "tool-listHabits", state: "output-available", output: { habits: [{}, {}], day: "2026-10-08" } };
+  assert.equal(receipt(part, "2026-10-09"), "Read your habits for yesterday (2)");
+  assert.equal(receipt(part, "2026-10-08"), "Read your habits for today (2)");
+  assert.equal(receipt(part, "2026-10-20"), "Read your habits for Thu, Oct 8 (2)");
+  assert.equal(receipt(part), "Read your habits for Thu, Oct 8 (2)");
+  assert.deepEqual(shownParts([part], "2026-10-09").map((p) => "receipt" in p && p.receipt), ["Read your habits for yesterday (2)"]);
 });
 
 test("only read receipts are marked read, so writes are the only action-styled lines", () => {

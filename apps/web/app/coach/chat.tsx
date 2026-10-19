@@ -12,6 +12,7 @@ import { focusComposerOnMount, shownThread } from "../../lib/coach-screen";
 import { closeDayOnScreen } from "../../lib/daily-close/state";
 import { renderMarkdownPreview } from "../../lib/markdown";
 import { localToday } from "../../lib/today";
+import { useBrowserToday } from "../browser-today";
 
 // Set when the person sends from this view. If a server resync remounts Chat,
 // the new mount puts focus back in the composer.
@@ -116,7 +117,11 @@ export function Chat({
   // A reply that failed before any text or tool call has nothing to show.
   // A stopped one still does: a neutral note. Stop ends the browser stream;
   // reload to see the reply if the Coach finished and saved it.
-  const shown = shownThread(messages, stoppedUserIds);
+  // Receipts say "today" or "this week" against the viewer's current Today,
+  // like the Habits page. It is null on the server and during hydration, so
+  // the first render shows the absolute date and the two renders match.
+  const browserToday = useBrowserToday();
+  const shown = shownThread(messages, stoppedUserIds, browserToday);
   const visibleCloseDay = closeDayOnScreen(initialCloseDay, messages.slice(initialMessages.length), localToday());
 
   return (
