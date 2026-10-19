@@ -16,7 +16,8 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
     async listHabits(userId, browserToday) {
-      // The same habits the Habits page shows, using the requested day
+      // Habits page order: Daily by position, then Weekly by position.
+      // Use the requested day
       // (browser Today or close day) for daily counts and the containing week.
       const rows = await habitRows(userId, browserToday, [browserToday], db);
       return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }) =>

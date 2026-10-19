@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, HabitError, setHabitDay } from "../../lib/habits";
+import type { HabitEdit } from "@repo/domain";
+import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, HabitError, setHabitDay } from "../../lib/habits";
 
 function failure(error: unknown, fallback: string) {
   return { error: error instanceof HabitError ? error.message : fallback };
@@ -42,6 +43,24 @@ export async function removeHabit(habitId: string) {
     revalidatePath("/habits");
     return { ok: true };
   } catch { return { error: "Could not delete. Please try again." }; }
+}
+
+export async function saveHabit(habitId: string, changes: HabitEdit, today: string) {
+  const user = await requireUser();
+  try {
+    await editHabit(user.id, habitId, changes, today);
+    revalidatePath("/habits");
+    return { ok: true };
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
+export async function reorderHabit(habitId: string, direction: "up" | "down") {
+  const user = await requireUser();
+  try {
+    await moveHabit(user.id, habitId, direction);
+    revalidatePath("/habits");
+    return { ok: true };
+  } catch (error) { return failure(error, "Could not move the habit. Please try again."); }
 }
 
 export async function unfinishedHabits(today: string) {

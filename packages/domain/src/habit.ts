@@ -21,6 +21,38 @@ export function validHabitGoal(habit: HabitTracking): boolean {
   return Number.isInteger(habit.goalCount) && habit.goalCount >= 1 && habit.goalCount <= habitCountCap(habit.period);
 }
 
+export type HabitEdit = Partial<HabitTracking & { name: string }>;
+
+// Validate the whole proposed edit before a caller writes anything. Checks are
+// already counts of 1, so both allowed conversions preserve every stored mark.
+export function editHabitRules(
+  current: HabitTracking & { name: string },
+  marks: readonly { count: number }[],
+  changes: HabitEdit,
+): { habit: HabitTracking & { name: string } } | { error: string } {
+  const next = { ...current, ...changes };
+  if (typeof next.name !== "string" || !next.name.trim()) return { error: "Enter a habit name." };
+  const name = habitName(next.name);
+  if (!name) return { error: `Habit names can be at most ${maxHabitNameLength} characters; this one has ${next.name.trim().length}.` };
+  if (next.period !== "day" && next.period !== "week") return { error: "Choose Daily or Weekly for this habit." };
+  if (next.trackMode !== "once" && next.trackMode !== "many") return { error: "Choose once or many-times for this habit." };
+  if (typeof next.bad !== "boolean") return { error: "Choose whether this habit is Bad." };
+  if (next.period !== current.period && marks.length) return { error: "Daily and Weekly can only be switched when this habit has no marks or counts." };
+  if (current.trackMode === "many" && next.trackMode === "once") {
+    if (marks.some((mark) => mark.count > 1)) return { error: "Cannot switch to once: a period has a count above 1." };
+    // Dropping the goal is part of switching to once, unless a new goal was supplied.
+    if (changes.goalCount === undefined) next.goalCount = null;
+  }
+  if (!validHabitGoal(next)) {
+    if (next.trackMode === "once") return { error: "Once-habits cannot have a goal." };
+    const cap = habitCountCap(next.period);
+    return { error: next.bad
+      ? `Enter a whole-number limit between 1 and ${cap}, or leave it empty.`
+      : `Enter a whole-number ${next.period === "week" ? "weekly" : "daily"} goal between 1 and ${cap}.` };
+  }
+  return { habit: { name, period: next.period, trackMode: next.trackMode, bad: next.bad, goalCount: next.goalCount } };
+}
+
 // Plus stops at the period's cap; minus also repairs stored counts above it. Never clip.
 export function changeHabitCount(count: number, delta: 1 | -1, period: HabitPeriod): number | null {
   const cap = habitCountCap(period);

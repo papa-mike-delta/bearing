@@ -178,3 +178,11 @@ test("many-times Habits name daily and weekly goal caps and keep Coach writes un
   assert.ok(prompt.includes("week containing the browser's Today"));
   assert.ok(prompt.includes("cannot create, mark or change habits"));
 });
+
+test("habit edits and reorder belong to the Habits page and Paul cannot perform them", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("Habits are renamed, edited, reordered and deleted on the Habits page"));
+  assert.ok(prompt.includes("you cannot rename, edit, reorder or delete them either"));
+  assert.ok(prompt.includes("cannot create, mark or change habits"));
+  assert.ok(prompt.includes("Daily in its saved order, then Weekly in its saved order"));
+});

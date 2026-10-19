@@ -1017,12 +1017,36 @@ form.flex-row {
   font-weight: 400;
 }
 
-.habit-grid .habit-delete {
+.habit-grid .habit-delete,
+.habit-grid .habit-edit {
   border: 0;
   height: auto;
   padding: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid .habit-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  margin-top: 0.125rem;
+}
+
+.habit-grid .habit-controls .habit-edit {
+  margin-right: 0.25rem;
+}
+
+.habit-grid .habit-edit-cell {
+  text-align: left;
+}
+
+.habit-edit-form {
+  width: 100%;
+  max-width: 28rem;
+  margin: 0.5rem 0;
   font-weight: 400;
 }
 

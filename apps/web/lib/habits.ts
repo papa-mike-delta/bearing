@@ -1,5 +1,5 @@
-import { db as defaultDb, habitMarks, habits } from "@repo/db";
-import { changeHabitCount, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitTracking } from "@repo/domain";
+import { db as defaultDb, habitMarks, habits, users } from "@repo/db";
+import { changeHabitCount, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
@@ -92,17 +92,64 @@ export async function createHabit(userId: string, input: string | { name: string
   const name = problem ? null : habitName(options.name);
   if (!name) throw new HabitError(problem ?? blankName);
   return db.transaction(async (tx) => {
-    const [least] = await tx.select({ position: sql<number | null>`min(${habits.position})::int` }).from(habits).where(eq(habits.userId, userId));
+    // Serialize section ordering with edits and moves for this account.
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [least] = await tx.select({ position: sql<number | null>`min(${habits.position})::int` }).from(habits).where(and(eq(habits.userId, userId), eq(habits.period, tracking.period)));
     const position = (least?.position == null ? 0 : Number(least.position)) - 1;
     const [row] = await tx.insert(habits).values({ userId, name, position, ...tracking }).returning({ id: habits.id, name: habits.name });
     return row!;
   });
 }
 
+export async function editHabit(userId: string, habitId: string, changes: HabitEdit, today?: string, db: Db = defaultDb): Promise<HabitTracking & { name: string } & Partial<NonNullable<ReturnType<typeof habitProgress>>>> {
+  if (!isUuid(habitId) || !changes || typeof changes !== "object") throw new HabitError(unavailable);
+  if (today !== undefined && !isCalendarDay(today)) throw new HabitError(todayError);
+  return db.transaction(async (tx) => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(habits.id, habitId), eq(habits.userId, userId));
+    const [habit] = await tx.select().from(habits).where(owned).for("update");
+    if (!habit) throw new HabitError(unavailable);
+    // Read all history, including any future marks, for conversion refusals.
+    const marks = await tx.select({ day: habitMarks.day, count: habitMarks.count }).from(habitMarks).where(eq(habitMarks.habitId, habitId));
+    const result = editHabitRules(habit, marks, changes);
+    if ("error" in result) throw new HabitError(result.error);
+    let position = habit.position;
+    if (result.habit.period !== habit.period) {
+      const [least] = await tx.select({ position: sql<number | null>`min(${habits.position})::int` }).from(habits)
+        .where(and(eq(habits.userId, userId), eq(habits.period, result.habit.period)));
+      position = (least?.position ?? 0) - 1;
+    }
+    await tx.update(habits).set({ ...result.habit, position, updatedAt: new Date() }).where(owned);
+    return { ...result.habit, ...(today ? habitProgress(result.habit, marks.map((mark) => ({ day: asDay(mark.day), count: mark.count })), today) : {}) };
+  });
+}
+
+export async function moveHabit(userId: string, habitId: string, direction: "up" | "down", db: Db = defaultDb) {
+  if (!isUuid(habitId) || (direction !== "up" && direction !== "down")) throw new HabitError(unavailable);
+  return db.transaction(async (tx) => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId))).for("update");
+    if (!habit) throw new HabitError(unavailable);
+    const section = await tx.select({ id: habits.id }).from(habits)
+      .where(and(eq(habits.userId, userId), eq(habits.period, habit.period)))
+      .orderBy(asc(habits.position), asc(habits.createdAt), asc(habits.id)).for("update");
+    const index = section.findIndex((row) => row.id === habitId);
+    const neighbour = index + (direction === "up" ? -1 : 1);
+    if (!section[neighbour]) throw new HabitError(`This habit is already ${direction === "up" ? "first" : "last"} in its section.`);
+    // Normalize duplicate positions using the page's stable tie breakers, then
+    // swap exactly one neighbour. Refused moves never normalize or write.
+    [section[index], section[neighbour]] = [section[neighbour]!, section[index]!];
+    for (const [position, row] of section.entries()) {
+      await tx.update(habits).set({ position }).where(and(eq(habits.id, row.id), eq(habits.userId, userId)));
+    }
+    return { ok: true };
+  });
+}
+
 export async function setHabitDay(userId: string, habitId: string, day: string, checked: boolean, today: string, db: Db = defaultDb) {
   if (!isUuid(habitId) || !isCalendarDay(day) || !isCalendarDay(today) || typeof checked !== "boolean") throw new HabitError(unavailable);
   return db.transaction(async (tx) => {
-    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "once")));
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "once"))).for("update");
     if (!habit) throw new HabitError(unavailable);
     const periodDay = habitPeriodDay(habit.period, day)!;
     if (periodDay > habitPeriodDay(habit.period, today)!) throw new HabitError(future);

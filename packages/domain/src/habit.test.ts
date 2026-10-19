@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   changeHabitCount,
+  editHabitRules,
   habitProgress,
   habitIsDue,
   habitOverGoal,
@@ -239,4 +240,90 @@ test("Bad weekly once and many-times habits never have completion, due, streak o
       assert.equal(habitOverGoal(habit, count), habit.goalCount !== null && count > habit.goalCount);
     }
   }
+});
+
+const editable = { name: "Read", period: "day", trackMode: "once", goalCount: null, bad: false } as const;
+
+test("habit edits trim names, refuse blank or long names, and preserve the original", () => {
+  assert.deepEqual(editHabitRules(editable, [], { name: "  Pages  " }), { habit: { ...editable, name: "Pages" } });
+  assert.match((editHabitRules(editable, [], { name: "  " }) as { error: string }).error, /Enter a habit name/);
+  assert.match((editHabitRules(editable, [], { name: "x".repeat(201) }) as { error: string }).error, /at most 200/);
+  assert.equal(editable.name, "Read");
+});
+
+test("once to many-times keeps checks as 1 and requires a fitting goal unless Bad", () => {
+  for (const period of ["day", "week"] as const) {
+    const current = { ...editable, period };
+    for (const goalCount of [null, 0, 1.5, period === "day" ? 100 : 1000]) {
+      assert.ok("error" in editHabitRules(current, [{ count: 1 }], { trackMode: "many", goalCount }));
+    }
+    const converted = editHabitRules(current, [{ count: 1 }], { trackMode: "many", goalCount: 2 });
+    assert.ok("habit" in converted);
+    assert.equal(habitProgress(converted.habit, [{ day: period === "day" ? "2026-10-08" : "2026-10-05", count: 1 }], "2026-10-08")!.count, 1);
+    assert.deepEqual(editHabitRules(current, [{ count: 1 }], { trackMode: "many", bad: true }), { habit: { ...current, trackMode: "many", bad: true } });
+  }
+});
+
+test("many-times to once refuses any historical count above 1 and otherwise removes the goal", () => {
+  for (const period of ["day", "week"] as const) {
+    const current = { ...editable, period, trackMode: "many" as const, goalCount: 3 };
+    assert.match((editHabitRules(current, [{ count: 1 }, { count: 2 }], { trackMode: "once" }) as { error: string }).error, /count above 1/);
+    assert.deepEqual(editHabitRules(current, [{ count: 1 }], { trackMode: "once" }), { habit: { ...editable, period } });
+    assert.ok("error" in editHabitRules(current, [], { trackMode: "once", goalCount: 2 }));
+    assert.equal(current.goalCount, 3);
+  }
+});
+
+test("Bad off without a goal refuses atomically unless the same edit supplies a fitting goal", () => {
+  for (const period of ["day", "week"] as const) {
+    const current = { ...editable, period, trackMode: "many" as const, bad: true };
+    for (const goalCount of [undefined, null, 0, 1.5, period === "day" ? 100 : 1000]) {
+      assert.ok("error" in editHabitRules(current, [{ count: 1 }], { bad: false, ...(goalCount !== undefined ? { goalCount } : {}) }));
+    }
+    assert.deepEqual(editHabitRules(current, [{ count: 1 }], { bad: false, goalCount: 2 }), { habit: { ...current, bad: false, goalCount: 2 } });
+    assert.equal(current.bad, true);
+    assert.equal(current.goalCount, null);
+  }
+});
+
+test("goal edits rejudge the open period immediately and refuse illegal goals without changing the old one", () => {
+  for (const period of ["day", "week"] as const) {
+    const current = { ...editable, period, trackMode: "many" as const, goalCount: 5 };
+    const marks = [{ day: period === "day" ? "2026-10-08" : "2026-10-05", count: 3 }];
+    for (const goalCount of [2, 3, 4]) {
+      const result = editHabitRules(current, marks, { goalCount });
+      assert.ok("habit" in result);
+      assert.equal(habitProgress(result.habit, marks, "2026-10-08")!.done, goalCount <= 3);
+    }
+    for (const goalCount of [null, 0, -1, 1.5, NaN, period === "day" ? 100 : 1000]) assert.ok("error" in editHabitRules(current, marks, { goalCount }));
+    assert.equal(current.goalCount, 5);
+  }
+});
+
+test("switching period refuses every mark in either direction and never lowers a goal to fit", () => {
+  for (const period of ["day", "week"] as const) {
+    const current = { ...editable, period };
+    const destination = period === "day" ? "week" : "day";
+    for (const trackMode of ["once", "many"] as const) {
+      const habit = { ...current, trackMode, goalCount: trackMode === "many" ? 3 : null };
+      assert.match((editHabitRules(habit, [{ count: 1 }], { period: destination }) as { error: string }).error, /no marks or counts/);
+      assert.deepEqual(editHabitRules(habit, [], { period: destination }), { habit: { ...habit, period: destination } });
+    }
+    const many = { ...current, trackMode: "many" as const, goalCount: period === "week" ? 200 : 3 };
+    assert.ok("error" in editHabitRules(many, [], { period: destination, goalCount: destination === "day" ? 100 : 1000 }));
+  }
+  const weekly = { ...editable, period: "week" as const, trackMode: "many" as const, goalCount: 200 };
+  assert.ok("error" in editHabitRules(weekly, [], { period: "day" }));
+  assert.equal(weekly.goalCount, 200);
+  assert.deepEqual(editHabitRules(weekly, [], { period: "day", goalCount: 99 }), { habit: { ...weekly, period: "day", goalCount: 99 } });
+});
+
+test("flipping Bad hides and restores once streaks using unchanged marks", () => {
+  const marks = [{ day: "2026-10-07", count: 1 }, { day: "2026-10-08", count: 1 }];
+  const result = editHabitRules(editable, marks, { bad: true });
+  assert.ok("habit" in result);
+  assert.deepEqual(habitProgress(result.habit, marks, "2026-10-08"), { count: 1, done: false, streak: null, record: null });
+  const restored = editHabitRules(result.habit, marks, { bad: false });
+  assert.ok("habit" in restored);
+  assert.deepEqual(habitProgress(restored.habit, marks, "2026-10-08"), { count: 1, done: true, streak: 2, record: 2 });
 });
