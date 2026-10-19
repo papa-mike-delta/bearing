@@ -28,3 +28,9 @@ A habit that is not yet done for its period, and never Bad. The Coach calls thes
 
 **Bad habit**:
 A habit whose check or count records that a lapse happened, with no streak or record and no contribution to the unfinished count. A Bad many-times habit may have no goal, or a goal that acts as a limit; it is never done or due.
+
+**Light or dark**:
+A person's Light, Dark, or System appearance choice, saved in that browser only and never on their account; another browser or device follows its own choice, and an unset or unknown choice follows the system. It works on top of whichever Theme is active. Not to be confused with Theme.
+
+**Theme**:
+The colour palette and radius a person chooses for their account, either one of the six built-ins or their one imported preset, saved on their account and applied on every device. Each Theme has a light and a dark version, picked by Light or dark. Not to be confused with Light or dark.

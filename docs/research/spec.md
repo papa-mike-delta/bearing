@@ -378,6 +378,7 @@ Target references, not copies: Things 3 density, Linear chrome, Drafts' single t
 - Hierarchy: areas in a left rail, list in the center, inspector on the right. Calendar is a column, not a toy.
 - Motion: almost none for v1, this will change in the future. Selection and the just-came-up strip are the only chrome that moves.
 - Copy: short, no emoji in the product UI.
+- Appearance: two separate choices. Theme is the account's colour palette and radius (one of six built-ins or one imported preset), saved on the account and applied on every device. Light or dark is a Light / Dark / System switch on the Account page, saved per browser (next-themes, localStorage) and never on the account; it defaults to System and picks the light or dark version of the active Theme. Decided 2026-10-18; implemented in #127.
 
 ## 10. Competitors, only where they change the spec
 
