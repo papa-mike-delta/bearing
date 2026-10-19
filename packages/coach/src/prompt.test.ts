@@ -198,7 +198,7 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "A goal above 99 with no period is a question", "maximum 99", "maximum 999", "Weekly 200 is allowed",
     "habitId from listHabits", "If two habits share a name, ask which one", "adds exactly one",
     "Undo clears the check or removes one", `"I didn't" leaves an empty period empty`,
-    "clears the whole period only if already logged", "sets a many-times count to the goal",
+    "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
     "on Bad many-times without a goal, ask", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
   ]) assert.ok(prompt.includes(rule), rule);

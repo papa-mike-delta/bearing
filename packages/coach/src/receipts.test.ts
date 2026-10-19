@@ -478,3 +478,7 @@ for (const [type, action, period, label] of [
 test("an empty Bad didnt is shown as unchanged, without claiming a write", () => {
   assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Smoking", href: "/habits", period: "day", day: "2026-10-08", action: "didnt", changed: false } }), "No change to 'Smoking' for 2026-10-08");
 });
+
+test("markDone at or above the goal is shown as unchanged, not tracked", () => {
+  assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Pages", href: "/habits", period: "week", day: "2026-10-05", action: "markDone", changed: false } }), "No change to 'Pages' for week of 2026-10-05");
+});

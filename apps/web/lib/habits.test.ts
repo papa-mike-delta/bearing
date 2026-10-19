@@ -679,7 +679,7 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
     }
   });
 
-  test("many-times did and undo change exactly one, markDone sets the goal in daily and weekly periods", async () => {
+  test("many-times did and undo change exactly one, markDone raises to the goal and never lowers in daily and weekly periods", async () => {
     for (const period of ["day", "week"] as const) {
       const goalCount = period === "week" ? 200 : 3;
       const habit = await createHabit(owner, { name: "Pages", period, trackMode: "many", goalCount }, db);
@@ -692,10 +692,22 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
         assert.equal(done.count, goalCount);
         assert.equal(done.done, true);
         assert.equal((await track("did")).count, goalCount + 1);
-        assert.equal((await track("markDone")).count, goalCount);
-        assert.equal((await track("undo")).count, goalCount - 1);
+        const again = await track("markDone");
+        assert.equal(again.count, goalCount + 1);
+        assert.equal(again.changed, false);
+        assert.equal((await track("undo")).count, goalCount);
       }
     }
+  });
+
+  test("markDone on a once-habit already checked changes nothing", async () => {
+    const habit = await createHabit(owner, { name: "Stretch" }, db);
+    const track = () => trackCoachHabit(owner, { habitId: habit.id, day: today, action: "markDone", ...operation() }, db);
+    assert.equal((await track()).changed, true);
+    const again = await track();
+    assert.equal(again.count, 1);
+    assert.equal(again.changed, false);
+    assert.equal((await marks(habit.id))[0]?.count, 1);
   });
 
   test("Bad didnt on empty writes nothing; an existing once check or many-times log is cleared", async () => {

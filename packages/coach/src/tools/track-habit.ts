@@ -17,7 +17,7 @@ const resultSchema = habitWriteStateSchema.extend({
 });
 
 export const trackHabit = {
-  description: "Track only an explicitly reported occurrence, undo, I didn't, or mark it done, using an id from listHabits. Ask which habit if names are ambiguous; never guess. did checks once or adds exactly one; undo clears once or removes one. On Bad, didnt leaves an empty period empty and clears only an existing log. markDone sets many-times to its goal; Bad many-times without a goal needs a question. Never invent extra logs. Omitted day uses browser Today; named past periods allowed, future periods refused. Weekly dates mean their Monday–Sunday week. Returns the new listHabits state for the affected period.",
+  description: "Track only an explicitly reported occurrence, undo, I didn't, or mark it done, using an id from listHabits. Ask which habit if names are ambiguous; never guess. did checks once or adds exactly one; undo clears once or removes one. On Bad, didnt leaves an empty period empty and clears only an existing log. markDone raises a many-times count to its goal and never lowers a higher count; Bad many-times without a goal needs a question. Never invent extra logs. Omitted day uses browser Today; named past periods allowed, future periods refused. Weekly dates mean their Monday–Sunday week. Returns the new listHabits state for the affected period.",
   inputSchema,
   async run(input: z.infer<typeof inputSchema>, { userId, messageId, today, data, habitOrdinal }: ToolRunContext & { habitOrdinal: number }) {
     const parsed = inputSchema.parse(input);
