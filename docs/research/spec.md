@@ -148,18 +148,16 @@ Calendar connect (premium): Google, Outlook, Proton, iCloud, Fastmail, Hey, Face
 
 Source: [habits](https://lunatask.app/docs/features/habits).
 
-- Daily vs weekly. Weekly is premium in Lunatask. Bearing v1: weekly habits are not premium; there is no gate and no habit limit (#25). A Sunday-only habit is still daily, because tracking is per day.
+- Daily vs weekly. Weekly is premium. A Sunday-only habit is still daily, because tracking is per day.
 - Once vs many-times. Many-times has a goal count ("3 times a day").
 - Bad habits: no widget, no calendar block, no streak, no incomplete count. Can be many-times (cigarettes).
 - Custom recurrence on daily habits (Tue/Fri). Weaker than task recurrence.
 - Streaks: current (end of the consecutive block) and record. Hidden on many-times (that number is the count) and on bad habits.
-- Bearing goal ranges: a daily many-times goal is a whole number from 1 to 99, a weekly one from 1 to 999. Counts run from 0 to 99 per day and 0 to 999 per week; no mark row means 0.
-- Bearing: a Bad many-times habit may have no goal; it shows only the count. A count above the goal shows a subtle mark in one colour, nothing more.
 - Track: double-click a day, or complete icon on a calendar block. Alt/Option or long-press decrements. Hold Space/Shift for single-click entry mode.
 - Auto time block: "at 8:30", optional duration, default 15 min. Many-times can have multiple reminders.
 - Widget at the bottom of the task calendar, habit order, shows the next one needing attention.
 - Routines (habit groups): basic, desktop only.
-- Free plan: 7 habits. Premium: unlimited + weekly. (Lunatask's plans. Bearing v1 has neither the limit nor the weekly gate.)
+- Free plan: 7 habits. Premium: unlimited + weekly.
 
 ### 4.4 Journal, mood, notes
 
@@ -305,15 +303,14 @@ Read tools:
 
 - `today` — just-came-up, Now / In progress, habits due, reconnects due, today's mood if set
 - `search` — tasks, notes, journal, people, drafts. Full-text once it exists; names until then
-- `getTask`, `listArea`, `listHabits`, `journalRange`, `getPerson`
-- `listHabits`: this account's habits in Habits-page order, with the open period's count, goal, done, and streak or none. A habit is due when it is not done for its open period and is not Bad (the same rule as the Habits link count). Replaces the earlier `habitStats` name.
+- `getTask`, `listArea`, `habitStats`, `journalRange`, `getPerson`
 
 Write tools, same mutations the UI uses:
 
 - `createTask`, `updateTask`, `completeTask`, `scheduleTask`
 - `fileDraft` — inbox text into task, note, journal, or person note
 - `appendJournal`, `setMood`
-- `createHabit`, `trackHabit`
+- `trackHabit`
 - `logPerson` — timeline note, optional last-connected = today
 - `createNote`
 
@@ -330,9 +327,9 @@ A skill is a markdown file with a name, a description, and the tools it is allow
 | Skill | Does |
 | --- | --- |
 | Weekly review | read the week, list completed vs stuck, propose moves to Later or Now. Does not apply until the user says so |
-| Habit design | turn "I want to run" into a cue, a starting version, and a period. Writes a habit only if asked. The "tiny version" claim needs its own research note first (habits knowledge note) |
+| Habit design | turn "I want to run" into a cue, a tiny version, a recurrence. Writes a habit only if asked |
 | Reconnect | who is due, draft a one-line reach-out, log it if the user sent it |
-| Daily close | prompt the journal template, set mood, name the habits still due on the close day (read-only), file stray inbox drafts |
+| Daily close | prompt the journal template, set mood, file stray inbox drafts |
 | Empty Now | if Now is over the WIP limit, propose what goes back to Later |
 
 Skills are prompts plus an allow-list. They are not code plugins. New skills are files in `packages/coach/skills`.
@@ -347,7 +344,6 @@ Write it from primary sources, and say what those sources do not support. Starte
 - Journaling. Pennebaker's expressive-writing work is about structured disclosure, not a daily gratitude quota. Gratitude interventions (Emmons and others) have small effects. One mood, energy, and stress value per day matches the product and the "reflect on the whole day" rule. The coach does not diagnose from a mood chart.
 - Goals. Locke and Latham: specific and challenging beats "do your best", with feedback. WOOP (Oettingen): wish, outcome, obstacle, plan. A goal in this app is a folder inside an area, not a vision board. The coach files tasks under a goal; it does not create a new area because the user named a topic.
 - Coaching boundary. Reflect, ask one question, propose a next task or habit. No diagnosis, no clinical advice, no "you have ADHD" from a task list. If the user is in crisis, point at local emergency services and stop coaching.
-- (from #95) Asked about building a habit ("does it take 21 days?", "I missed a day"), the coach quotes the matching Habits section with its source, including what the research does not support, then proposes one habit (name, daily or weekly, once or many-times, Bad if it is something to cut down) and waits. It creates the habit only when the person says yes. It proposes a habit, not a Task, unless they ask for a Task.
 
 Each article ends with the citation. The coach quotes the article, not a vibes summary.
 
@@ -361,12 +357,8 @@ Context the panel can attach: the open task, note, or person id, passed into the
 
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
-- Coach writes are idempotent on the person's message id: a provenance source id on the row (Tasks, Notes), or a replay record in `journal_operations`, `note_operations` or `habit_operations` (Journal appends, draft filing, Habits; for habits the operation id comes from the message id and the tool call, #95). A replay returns the recorded result and never writes twice; `habit_operations` has no habit FK, so a replay after delete never recreates the habit.
+- Coach-created rows set `source = coach` and `source_id` to the tool-call id, so they idempotent-match like any other integration.
 - Knowledge base is not user data and is not mixed into export.
-
-### 8.7 Keeping the Coach current
-
-Every feature that changes what the person can see or do also updates the Coach in the same ticket: the read tools that expose it, the system prompt line that describes it (including what the Coach still cannot do), and its receipts. The Coach never describes a screen that no longer matches the product. Daily close's reads follow the same rule. Tickets state this as acceptance criteria; it is not deferred to a later "Coach" ticket.
 
 ## 9. Visual direction
 
@@ -378,7 +370,6 @@ Target references, not copies: Things 3 density, Linear chrome, Drafts' single t
 - Hierarchy: areas in a left rail, list in the center, inspector on the right. Calendar is a column, not a toy.
 - Motion: almost none for v1, this will change in the future. Selection and the just-came-up strip are the only chrome that moves.
 - Copy: short, no emoji in the product UI.
-- Appearance: two separate choices. Theme is the account's colour palette and radius (one of six built-ins or one imported preset), saved on the account and applied on every device. Light or dark is a Light / Dark / System switch on the Account page, saved per browser (next-themes, localStorage) and never on the account; it defaults to System and picks the light or dark version of the active Theme. Decided 2026-10-18; implemented in #127.
 
 ## 10. Competitors, only where they change the spec
 
@@ -453,13 +444,9 @@ tasks(id, area_id, goal_id, name, note_md, status, previous_status,
       recurrence_rule, parent_task_id, created_at, updated_at)
 task_sources(task_id, source, source_id)
 time_blocks(id, owner_type, owner_id, day, start_min, duration_min)
-habits(id, user_id, name, period, track_mode, bad, goal_count, position,
-       created_at, updated_at)
-       -- later, not in the habits epic: recurrence, remind_at, duration_min
-habit_marks(habit_id, day, count)   -- day is the week's Monday for a weekly habit;
-                                    -- no row means 0
-habit_operations(id, user_id, source, operation_id, habit_id, result, created_at)
-                                    -- Coach write replay; no FK to habits
+habits(id, user_id, name, period, track_mode, bad, goal_count,
+       recurrence, remind_at, duration_min, position)
+habit_activities(habit_id, day, count)
 notebooks(id, user_id, name, pin_hash)
 notes(id, notebook_id, name, body_md, pinned)
 journal_entries(id, user_id, day, body_md)
@@ -516,12 +503,12 @@ A script-kiddie sequence. Each phase is deployable.
 2. Coach, read-only plus `createTask` and `completeTask`. `useChat`, three tools, one knowledge article, Gateway model id in an env var. Writes already go through domain. This is the second product if you stop.
 3. Now/Later and Kanban. Age sort. Just-came-up. Goals. Coach learns `scheduleTask` and `updateTask`.
 4. Notes and journal, markdown, links between entities. Coach learns `appendJournal` and `createNote`. Daily-close skill.
-5. Habits: daily and weekly, once and many-times, Bad, edit and up/down reorder, in one migration. The Coach reads habits from the first habits ticket (`listHabits`), Daily close names the habits due, then `createHabit` and `trackHabit`, then the habit-design skill (#25).
+5. Habits, daily only. Grid and a checkbox. Habit-design skill. `trackHabit`.
 6. People, groups, reconnect rule, timeline note. Reconnect skill.
-7. Must/Should/Want and Eisenhower. Premium flag is a column, not a billing system, until you want Stripe.
-8. Calendar column. ICS read-only. Time blocks. Then Google one-way.
-9. Recurrence, email-in (inbound parse on a Vercel route), public API, webhooks, full-text search (Postgres `tsvector`). Coach `search` switches to full-text.
-10. PIN lock on a notebook. Weather never, unless bored. Coach skips locked notebooks.
+7. Calendar column. Time blocks. Then ICS read-only, Google one-way (nice to haves).
+8. Must/Should/Want and Eisenhower, Recurring tasks.
+9. Public API, webhooks, full-text search (Postgres `tsvector`). Coach `search` switches to full-text.
+10. PIN lock on a notebook. Coach skips locked notebooks. Weather attached to Journal (nice to have).
 
 Out of v1, matching their own gaps plus the user's cut: E2E, week/month calendar, two-way calendar, widgets, native mobile, voice, MCP, note folders, Plan Ahead workflow. Also out: a vector store, autonomous overnight coaching, email the coach sends on its own.
 
@@ -548,7 +535,7 @@ Docs were enough for the model. These were thin or failed to fetch:
 - notebook PIN vs app PIN vs journal PIN (one PIN or three)
 - habit routine data model
 - whether goals are ordered and whether a task can be in two goals (assume no)
-- free vs premium beyond habits (no limit in v1), energy/stress, calendar connect, Must/Should/Want, Eisenhower (weekly habits: not premium in Bearing v1)
+- free vs premium beyond habits (7), weekly habits, energy/stress, calendar connect, Must/Should/Want, Eisenhower
 
 ## 13. Sources
 
