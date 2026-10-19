@@ -45,7 +45,7 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood and fileDraft combined.`,
+      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit and trackHabit combined.`,
     ),
   );
   assert.ok(
@@ -114,7 +114,7 @@ test("knowledge titles are listed and the article bodies are not", () => {
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
   assert.ok(prompt.includes("Bearing has daily and weekly Habits on the Habits page, once or many-times, including Bad habits in either period."));
-  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, but cannot create, mark or change habits"));
+  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, create with createHabit and track with trackHabit"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
   assert.equal(prompt.includes("You can create a habit"), false);
@@ -157,7 +157,7 @@ test("Bad habit tracking reports occurrences without shame", () => {
   assert.ok(prompt.includes("A check or count on a Bad habit means the lapse happened"));
   assert.ok(prompt.includes("Never call an empty Bad day missed"));
   assert.ok(prompt.includes("Do not praise or shame; report counts plainly"));
-  assert.ok(prompt.includes("cannot create, mark or change habits"));
+  assert.ok(!prompt.includes("cannot create, mark or change habits"));
 });
 
 test("weekly habits are due until done that week and close reads use the close week's progress", () => {
@@ -170,19 +170,41 @@ test("weekly habits are due until done that week and close reads use the close w
 });
 
 
-test("many-times Habits name daily and weekly goal caps and keep Coach writes unavailable", () => {
+test("many-times Habits name daily and weekly goal caps and allow Coach writes", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("daily goal up to 99, weekly goal up to 999"));
   assert.ok(prompt.includes("including Bad habits in either period"));
   assert.ok(prompt.includes("many-times habits show counts, with no streak or record"));
   assert.ok(prompt.includes("week containing the browser's Today"));
-  assert.ok(prompt.includes("cannot create, mark or change habits"));
+  assert.ok(!prompt.includes("cannot create, mark or change habits"));
 });
 
 test("habit edits and reorder belong to the Habits page and Paul cannot perform them", () => {
   const prompt = coachSystemPrompt();
   assert.ok(prompt.includes("Habits are renamed, edited, reordered and deleted on the Habits page"));
   assert.ok(prompt.includes("you cannot rename, edit, reorder or delete them either"));
-  assert.ok(prompt.includes("cannot create, mark or change habits"));
+  assert.ok(!prompt.includes("cannot create, mark or change habits"));
   assert.ok(prompt.includes("Daily in its saved order, then Weekly in its saved order"));
+});
+
+
+test("habit creation and tracking follow explicit requests, questions and lapse semantics", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of [
+    "creates only when asked", "A name alone means daily once, not Bad",
+    "infer Bad, name the lapse rather than the hope", "do not ask about the flag again",
+    '"Quit smoking"', 'named Smoking', '"Count my cigarettes"', "create without another question",
+    "If the behaviour is unclear, ask", "Non-Bad many-times without a goal is a question",
+    "A goal above 99 with no period is a question", "maximum 99", "maximum 999", "Weekly 200 is allowed",
+    "habitId from listHabits", "If two habits share a name, ask which one", "adds exactly one",
+    "Undo clears the check or removes one", `"I didn't" leaves an empty period empty`,
+    "clears the whole period only if already logged", "sets a many-times count to the goal",
+    "on Bad many-times without a goal, ask", "Do not invent extra logs", "future periods refused",
+    "On refusal or failure never claim a write succeeded",
+  ]) assert.ok(prompt.includes(rule), rule);
+});
+
+test("habit-building questions look up evidence, propose one habit and wait without offering a skill", () => {
+  const prompt = coachSystemPrompt();
+  for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "habit-design skill is not available; do not offer it"]) assert.ok(prompt.includes(rule), rule);
 });

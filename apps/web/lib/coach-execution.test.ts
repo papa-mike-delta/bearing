@@ -20,6 +20,7 @@ import {
 import { DraftError } from "./draft-filing/index.ts";
 import { JournalError } from "./journal.ts";
 import { MoodError } from "./mood.ts";
+import { HabitError } from "./habits.ts";
 import { NoteError } from "./notes.ts";
 import { normalTurnToolNames } from "./coach-normal-turn.ts";
 import { closeTools } from "./daily-close/tools.ts";
@@ -29,7 +30,7 @@ const messageId = randomUUID();
 const entityId = randomUUID();
 const today = "2026-10-09";
 const capMessage =
-  "You can make only 3 Task, Note, Journal or Mood writes per reply.";
+  "You can make only 3 Task, Note, Journal, Mood, filing or Habit writes per reply.";
 
 function data(overrides: Partial<CoachData> = {}): CoachData {
   return {
@@ -70,6 +71,8 @@ test("registration and context retain their distinct original key orders", () =>
     "fileDraft",
     "appendJournal",
     "setMood",
+    "createHabit",
+    "trackHabit",
     "listHabits",
     "listNotebooks",
     "searchKnowledge",
@@ -186,6 +189,8 @@ test("parallel mixed writes reserve the shared cap before any awaited data retur
 });
 
 const writeAttempts = {
+  createHabit: (tools: ReturnType<typeof coachTools>) => tools.createHabit.execute!({ name: "Walk" }, call()),
+  trackHabit: (tools: ReturnType<typeof coachTools>) => tools.trackHabit.execute!({ habitId: entityId, action: "did" }, call()),
   fileDraft: (tools: ReturnType<typeof coachTools>) =>
     tools.fileDraft.execute!(
       { draftId: entityId, destination: { kind: "journal" } },
@@ -391,6 +396,8 @@ for (const [name, ErrorType] of [
   ["fileDraft", NoteError],
   ["appendJournal", JournalError],
   ["setMood", MoodError],
+  ["createHabit", HabitError],
+  ["trackHabit", HabitError],
 ] as const) {
   test(`${name} preserves the safe ${ErrorType.name} message and logs the failure`, async () => {
     const safe = new ErrorType("Safe domain failure");
@@ -399,7 +406,7 @@ for (const [name, ErrorType] of [
       throw safe;
     };
     const tools = coachTools(
-      data({ fileDraft: fail, appendJournal: fail, setMood: fail }),
+      data({ fileDraft: fail, appendJournal: fail, setMood: fail, createHabit: fail, trackHabit: fail }),
     );
     await assert.rejects(
       settled(writeAttempts[name](tools)),
@@ -572,3 +579,56 @@ test("habit reads are uncapped and use the account and browser today from contex
   assert.ok(normalTurnToolNames.includes("listHabits"));
   assert.equal("listHabits" in closeTools(tools, data(), userId, today), true);
 });
+
+const habitState = { id: entityId, name: "Walk", period: "day" as const, trackMode: "once" as const, goalCount: null, bad: false, count: 0, done: false, due: true, streak: 0, record: 0 };
+
+test("habit writes reserve the shared cap alongside Note and Journal; a fourth write leaves earlier results", async () => {
+  const committed: string[] = [];
+  const operations: string[] = [];
+  const adapter = data({
+    createHabit: async (_user, input) => { committed.push("habit"); operations.push(input.operationId); return habitState; },
+    trackHabit: async (_user, input) => { committed.push("track"); operations.push(input.operationId); return { ...habitState, count: 1, done: true, due: false, day: input.day, action: input.action, changed: true }; },
+    listNotebooks: async () => [{ id: entityId, name: "Book" }],
+    createNote: async () => { committed.push("note"); return { id: entityId, notebookId: entityId, title: "Title" }; },
+    appendJournal: async (_user, input) => { committed.push("journal"); return { id: entityId, day: input.day }; },
+  });
+  for (const first of ["createHabit", "trackHabit"] as const) {
+    committed.length = 0;
+    operations.length = 0;
+    const tools = coachTools(adapter);
+    await writeAttempts[first](tools);
+    await writeAttempts.createNote(tools);
+    await writeAttempts.appendJournal(tools);
+    for (const attempt of Object.values(writeAttempts)) await assert.rejects(settled(attempt(tools)), /only 3 .*Habit writes/);
+    assert.deepEqual(committed, [first === "createHabit" ? "habit" : "track", "note", "journal"]);
+    assert.deepEqual(operations, [`${messageId}:${first}:1`]);
+  }
+});
+
+test("habit replay positions are stable when provider call ids change and distinct for multiple calls", async () => {
+  const operations: string[] = [];
+  const adapter = data({
+    createHabit: async (_user, input) => { operations.push(input.operationId); return habitState; },
+    trackHabit: async (_user, input) => { operations.push(input.operationId); return { ...habitState, day: input.day, action: input.action, changed: true }; },
+  });
+  for (const providerId of ["original", "resent"]) {
+    const tools = coachTools(adapter);
+    await tools.createHabit.execute!({ name: "Walk" }, call(`${providerId}_create`));
+    await tools.trackHabit.execute!({ habitId: entityId, action: "did" }, call(`${providerId}_did`));
+    await tools.trackHabit.execute!({ habitId: entityId, action: "did" }, call(`${providerId}_again`));
+  }
+  assert.deepEqual(operations, Array(2).fill([`${messageId}:createHabit:1`, `${messageId}:trackHabit:2`, `${messageId}:trackHabit:3`]).flat());
+});
+
+for (const name of ["createHabit", "trackHabit"] as const) {
+  test(`${name} masks private failures and emits no successful receipt`, async () => {
+    const log = mock.method(console, "error", () => {});
+    const fail = async () => { throw new Error("PRIVATE HABIT SQL", { cause: { code: "42P01" } }); };
+    const tools = coachTools(data({ createHabit: fail, trackHabit: fail }));
+    const failure = name === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit";
+    await assert.rejects(settled(writeAttempts[name](tools)), new RegExp(failure));
+    assert.equal(log.mock.callCount(), 1);
+    assert.ok(!JSON.stringify(log.mock.calls).includes("PRIVATE HABIT SQL"));
+    assert.equal(receipt({ type: `tool-${name}`, state: "output-error", errorText: failure }), failure);
+  });
+}

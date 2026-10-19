@@ -449,3 +449,32 @@ test("habit read receipts show the count and link to Habits", () => {
   ]);
   assert.equal(receipt({ ...part, state: "output-available", output: { habits: [] } }), "Read your habits (0)");
 });
+
+
+for (const [type, action, period, label] of [
+  ["createHabit", undefined, "day", "Created habit 'Walk'"],
+  ["trackHabit", "did", "day", "Tracked 'Walk' for 2026-10-08"],
+  ["trackHabit", "markDone", "day", "Tracked 'Walk' for 2026-10-08"],
+  ["trackHabit", "undo", "day", "Undid 'Walk' for 2026-10-08"],
+  ["trackHabit", "didnt", "day", "Undid 'Walk' for 2026-10-08"],
+  ["trackHabit", "did", "week", "Tracked 'Walk' for week of 2026-10-05"],
+  ["trackHabit", "undo", "week", "Undid 'Walk' for week of 2026-10-05"],
+] as const) {
+  test(`${type} ${action ?? "create"} ${period} receipt links to Habits and survives serialization`, () => {
+    const part = { type: `tool-${type}`, toolCallId: "habit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Walk", href: "/habits", period, day: period === "day" ? "2026-10-08" : "2026-10-05", action, changed: true } };
+    const expected = [{ key: "habit", receipt: label, calls: 1, href: "/habits" }];
+    assert.deepEqual(shownParts([part]), expected);
+    assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
+    for (const bad of [
+      { ...part, state: "output-error" },
+      { ...part, output: { ...part.output, refused: true } },
+      { ...part, output: { ...part.output, id: "invalid" } },
+      { ...part, output: { ...part.output, href: "https://untrusted.invalid" } },
+      { ...part, output: {} },
+    ]) assert.deepEqual(shownParts([bad]), [{ key: "habit", receipt: type === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit", calls: 1 }]);
+  });
+}
+
+test("an empty Bad didnt is shown as unchanged, without claiming a write", () => {
+  assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Smoking", href: "/habits", period: "day", day: "2026-10-08", action: "didnt", changed: false } }), "No change to 'Smoking' for 2026-10-08");
+});

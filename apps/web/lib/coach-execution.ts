@@ -1,5 +1,7 @@
 import {
   appendJournal,
+  createHabit,
+  trackHabit,
   fileDraft,
   listInboxDrafts,
   completeTask,
@@ -28,6 +30,7 @@ import { z } from "zod";
 import { DraftError } from "./draft-filing/index.ts";
 import { JournalError } from "./journal.ts";
 import { MoodError } from "./mood.ts";
+import { HabitError } from "./habits.ts";
 import { NoteError } from "./notes.ts";
 import { isJournalDay } from "./journal-day.ts";
 
@@ -46,7 +49,7 @@ type Context = z.infer<typeof toolContext>;
 const caps = {
   write: {
     max: maxCreatesPerTurn,
-    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`,
+    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal, Mood, filing or Habit writes per reply.`,
   },
   complete: { max: 1, message: "You can complete only one Task per reply." },
   schedule: { max: 3, message: "You can schedule only 3 Tasks per reply." },
@@ -59,13 +62,14 @@ type Cap = keyof typeof caps;
 function turnAttempts() {
   const counts = { write: 0, complete: 0, schedule: 0, update: 0 };
   let journalAppends = 0;
+  let habitCalls = 0;
   return {
-    reserve(cap: Cap | undefined, append: boolean) {
+    reserve(cap: Cap | undefined, append: boolean, habit: boolean) {
       if (cap) {
         if (counts[cap] >= caps[cap].max) throw new Error(caps[cap].message);
         counts[cap] += 1;
       }
-      return append ? { appendOrdinal: ++journalAppends } : {};
+      return { ...(append && { appendOrdinal: ++journalAppends }), ...(habit && { habitOrdinal: ++habitCalls }) };
     },
   };
 }
@@ -99,6 +103,7 @@ export function logToolError(toolName: string, toolCallId: string, error: unknow
 type Policy<Input> = {
   cap?: Cap;
   appendOrdinal?: boolean;
+  habitOrdinal?: boolean;
   validateDay?: (input: Input, context: Context) => void;
   failure: string | null;
   safeErrors?: readonly (new (...args: never[]) => Error)[];
@@ -106,7 +111,7 @@ type Policy<Input> = {
 };
 
 // The descriptor keeps the core schema/output inference through SDK binding.
-// appendJournal is the only core tool requiring the reserved append ordinal.
+// Journal and Habit writes use reserved call ordinals for replay identity.
 function executionTool<Name extends string, Input, Output extends object>(
   name: Name,
   core: {
@@ -114,16 +119,16 @@ function executionTool<Name extends string, Input, Output extends object>(
     inputSchema: z.ZodType<Input>;
     run: (
       input: Input,
-      context: ToolRunContext & { appendOrdinal: number },
+      context: ToolRunContext & { appendOrdinal: number; habitOrdinal: number },
     ) => Promise<Output>;
   },
   policy: Policy<Input>,
 ) {
   async function run(
     input: Input,
-    context: ToolRunContext & { appendOrdinal?: number },
+    context: ToolRunContext & { appendOrdinal?: number; habitOrdinal?: number },
   ) {
-    const runContext = context as ToolRunContext & { appendOrdinal: number };
+    const runContext = context as ToolRunContext & { appendOrdinal: number; habitOrdinal: number };
     // Static knowledge has always been uncapped and unwrapped.
     if (policy.failure === null) return core.run(input, runContext);
     try {
@@ -149,6 +154,7 @@ function executionTool<Name extends string, Input, Output extends object>(
         const reservation = attempts.reserve(
           policy.cap,
           policy.appendOrdinal ?? false,
+          policy.habitOrdinal ?? false,
         );
         // Calendar validation stays outside masking and after reservation.
         policy.validateDay?.(input, context);
@@ -199,6 +205,20 @@ const vocabulary = [
     closeRefusal: true,
     safeErrors: [MoodError],
     validateDay: (input, context) => checkDay(input.day, context.today),
+  }),
+  executionTool("createHabit", createHabit, {
+    cap: "write",
+    habitOrdinal: true,
+    failure: "Couldn't create that habit.",
+    safeErrors: [HabitError],
+    validateDay: (_input, context) => checkDay(undefined, context.today),
+  }),
+  executionTool("trackHabit", trackHabit, {
+    cap: "write",
+    habitOrdinal: true,
+    failure: "Couldn't track that habit.",
+    safeErrors: [HabitError],
+    validateDay: (_input, context) => checkDay(undefined, context.today),
   }),
   executionTool("listHabits", listHabits, {
     failure: "Couldn't read your habits.",
