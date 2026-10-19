@@ -20,6 +20,7 @@ import {
 } from "../actions";
 import { Header } from "../header";
 import { ClearParam } from "./clear-param";
+import { ColorModeSwitch } from "./color-mode-switch";
 import { FormMessage } from "./form-message";
 import { ImportThemeButton } from "./import-button";
 import { ChangePasswordButton } from "./submit-button";
@@ -51,8 +52,9 @@ export default async function Account({
             Theme
           </h2>
           <p className="panel-description">
-            Pick a built-in palette or import one from shadcn/create.
+            Pick light or dark, then a built-in palette or one imported from shadcn/create.
           </p>
+          <ColorModeSwitch />
           <form action={chooseAccountTheme} className="themes">
             <fieldset>
               <legend>Built-in themes</legend>

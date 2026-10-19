@@ -116,6 +116,10 @@ Removing an outgoing link asks `Remove this link?`, then deletes only that edge.
 
 A future day, a day with no saved body, and a mood with no document cannot be linked and have no **Related**. Markdown and pasted URLs stay text. Paul does not create links. There are no cross-account links. Migration `0016_powerful_madrox` adds the edge table, with indexes for both directions, a uniqueness key, a self-link check, and a cascading user foreign key.
 
+## Account
+
+**Light or dark** on `/account` switches between Light, Dark and System (the default, following the device). The choice is saved in this browser by next-themes, which sets the `.dark` class that every built-in and imported palette styles, so it works with whichever palette is chosen. Palettes are saved per account; light or dark is per browser.
+
 ## Scripts
 
 ```sh
