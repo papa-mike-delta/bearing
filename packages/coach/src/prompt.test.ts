@@ -229,3 +229,8 @@ test("habit-building questions look up evidence, propose one habit and wait with
   const prompt = coachSystemPrompt();
   for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "habit-design skill is not available; do not offer it"]) assert.ok(prompt.includes(rule), rule);
 });
+
+test("a many-times total can be typed on the Habits page, while Paul cannot set totals", () => {
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("A many-times count can be typed on the Habits page; you cannot set a count to a typed total yet."));
+});

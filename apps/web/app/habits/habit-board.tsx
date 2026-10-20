@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { habitPeriodDay, habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
+import { habitCountCap, habitPeriodDay, habitOverGoal, mondayOf, shiftWeek, weekDays } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
 import { formatJournalDay } from "../../lib/journal-day";
 import { useBrowserToday } from "../browser-today";
 import { habitRunLength } from "../../lib/habit-units";
 import { habitMoveFocus, type HabitControl } from "../../lib/habit-focus";
 import type { HabitListItem } from "../../lib/habits";
-import { countHabitDay, markHabitDay, removeHabit, reorderHabit } from "./actions";
+import { setHabitDayCount, countHabitDay, markHabitDay, removeHabit, reorderHabit } from "./actions";
+import { HabitCount } from "./habit-count";
 import { HabitForm } from "./habit-form";
 
 type HabitRow = HabitListItem;
@@ -115,12 +116,12 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
     });
   }
 
-  function changeCount(habit: HabitRow, day: string, delta: 1 | -1) {
+  function changeCount(habit: HabitRow, day: string, delta: 1 | -1, total?: number): Promise<void> {
     setError("");
     setPendingKey(`${habit.id}:${day}`);
-    start(async () => {
+    return new Promise((resolve) => start(async () => {
       try {
-        const result = await countHabitDay(habit.id, day, delta, today);
+        const result = total === undefined ? await countHabitDay(habit.id, day, delta, today) : await setHabitDayCount(habit.id, day, total, today);
         if ("error" in result) setError(result.error);
         else {
           setRows((current) => current.map((row) => row.id === habit.id ? {
@@ -130,8 +131,8 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
           saved();
         }
       } catch { setError("Could not save. Please try again."); }
-      finally { setPendingKey(null); }
-    });
+      finally { setPendingKey(null); resolve(); }
+    }));
   }
 
   function remove(habit: HabitRow) {
@@ -208,7 +209,7 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
               const over = habitOverGoal(habit, count);
               if (habit.trackMode === "many") return <td key={day} className="day">
                 <div className="habit-counter" role="group" aria-label={`${habit.name} ${label(day)}`}>
-                  <output className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")} aria-label={`${habit.name} count ${label(day)}`} aria-live="polite">{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</output>
+                  <HabitCount count={count} cap={habitCountCap(habit.period)} disabled={closed || pendingKey !== null} onSave={(total) => changeCount(habit, day, 1, total)} label={`${habit.name} count ${weekly ? day === mondayOf(today) ? "this week" : `week of ${formatJournalDay(day)}` : day === today ? "today" : formatJournalDay(day)}`} className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")}>{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</HabitCount>
                   <Button type="button" variant="outline" className="habit-step" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
                   <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
                 </div>

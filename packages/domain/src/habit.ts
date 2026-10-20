@@ -15,6 +15,18 @@ export function habitCountCap(period: HabitPeriod): number {
   return period === "day" ? 99 : 999;
 }
 
+export type HabitCountTotal = { ok: true; value: number } | { ok: false; kind: "empty" | "not-whole" | "negative" } | { ok: false; kind: "over-cap"; cap: number };
+
+export function parseHabitCountTotal(text: string, cap: number): HabitCountTotal {
+  const value = text.trim();
+  if (!value) return { ok: false, kind: "empty" };
+  if (/^-\d+$/.test(value) && Number(value) < 0) return { ok: false, kind: "negative" };
+  if (!/^\d+$/.test(value)) return { ok: false, kind: "not-whole" };
+  const count = Number(value);
+  if (count > cap) return { ok: false, kind: "over-cap", cap };
+  return { ok: true, value: count };
+}
+
 export function validHabitGoal(habit: HabitTracking): boolean {
   if (habit.trackMode === "once") return habit.goalCount === null;
   if (habit.goalCount === null) return habit.bad;

@@ -1266,7 +1266,7 @@ form.flex-row {
 }
 
 /* The count reads n/goal on the habit name's line; met or over goal is the accent, never grey. */
-.habit-counter output {
+.habit-counter .habit-count-button {
   min-width: 1.5rem;
   font-size: 0.75rem;
   line-height: 1.25rem;
@@ -1332,7 +1332,7 @@ form.flex-row {
   font-weight: 400;
 }
 
-.habit-grid .habit-bad .habit-counter output {
+.habit-grid .habit-bad .habit-counter .habit-count-button {
   color: var(--muted-foreground);
 }
 
@@ -1353,5 +1353,26 @@ form.flex-row {
   .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
   /* Leave room for four full 999/999 counts beside the habit name at 393px. */
   .habit-weekly-grid .habit-name { width: 6.5rem; max-width: 6.5rem; }
-  .habit-weekly-grid .habit-counter output { font-size: 0.6875rem; }
+  .habit-weekly-grid .habit-counter .habit-count-button { font-size: 0.6875rem; }
+}
+
+/* Reserve the same slot for the count and its 16px editor. */
+.habit-count-editor { position: relative; display: block; width: 100%; height: 40px; }
+.habit-counter .habit-count-button, .habit-count-input {
+  position: relative; display: block; width: 100%; min-width: 0; height: 40px;
+  padding: 0; text-align: center; background: transparent; border: 0;
+  border-radius: var(--radius); font-variant-numeric: tabular-nums;
+}
+.habit-count-button::before, .habit-count-editor.is-editing::before {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: max(100%, 40px); height: 40px; transform: translate(-50%, -50%);
+}
+.habit-count-input { font-size: 16px; appearance: textfield; outline: 1px solid var(--ring); }
+.habit-count-input::-webkit-inner-spin-button, .habit-count-input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.habit-count-error { position: absolute; z-index: 2; top: 100%; right: 0; width: max-content; background: var(--background); }
+
+/* Keep the final 40px hit area inside the table, including its 32px day cell. */
+.habit-grid tr > .day:nth-last-child(3) .habit-count-button::before,
+.habit-grid tr > .day:nth-last-child(3) .habit-count-editor.is-editing::before {
+  left: auto; right: 0; transform: translateY(-50%);
 }

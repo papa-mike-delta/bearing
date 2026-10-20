@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
 import type { HabitEdit } from "@repo/domain";
-import { changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, HabitError, setHabitDay } from "../../lib/habits";
+import { setHabitCount, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, HabitError, setHabitDay } from "../../lib/habits";
 
 function failure(error: unknown, fallback: string) {
   return { error: error instanceof HabitError ? error.message : fallback };
@@ -32,6 +32,15 @@ export async function countHabitDay(habitId: string, day: string, delta: 1 | -1,
   try {
     const progress = await changeHabitDayCount(user.id, habitId, day, delta, today);
     revalidatePath("/habits");
+    return progress;
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
+export async function setHabitDayCount(habitId: string, day: string, count: number, today: string) {
+  const user = await requireUser();
+  try {
+    const progress = await setHabitCount(user.id, habitId, day, count, today);
+    if (progress.changed) revalidatePath("/habits");
     return progress;
   } catch (error) { return failure(error, "Could not save. Please try again."); }
 }

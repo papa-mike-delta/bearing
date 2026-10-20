@@ -327,3 +327,12 @@ test("flipping Bad hides and restores once streaks using unchanged marks", () =>
   assert.ok("habit" in restored);
   assert.deepEqual(habitProgress(restored.habit, marks, "2026-10-08"), { count: 1, done: true, streak: 2, record: 2 });
 });
+
+test("Habit count totals validate zero, daily and weekly caps, fractions, negatives and empty", async () => {
+  const { parseHabitCountTotal: parse } = await import("./habit.ts");
+  for (const [text, cap] of [["0", 99], ["99", 99], ["999", 999]] as const) assert.deepEqual(parse(text, cap), { ok: true, value: Number(text) });
+  for (const cap of [99, 999]) assert.deepEqual(parse(String(cap + 1), cap), { ok: false, kind: "over-cap", cap });
+  assert.deepEqual(parse("2.5", 99), { ok: false, kind: "not-whole" });
+  assert.deepEqual(parse("-1", 99), { ok: false, kind: "negative" });
+  assert.deepEqual(parse("", 99), { ok: false, kind: "empty" });
+});
