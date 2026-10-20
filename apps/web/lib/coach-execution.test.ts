@@ -211,7 +211,7 @@ const writeAttempts = {
 
 for (const [name, attempt] of Object.entries(writeAttempts)) {
   test(`${name} shares the write cap and caps reset for a new reply`, async () => {
-    const tools = coachTools(data());
+    const tools = coachTools(data({ createTask: async () => ({ id: entityId, name: "Task" }), completeTask: async () => ({ id: entityId, name: "Task" }), scheduleTask: async () => ({ id: entityId, name: "Task" }), updateTask: async () => ({ id: entityId, name: "Task" }) }));
     for (let i = 0; i < maxCreatesPerTurn; i++)
       await tools.createTask.execute!({ name: "Task" }, call());
     await assert.rejects(
@@ -225,7 +225,7 @@ for (const [name, attempt] of Object.entries(writeAttempts)) {
   });
 }
 
-test("day failures consume attempts and append ordinals before validation, without logging", async () => {
+test("day failures release attempts but consume append ordinals before validation, without logging", async () => {
   const log = mock.method(console, "error", () => {});
   const append = mock.fn<NonNullable<CoachData["appendJournal"]>>(
     async (_user, input) => ({ id: entityId, day: input.day }),
@@ -259,10 +259,10 @@ test("day failures consume attempts and append ordinals before validation, witho
     append.mock.calls[0]!.arguments[1].operationId,
     `${messageId}:${today}:2`,
   );
-  await assert.rejects(
-    settled(tools.setMood.execute!({ mood: "Good" }, call("capped", ""))),
-    (error: unknown) => error instanceof Error && error.message.includes(capMessage),
-  );
+  await assert.rejects(settled(tools.setMood.execute!({ mood: "Good" }, call("missing", ""))), /browser's Today/);
+  await tools.appendJournal.execute!({ text: "Second saved" }, call());
+  await tools.appendJournal.execute!({ text: "Third saved" }, call());
+  await assert.rejects(settled(tools.appendJournal.execute!({ text: "Fourth" }, call())), /only 3/);
   assert.equal(log.mock.callCount(), 0);
 });
 
@@ -299,7 +299,7 @@ for (const [name, max, message] of [
   ["updateTask", 3, "You can update only 3 Tasks per reply."],
 ] as const) {
   test(`${name} has an independent attempt cap`, async () => {
-    const tools = coachTools(data());
+    const tools = coachTools(data({ createTask: async () => ({ id: entityId, name: "Task" }), completeTask: async () => ({ id: entityId, name: "Task" }), scheduleTask: async () => ({ id: entityId, name: "Task" }), updateTask: async () => ({ id: entityId, name: "Task" }) }));
     for (let i = 0; i < maxCreatesPerTurn; i++)
       await tools.createTask.execute!({ name: "Task" }, call());
     for (let i = 0; i < max; i++)
@@ -632,3 +632,83 @@ for (const name of ["createHabit", "trackHabit"] as const) {
     assert.equal(receipt({ type: `tool-${name}`, state: "output-error", errorText: failure }), failure);
   });
 }
+
+for (const refusal of ["throw", "unchanged", "task", "clarification", "future", "empty", "goal", "cap", "range", "markDone", "replay-unchanged"] as const) {
+  test(`${refusal} releases a slot before three applied setCount writes, including replay results`, async () => {
+    mock.method(console, "error", () => {});
+    let refuse = true;
+    const adapter = data({
+      createTask: async () => null,
+      trackHabit: async (_user, input) => {
+        if (refuse && ["throw", "cap", "range", "markDone"].includes(refusal)) throw new HabitError("Refused");
+        return { ...habitState, trackMode: "many", count: input.count ?? 0, day: input.day, action: input.action, changed: !refuse };
+      },
+    });
+    const tools = coachTools(adapter);
+    const set = () => tools.trackHabit.execute!({ habitId: entityId, action: "setCount", count: 8 }, call());
+    const refusedTrack = () => tools.trackHabit.execute!({ habitId: entityId, action: refusal === "cap" ? "did" : refusal === "empty" ? "didnt" : ["goal", "markDone"].includes(refusal) ? "markDone" : "setCount", count: refusal === "range" ? 100 : 8 }, call());
+    if (["throw", "cap", "range", "markDone"].includes(refusal)) await assert.rejects(settled(refusedTrack()));
+    else if (refusal === "task") assert.deepEqual(await tools.createTask.execute!({ name: "Refused" }, call()), { refused: true });
+    else if (refusal === "clarification") await tools.createHabit.execute!({ name: "Water", trackMode: "many" }, call());
+    else if (refusal === "future") await assert.rejects(settled(tools.appendJournal.execute!({ text: "Future", day: "2026-10-10" }, call())), /not open/);
+    else await refusedTrack();
+    refuse = false;
+    for (let i = 0; i < 3; i++) await set();
+    await assert.rejects(settled(set()), /only 3/);
+  });
+}
+
+for (const [name, max] of [["completeTask", 1], ["scheduleTask", 3], ["updateTask", 3]] as const) {
+  test(`${name} releases refused, invalid and throwing calls, then retains applied slots`, async () => {
+    mock.method(console, "error", () => {});
+    let mode = "refuse";
+    const adapter = data({ [name]: async () => {
+      if (mode === "throw") throw new Error("Failure");
+      return mode === "refuse" ? null : { id: entityId, name: "Applied" };
+    } });
+    const tools = coachTools(adapter);
+    const run = (taskId: string = entityId) => tools[name].execute!({ taskId, date: "2026-10-20" }, call());
+    await run("invalid");
+    await run();
+    mode = "throw";
+    await assert.rejects(settled(run()));
+    mode = "apply";
+    for (let i = 0; i < max; i++) await run();
+    await assert.rejects(settled(run()), /only/);
+  });
+}
+
+test("three in-flight reservations block a fourth; a settled refusal admits a later write", async () => {
+  const gate = pendingData();
+  const tools = coachTools(data({ createTask: async () => { await gate.promise; return null; }, appendJournal: async (_u, input) => ({ id: entityId, day: input.day }) }));
+  const pending = Array.from({ length: 3 }, () => tools.createTask.execute!({ name: "Refused" }, call()));
+  await assert.rejects(settled(tools.appendJournal.execute!({ text: "Blocked" }, call())), /only 3/);
+  gate.resolve();
+  await Promise.all(pending);
+  for (let i = 0; i < 3; i++) await tools.appendJournal.execute!({ text: "Applied or replay" }, call());
+  await assert.rejects(settled(tools.appendJournal.execute!({ text: "Fourth" }, call())), /only 3/);
+});
+
+test("resending three applied writes retains all slots; unchanged operation replays release theirs and ordinals still advance", async () => {
+  const operations = new Map<string, object>();
+  const seen: string[] = [];
+  let applied = 0;
+  const adapter = data({ trackHabit: async (_user, input) => {
+    seen.push(input.operationId);
+    const previous = operations.get(input.operationId);
+    if (previous) return previous as Awaited<ReturnType<NonNullable<CoachData["trackHabit"]>>>;
+    const changed = input.count !== 0;
+    if (changed) applied++;
+    const result = { ...habitState, count: input.count ?? 0, day: input.day, action: input.action, changed };
+    operations.set(input.operationId, result);
+    return result;
+  } });
+  for (const resend of [false, true]) {
+    const tools = coachTools(adapter);
+    for (const count of [0, 4, 5, 6]) await tools.trackHabit.execute!({ habitId: entityId, action: "setCount", count }, call(resend ? "new-provider" : "original"));
+    await assert.rejects(settled(tools.trackHabit.execute!({ habitId: entityId, action: "setCount", count: 7 }, call())), /only 3/);
+  }
+  assert.equal(applied, 3);
+  assert.equal(operations.size, 4);
+  assert.deepEqual(seen, Array(2).fill([1, 2, 3, 4].map((n) => `${messageId}:trackHabit:${n}`)).flat());
+});

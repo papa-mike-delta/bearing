@@ -46,3 +46,19 @@ test("Daily close masks and logs a failed habit read, including an invalid bound
   ]);
   assert.ok(logs.every((line) => !line.includes("private database details")));
 });
+
+test("Daily close shares reservations: refusals release slots, applied replays keep slots", async () => {
+  const userId = "00000000-0000-4000-8000-000000000001";
+  const messageId = "00000000-0000-4000-8000-000000000002";
+  const day = "2026-10-08";
+  const data = { createTask: async () => null, appendJournal: async () => ({ id: messageId, day }) } as unknown as CoachData;
+  const tools = coachTools(data);
+  const close = closeTools(tools, data, userId, day, messageId);
+  const options = { toolCallId: "call", messages: [], context: { userId, messageId, today: day } };
+  await tools.createTask.execute!({ name: "Refused" }, options);
+  await assert.rejects(Promise.resolve(close.appendJournal.execute!({ text: "Future", day: "2026-10-09" }, options)), /not open yet/);
+  for (let i = 0; i < 3; i++) await close.appendJournal.execute!({ text: "Applied or replay" }, options);
+  await assert.rejects(Promise.resolve(close.appendJournal.execute!({ text: "Fourth" }, options)), /only 3/);
+  await assert.rejects(Promise.resolve(tools.createTask.execute!({ name: "Also capped" }, options)), /only 3/);
+  assert.equal("trackHabit" in close, false);
+});

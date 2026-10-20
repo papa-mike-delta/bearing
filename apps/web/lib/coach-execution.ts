@@ -58,7 +58,7 @@ const caps = {
 type Cap = keyof typeof caps;
 
 // One instance belongs to one reply. Reservations are synchronous: parallel
-// tool calls share attempts, and even invalid days consume their position.
+// tool calls share attempts. Failed and unchanged writes release their slot.
 function turnAttempts() {
   const counts = { write: 0, complete: 0, schedule: 0, update: 0 };
   let journalAppends = 0;
@@ -69,7 +69,13 @@ function turnAttempts() {
         if (counts[cap] >= caps[cap].max) throw new Error(caps[cap].message);
         counts[cap] += 1;
       }
-      return { ...(append && { appendOrdinal: ++journalAppends }), ...(habit && { habitOrdinal: ++habitCalls }) };
+      return {
+        settle(applied: boolean) {
+          if (cap && !applied) counts[cap] -= 1;
+        },
+        ...(append && { appendOrdinal: ++journalAppends }),
+        ...(habit && { habitOrdinal: ++habitCalls }),
+      };
     },
   };
 }
@@ -156,9 +162,17 @@ function executionTool<Name extends string, Input, Output extends object>(
           policy.appendOrdinal ?? false,
           policy.habitOrdinal ?? false,
         );
-        // Calendar validation stays outside masking and after reservation.
-        policy.validateDay?.(input, context);
-        return run(input, { ...context, toolCallId, data, ...reservation });
+        const { settle, ...ordinals } = reservation;
+        let applied = false;
+        try {
+          policy.validateDay?.(input, context);
+          const result = await run(input, { ...context, toolCallId, data, ...ordinals });
+          const flags = result as { refused?: boolean; notFound?: boolean; invalidId?: boolean; changed?: boolean };
+          applied = !(flags.refused || flags.notFound || flags.invalidId || flags.changed === false);
+          return result;
+        } finally {
+          settle(applied);
+        }
       };
       // The SDK's conditional output type cannot resolve a generic Output;
       // the core schema and run function retain each concrete input/output.
