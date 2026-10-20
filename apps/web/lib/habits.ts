@@ -1,6 +1,6 @@
 import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "@repo/coach";
 import { db as defaultDb, habitMarks, habitOperations, habits, users } from "@repo/db";
-import { changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
+import { parseHabitCountTotal, changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
@@ -191,6 +191,28 @@ export async function changeHabitDayCount(userId: string, habitId: string, day: 
       else await tx.update(habitMarks).set({ count }).where(target);
     }
     return { count, done: !habit.bad && habit.goalCount !== null && count >= habit.goalCount };
+  });
+}
+
+// Match changeHabitDayCount's owned-habit lock before reading any marks.
+export async function setHabitCount(userId: string, habitId: string, day: string, count: number, today: string, db: Db = defaultDb) {
+  if (!isUuid(habitId) || !isCalendarDay(day) || !isCalendarDay(today)) throw new HabitError(unavailable);
+  return db.transaction(async (tx) => {
+    const [habit] = await tx.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId), eq(habits.trackMode, "many"))).for("update");
+    if (!habit) throw new HabitError(unavailable);
+    const periodDay = habitPeriodDay(habit.period, day)!;
+    if (periodDay > habitPeriodDay(habit.period, today)!) throw new HabitError(future);
+    const cap = habitCountCap(habit.period);
+    const parsed = parseHabitCountTotal(String(count), cap);
+    if (typeof count !== "number" || !parsed.ok) throw new HabitError(`Up to ${cap}`);
+    const target = and(eq(habitMarks.habitId, habitId), eq(habitMarks.day, periodDay));
+    const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
+    const changed = (mark?.count ?? 0) !== count;
+    if (changed) {
+      if (count === 0) await tx.delete(habitMarks).where(target);
+      else await tx.insert(habitMarks).values({ habitId, day: periodDay, count }).onConflictDoUpdate({ target: [habitMarks.habitId, habitMarks.day], set: { count } });
+    }
+    return { count, done: !habit.bad && habit.goalCount !== null && count >= habit.goalCount, changed };
   });
 }
 

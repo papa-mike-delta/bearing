@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { createDb, habitMarks, habitOperations, habits, users } from "@repo/db";
 import { listHabits as coachListHabits, receipt } from "@repo/coach";
-import { eq, inArray } from "drizzle-orm";
+import { sql, eq, inArray } from "drizzle-orm";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { closeTools } from "./daily-close/tools.ts";
 import type { HabitEdit } from "@repo/domain";
-import { createCoachHabit, trackCoachHabit, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
+import { setHabitCount, createCoachHabit, trackCoachHabit, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Habit database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
@@ -25,6 +25,37 @@ describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concu
     await db.delete(habits).where(inArray(habits.userId, [a, b]));
     await db.delete(users).where(inArray(users.id, [a, b]));
     await db.$client.end();
+  });
+
+  test("set Habit counts preserves ownership, caps, periods, unchanged rows and progress", async () => {
+    const created: string[] = [];
+    for (const period of ["day", "week"] as const) for (const bad of [false, true]) {
+      const cap = period === "day" ? 99 : 999;
+      const habit = await createHabit(a, { name: "Typed count", period, trackMode: "many", goalCount: 3, bad }, db);
+      created.push(habit.id);
+      const set = (count: number) => setHabitCount(a, habit.id, today, count, today, db);
+      const marks = () => db.select({ day: habitMarks.day, count: habitMarks.count, version: sql<string>`xmin::text` }).from(habitMarks).where(eq(habitMarks.habitId, habit.id));
+      assert.deepEqual(await set(8), { count: 8, done: !bad, changed: true });
+      const before = await marks();
+      assert.equal(before[0]?.day, period === "week" ? "2026-10-05" : today);
+      assert.deepEqual(await set(8), { count: 8, done: !bad, changed: false });
+      assert.deepEqual(await marks(), before); // xmin catches even an equal-value UPDATE.
+      for (const count of [cap + 1, -1, 2.5, NaN]) await assert.rejects(set(count), new RegExp(`Up to ${cap}`));
+      await assert.rejects(setHabitCount(b, habit.id, today, 7, today, db), /unavailable/);
+      await assert.rejects(setHabitCount(a, habit.id, "2026-10-12", 7, today, db), /not open yet/);
+      assert.deepEqual(await marks(), before);
+      assert.equal((await set(cap)).count, cap);
+      const listed = (await listHabits(a, today, week, db)).find((row) => row.id === habit.id)!;
+      assert.equal(listed.count, cap);
+      assert.equal(listed.done, !bad);
+      assert.deepEqual(await set(0), { count: 0, done: false, changed: true });
+      assert.deepEqual(await marks(), []);
+      assert.deepEqual(await set(0), { count: 0, done: false, changed: false });
+    }
+    const once = await createHabit(a, "Once", db);
+    created.push(once.id);
+    await assert.rejects(setHabitCount(a, once.id, today, 8, today, db), /unavailable/);
+    await db.delete(habits).where(inArray(habits.id, created));
   });
 
   test("a new habit is first, duplicates are kept, and a bad name stores nothing", async () => {
