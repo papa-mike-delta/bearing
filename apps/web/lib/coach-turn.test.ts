@@ -49,7 +49,7 @@ import {
   historyWindow,
   maxReplyTokens,
 } from "./coach-turn.ts";
-import { createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitDay } from "./habits.ts";
+import { createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { createNotebook, fileDraftAsNote, getNote, listNotes, saveNote } from "./notes.ts";
 import {
@@ -420,6 +420,60 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
+
+  test("Bad many-times asks without tools, then records stated total, additions, or none", async () => {
+    for (const goalCount of [5, null]) for (const answer of ["4", "2 more", "none"]) {
+      const c = await account();
+      const habit = await createHabit(c, { name: "Cigarettes", trackMode: "many", bad: true, goalCount }, db);
+      await setHabitCount(c, habit.id, "2026-10-09", 2, "2026-10-09", db);
+      const thread = await coachThread(c, db);
+      await turn(c, thread, userMessage("Show Cigarettes"), scripted({ listHabits: "{}" }, { text: "Cigarettes: 2 recorded today." }));
+      const question = `Cigarettes has 2 recorded today${goalCount ? `, with a limit of ${goalCount}` : ""}; marking it done would log unreported lapses. How many times were there in total?`;
+      await turn(c, thread, userMessage("Mark Cigarettes done"), scripted({ text: question }));
+      let messages = (await threadMessages(c, thread, db))!;
+      const ask = messages.at(-1)!;
+      // Normal turns always inject freshRead; the scripted asking reply calls no tools.
+      assert.ok(ask.parts.filter((p) => p.type.startsWith("tool-")).every((p) => p.type === "tool-listArea"));
+      assert.equal(ask.parts.filter((p) => p.type === "text").map((p) => p.text).join(""), question);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 0);
+      const message = userMessage(answer);
+      if (answer === "none") await turn(c, thread, message, scripted({ text: "No changes." }));
+      else {
+        const input = { habitId: habit.id, action: "setCount", count: 4 };
+        await turn(c, thread, message, failingAfterWrite("trackHabit", input));
+        await turn(c, thread, message, scripted({ trackHabit: JSON.stringify(input) }, { text: "Recorded 4 in total today." }));
+      }
+      messages = (await threadMessages(c, thread, db))!;
+      assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, answer === "none" ? 2 : 4);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, answer === "none" ? 0 : 1);
+      const receipts = messages.flatMap((m) => m.parts.flatMap((p) => receipt(p, "2026-10-09") ?? []));
+      assert.equal(receipts.includes("Set 'Cigarettes' to 4 for today"), answer !== "none");
+    }
+  });
+
+  test("stated daily and weekly totals use one setCount without a question and leave two shared slots", async () => {
+    for (const period of ["day", "week"] as const) {
+      const c = await account();
+      const name = period === "day" ? "Water" : "Pages";
+      const count = period === "day" ? 8 : 120;
+      const habit = await createHabit(c, { name, period, trackMode: "many", goalCount: 3 }, db);
+      const thread = await coachThread(c, db);
+      await turn(c, thread, userMessage(period === "day" ? "log 8 glasses" : "I've read 120 pages this week"), scripted(
+        { listHabits: "{}" },
+        { trackHabit: JSON.stringify({ habitId: habit.id, action: "setCount", count }) },
+        { createTask: JSON.stringify({ name: "First" }) },
+        { createTask: JSON.stringify({ name: "Second" }) },
+        { createTask: JSON.stringify({ name: "Fourth write" }) },
+        { text: `Recorded ${count}. Made 3 writes.` },
+      ));
+      assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, count);
+      assert.equal((await openTasks(c, db)).length, 2);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 1);
+      const messages = (await threadMessages(c, thread, db))!;
+      assert.equal(messages.flatMap((m) => m.parts).filter((p) => p.type === "tool-trackHabit").length, 1);
+      assert.ok(messages.flatMap((m) => m.parts).some((p) => receipt(p, "2026-10-09") === `Set '${name}' to ${count} for ${period === "day" ? "today" : "this week"}`));
+    }
+  });
 
   test("explicit habit creation and track receipts survive failed-turn resend, edits, deletion and reload", async () => {
     const c = await account();

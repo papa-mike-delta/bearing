@@ -127,12 +127,16 @@ function show(part: ToolPart, today?: string | null): Line | null {
   if (part.type === "tool-createHabit" || part.type === "tool-trackHabit") {
     const creating = part.type === "tool-createHabit";
     if (pending(part.state)) return { line: creating ? "Creating a habit…" : "Tracking a habit…" };
-    const output = part.output as { id?: unknown; name?: unknown; href?: unknown; day?: unknown; period?: unknown; action?: unknown; changed?: unknown } | undefined;
+    const output = part.output as { id?: unknown; name?: unknown; href?: unknown; day?: unknown; period?: unknown; action?: unknown; changed?: unknown; count?: unknown } | undefined;
     if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name && output.href === "/habits") {
       if (creating) return { line: `Created habit '${output.name}'`, href: "/habits" };
-      if (typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week") && habitPeriodDay(output.period, output.day) === output.day && ["did", "undo", "didnt", "markDone"].includes(String(output.action)) && typeof output.changed === "boolean") {
+      if (typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week") && habitPeriodDay(output.period, output.day) === output.day && ["did", "undo", "didnt", "markDone", "setCount"].includes(String(output.action)) && typeof output.changed === "boolean") {
         const period = habitPeriodWords(output.period, output.day, today);
         if (!output.changed) return { line: `No change to '${output.name}' for ${period}`, href: "/habits" };
+        if (output.action === "setCount") {
+          if (typeof output.count !== "number" || !Number.isInteger(output.count) || output.count < 0 || output.count > (output.period === "week" ? 999 : 99)) return { line: "Couldn't track that habit" };
+          return { line: `Set '${output.name}' to ${output.count} for ${period}`, href: "/habits" };
+        }
         const verb = output.action === "undo" || output.action === "didnt" ? "Undid" : "Tracked";
         return { line: `${verb} '${output.name}' for ${period}`, href: "/habits" };
       }

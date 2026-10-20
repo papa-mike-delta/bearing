@@ -42,3 +42,16 @@ test("a missing Today or invalid day refuses before tracking", async () => {
   await assert.rejects(trackHabit.run({ habitId: id, action: "did", day: "2026-02-31" }, context));
   assert.equal(calls.length, 0);
 });
+
+test("setCount validates whole totals 0 through 999 before the adapter and forwards the stated total", async () => {
+  const { calls, context } = fake();
+  for (const count of [undefined, -1, 1.5, 1000]) {
+    await assert.rejects(trackHabit.run({ habitId: id, action: "setCount", count }, context));
+  }
+  assert.equal(calls.length, 0);
+  for (const count of [0, 8, 120, 999]) {
+    await trackHabit.run({ habitId: id, action: "setCount", count }, context);
+    assert.equal((calls.at(-1) as [string, {count: number}])[1].count, count);
+  }
+  for (const words of ["setCount", "never once", "no tool call in that reply", "N more", "None", "Daily cap 99", "weekly cap 999", "unreported lapses"]) assert.ok(trackHabit.description.includes(words), words);
+});

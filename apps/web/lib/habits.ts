@@ -260,9 +260,9 @@ export async function createCoachHabit(userId: string, input: HabitTracking & { 
   });
 }
 
-export async function trackCoachHabit(userId: string, input: { habitId: string; day: string; action: HabitAction } & HabitOperation, db: Db = defaultDb): Promise<HabitTrackResult> {
+export async function trackCoachHabit(userId: string, input: { habitId: string; day: string; action: HabitAction; count?: number } & HabitOperation, db: Db = defaultDb): Promise<HabitTrackResult> {
   return habitOperation(userId, input, db, async (tx) => {
-    if (!isUuid(input.habitId) || !isCalendarDay(input.day) || !["did", "undo", "didnt", "markDone"].includes(input.action)) throw new HabitError(unavailable);
+    if (!isUuid(input.habitId) || !isCalendarDay(input.day) || !["did", "undo", "didnt", "markDone", "setCount"].includes(input.action)) throw new HabitError(unavailable);
     const [habit] = await tx.select().from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, userId))).for("update");
     if (!habit) throw new HabitError(unavailable);
     const day = habitPeriodDay(habit.period, input.day)!;
@@ -271,11 +271,14 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
     const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
     const previousCount = mark?.count ?? 0;
     let count: number;
-    if (input.action === "didnt") {
+    if (input.action === "setCount") {
+      const result = await setHabitCount(userId, habit.id, input.day, input.count!, input.today, tx);
+      return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: result.changed };
+    } else if (input.action === "didnt") {
       if (!habit.bad) throw new HabitError(`"I didn't" clears only a Bad habit. Did you mean undo?`);
       count = 0;
     } else if (input.action === "markDone") {
-      if (habit.trackMode === "many" && habit.goalCount === null) throw new HabitError("What count should be recorded? This Bad habit has no goal.");
+      if (habit.trackMode === "many" && habit.bad) throw new HabitError("How many times were there in total? Marking this Bad habit done would log unreported lapses.");
       // Never lower a count: at or above the goal nothing changes ("No change to …").
       count = habit.trackMode === "once" ? Math.max(previousCount, 1) : Math.max(previousCount, habit.goalCount!);
     } else if (habit.trackMode === "once") {

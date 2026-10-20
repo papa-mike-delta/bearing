@@ -527,3 +527,14 @@ test("only read receipts are marked read, so writes are the only action-styled l
   ]);
   assert.deepEqual(shown.map((part) => "receipt" in part && part.read === true), [true, false]);
 });
+
+test("setCount receipts preserve total and unchanged date words after reload", () => {
+  for (const [period, day, words, count] of [["day", "2026-10-08", "today", 4], ["week", "2026-10-05", "this week", 120]] as const) {
+    for (const changed of [true, false]) {
+      const part = { type: "tool-trackHabit", state: "output-available", output: { id: "00000000-0000-4000-8000-000000000001", name: "Cigarettes", period, day, count, changed, action: "setCount", href: "/habits" } };
+      const line = changed ? `Set 'Cigarettes' to ${count} for ${words}` : `No change to 'Cigarettes' for ${words}`;
+      assert.equal(receipt(part, "2026-10-08"), line);
+      assert.equal(receipt(JSON.parse(JSON.stringify(part)), "2026-10-08"), line);
+    }
+  }
+});

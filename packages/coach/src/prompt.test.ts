@@ -199,7 +199,7 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "habitId from listHabits", "If two habits share a name, ask which one", "adds exactly one",
     "Undo clears the check or removes one", `"I didn't" leaves an empty period empty`,
     "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
-    "on Bad many-times without a goal, ask", "Do not invent extra logs", "future periods refused",
+    "on every Bad many-times habit, with or without a limit, ask first", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
   ]) assert.ok(prompt.includes(rule), rule);
 });
@@ -230,7 +230,16 @@ test("habit-building questions look up evidence, propose one habit and wait with
   for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "habit-design skill is not available; do not offer it"]) assert.ok(prompt.includes(rule), rule);
 });
 
-test("a many-times total can be typed on the Habits page, while Paul cannot set totals", () => {
+test("a many-times total can be typed or recorded by Paul", () => {
   const prompt = coachSystemPrompt();
-  assert.ok(prompt.includes("A many-times count can be typed on the Habits page; you cannot set a count to a typed total yet."));
+  assert.ok(prompt.includes("A many-times count can be typed on the Habits page or recorded with trackHabit setCount."));
+});
+
+test("Coach knowledge and README teach ask-first, total versus addition, and applied-write caps", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const prompt = coachSystemPrompt();
+  for (const text of ["period count from listHabits", "limit if any", "unreported lapses", "Make no tool call in that reply", "setCount", '"N more"', '"None"', "Ask once only if genuinely unclear", "Refused or unchanged writes don't count", "do 3 and say so"]) assert.ok(prompt.includes(text), text);
+  assert.ok(!prompt.includes("cannot set a count to a typed total yet"));
+  const readme = await readFile(new URL("../../../README.md", import.meta.url), "utf8");
+  for (const text of ["setCount", "unreported lapses", "That reply makes no tool call", "N more", "None", "Only applied writes count", "No change to"]) assert.ok(readme.includes(text), text);
 });
