@@ -795,9 +795,13 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       await assert.rejects(trackCoachHabit(other, { ...input, ...operation() }, db), /unavailable/);
       assert.deepEqual(await ledger(), saved);
       assert.equal((await marks(habit.id))[0]?.count, input.count);
+      const [stored] = await marks(habit.id);
+      assert.equal(stored?.day, period === "week" ? "2026-10-05" : today); // Monday
+      await assert.rejects(trackCoachHabit(other, { ...input, count: 1, ...operation() }, db), /unavailable/);
+      assert.deepEqual(await marks(habit.id), [stored]); // owner's row untouched
     }
     const once = await createHabit(owner, { name: "Once", bad: true }, db);
-    await assert.rejects(trackCoachHabit(owner, { habitId: once.id, day: today, action: "setCount", count: 1, ...operation() }, db), /unavailable/);
+    await assert.rejects(trackCoachHabit(owner, { habitId: once.id, day: today, action: "setCount", count: 1, ...operation() }, db), /Once-habits have no count/);
     assert.equal((await trackCoachHabit(owner, { habitId: once.id, day: today, action: "markDone", ...operation() }, db)).count, 1);
   });
 

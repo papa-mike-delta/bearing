@@ -242,4 +242,7 @@ test("Coach knowledge and README teach ask-first, total versus addition, and app
   assert.ok(!prompt.includes("cannot set a count to a typed total yet"));
   const readme = await readFile(new URL("../../../README.md", import.meta.url), "utf8");
   for (const text of ["setCount", "unreported lapses", "That reply makes no tool call", "N more", "None", "Only applied writes count", "No change to"]) assert.ok(readme.includes(text), text);
+  assert.ok(readme.includes("Non-Bad many-times without a goal needs a question."));
+  assert.ok(!readme.includes("Non-Every"));
+  assert.equal(readme.split("That reply makes no tool call").length - 1, 1);
 });
