@@ -340,7 +340,7 @@ A skill is a markdown file with a name, a description, and the tools it is allow
 | Skill | Does |
 | --- | --- |
 | Weekly review | read the week, list completed vs stuck, propose moves to Later or Now. Does not apply until the user says so |
-| Habit design | turn "I want to run" into a cue, a tiny version, a recurrence. Writes a habit only if asked |
+| Habit design | turn "I want to run" into a cue (an if-then plan) and a period. Writes a habit only if asked. The tiny version (small starting version) was decided out (Paul, 2026-10-21; [habit-tiny-version.md](habit-tiny-version.md)) |
 | Reconnect | who is due, draft a one-line reach-out, log it if the user sent it |
 | Daily close | prompt the journal template, set mood, file stray inbox drafts |
 | Empty Now | if Now is over the WIP limit, propose what goes back to Later |
