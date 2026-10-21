@@ -48,6 +48,7 @@ import {
   coachTurn,
   historyWindow,
   maxReplyTokens,
+  appliedWritesBlock,
 } from "./coach-turn.ts";
 import { HabitError, createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
@@ -3442,6 +3443,13 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
   });
 });
 
+test("appliedWritesBlock ignores readSkill parts", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-readSkill", toolCallId: "a", state: "output-available", input: { name: "habit-design" }, output: "# habit-design\n\nbody" },
+    { type: "tool-readSkill", toolCallId: "b", state: "output-available", input: { name: "x" }, output: "unknown skill" },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+});
 
 test("fake CoachData undo refusals surface the question and release their write slot; an applied undo uses one", async () => {
   const habitId = randomUUID();

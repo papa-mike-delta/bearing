@@ -7,7 +7,7 @@ export {
   maxCoachSteps,
   maxCreatesPerTurn,
 } from "./prompt.ts";
-export { receipt, shownParts, type ShownPart } from "./receipts.ts";
+export { receipt, shownParts, coachReadToolTypes, type ShownPart } from "./receipts.ts";
 export { completeTask } from "./tools/complete-task.ts";
 export { createNote, listNotebooks, coachNoteSourceId } from "./tools/create-note.ts";
 export { coachCreateSourceId, createTask } from "./tools/create-task.ts";

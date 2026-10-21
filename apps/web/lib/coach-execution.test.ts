@@ -847,3 +847,26 @@ test("scripted habit design proposes cue and period without writing; yes creates
   await reply(`${proposal}\nUser: yes`, create);
   assert.equal(applied, 1);
 });
+
+test("habit-design applies to calls made before readSkill in the same step", async () => {
+  const write = mock.fn<CoachData["createTask"]>(async () => null);
+  const tools = coachTools(data({ createTask: write }));
+  const step: object[] = [];
+  await tools.createTask.execute!({ name: "Run" }, { ...call("a"), messages: step as never });
+  await assert.rejects(async () => tools.readSkill.execute!({ name: "habit-design" }, { ...call("b"), messages: step as never }), /before any tool outside its allow-list/);
+  await assert.rejects(async () => tools.createTask.execute!({ name: "Again" }, { ...call("c"), messages: [] }), /outside its allow-list/);
+  assert.equal(write.mock.callCount(), 1);
+  // An allowed tool earlier in the step does not block the load.
+  const clean = coachTools(data({}));
+  const other: object[] = [];
+  await clean.searchKnowledge.execute!({ query: "If-then plans" }, { ...call("d"), messages: other as never });
+  assert.match(String(await clean.readSkill.execute!({ name: "habit-design" }, { ...call("e"), messages: other as never })), /^# habit-design/);
+});
+
+test("scripted habit design: createHabit without an explicit yes creates nothing", async () => {
+  const create = mock.fn(async () => { throw new Error("must not create"); });
+  const tools = coachTools(data({ createHabit: create as unknown as CoachData["createHabit"] }));
+  await tools.readSkill.execute!({ name: "habit-design" }, call("a"));
+  await assert.rejects(async () => tools.createHabit.execute!({ name: "Run" }, call("b")), /explicit yes in a later message/);
+  assert.equal(create.mock.callCount(), 0);
+});

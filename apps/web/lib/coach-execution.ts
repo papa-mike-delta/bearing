@@ -156,16 +156,31 @@ function executionTool<Name extends string, Input, Output>(
   }
   return {
     name,
-    bind(data: CoachData, attempts: Attempts, skillState: { habitDesign: boolean }) {
+    bind(data: CoachData, attempts: Attempts, skillState: SkillState) {
       const execute = async (
         input: Input,
-        { context, toolCallId }: { context: Context; toolCallId: string },
+        { context, toolCallId, messages }: { context: Context; toolCallId: string; messages?: object },
       ) => {
-        if (skillState.habitDesign && name !== "readSkill" && !habitDesignAllowedTools.some((allowed) => allowed === name)) {
+        const outside = name !== "readSkill" && !habitDesignAllowedTools.some((allowed) => allowed === name);
+        if (skillState.habitDesign && outside) {
           throw new Error("habit-design refused: tool outside its allow-list");
         }
-        // Activate before awaiting so later calls in the same batch are restricted.
-        if (name === "readSkill" && (input as { name?: string }).name === "habit-design") skillState.habitDesign = true;
+        // The proposal reply creates nothing: the yes comes in a later message.
+        if (skillState.habitDesign && name === "createHabit") {
+          throw new Error("habit-design refused: create only after the person's explicit yes in a later message");
+        }
+        // The SDK passes one messages array to every call of a step, so it
+        // keys the step. A call already started cannot be held back, so a
+        // habit-design load after an outside tool in the same step is refused
+        // (and still restricts the rest of the reply).
+        if (outside && messages) skillState.outsideSteps.add(messages);
+        if (name === "readSkill" && (input as { name?: string }).name === "habit-design") {
+          // Activate before awaiting so later calls in the same batch are restricted.
+          skillState.habitDesign = true;
+          if (messages && skillState.outsideSteps.has(messages)) {
+            throw new Error("habit-design refused: load it before any tool outside its allow-list in the same step");
+          }
+        }
         const reservation = attempts.reserve(
           policy.cap,
           policy.appendOrdinal ?? false,
@@ -287,6 +302,8 @@ const vocabulary = [
   }),
 ] as const;
 
+type SkillState = { habitDesign: boolean; outsideSteps: WeakSet<object> };
+
 type CoachTools = {
   [Descriptor in (typeof vocabulary)[number] as Descriptor["name"]]: ReturnType<
     Descriptor["bind"]
@@ -296,7 +313,7 @@ type CoachToolName = keyof CoachTools;
 
 export function coachTools(data: CoachData): CoachTools {
   const attempts = turnAttempts();
-  const skillState = { habitDesign: false };
+  const skillState: SkillState = { habitDesign: false, outsideSteps: new WeakSet() };
   return Object.fromEntries(
     vocabulary.map((descriptor) => [
       descriptor.name,
