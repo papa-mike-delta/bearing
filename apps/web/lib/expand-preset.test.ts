@@ -96,3 +96,13 @@ test("expansion does not spawn a process or read the environment", () => {
   assert.equal(source.includes("child_process"), false);
   assert.equal(source.includes("process.env"), false);
 });
+
+test("theme table records the installed shadcn version", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { createRequire } = await import("node:module");
+  const { dirname, resolve } = await import("node:path");
+  const require = createRequire(import.meta.url);
+  const installed = JSON.parse(await readFile(resolve(dirname(require.resolve("shadcn/preset")), "../../package.json"), "utf8"));
+  const table = JSON.parse(await readFile(new URL("./shadcn-themes.json", import.meta.url), "utf8"));
+  assert.equal(table.shadcn, installed.version);
+});

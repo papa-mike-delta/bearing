@@ -2591,7 +2591,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     writeToolsOffered(model.doStreamCalls[0]!);
   });
 
-  test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
+  test("a failed turn logs one coach.turn.error line with safe metadata and status, and nothing private", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const model = new MockLanguageModelV4({
@@ -2622,12 +2622,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
           threadId: thread,
           model: "mock-model-id",
           error: "AI_APICallError",
-          message: `${"x".repeat(350)}: Expected thinking`.slice(0, 300),
           status: 400,
         },
       ],
     );
-    assert.equal(JSON.parse(lines[0]!).message.length, 300);
+    assert.equal(JSON.parse(lines[0]!).message, undefined);
+    assert.ok(!lines[0]!.includes("Expected thinking"));
     for (const secret of [c, "What's on my list?"]) {
       assert.ok(!lines[0]!.includes(secret), secret);
     }
