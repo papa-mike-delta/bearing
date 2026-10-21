@@ -25,7 +25,7 @@ export type ListedHabit = HabitTracking & {
 export type HabitWriteState = ListedHabit & { due: boolean };
 export type HabitAction = "did" | "undo" | "didnt" | "markDone" | "setCount";
 export type HabitOperation = { source: "coach"; operationId: string; today: string };
-export type HabitTrackResult = HabitWriteState & { day: string; action: HabitAction; changed: boolean };
+export type HabitTrackResult = HabitWriteState & { day: string; action: HabitAction; changed: boolean; previousCount?: number; undoes?: string };
 
 export type CoachData = {
   createHabit?(userId: string, input: HabitTracking & { name: string } & HabitOperation): Promise<HabitWriteState>;

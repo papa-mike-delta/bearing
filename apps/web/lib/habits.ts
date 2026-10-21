@@ -1,7 +1,7 @@
 import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "@repo/coach";
 import { db as defaultDb, habitMarks, habitOperations, habits, users } from "@repo/db";
-import { parseHabitCountTotal, changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { habitUndoPlan, parseHabitCountTotal, changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
 export class HabitError extends Error {}
@@ -239,7 +239,8 @@ async function habitOperation<Result extends HabitWriteState>(userId: string, in
     // "I didn't" on an empty Bad period is entirely read-only, including the
     // ledger. It reports no change and must not claim a successful write.
     if (!("action" in result && result.action === "didnt" && "changed" in result && !result.changed)) {
-      await tx.insert(habitOperations).values({ userId, source: input.source, operationId: input.operationId, habitId: result.id, result });
+      // Record lock order, rather than the start time of concurrent transactions.
+      await tx.insert(habitOperations).values({ userId, source: input.source, operationId: input.operationId, habitId: result.id, result, createdAt: sql`clock_timestamp()` });
     }
     return result;
   });
@@ -271,10 +272,37 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
     const [mark] = await tx.select({ count: habitMarks.count }).from(habitMarks).where(target);
     const previousCount = mark?.count ?? 0;
     let count: number;
+    if (input.action === "undo") {
+      const history = await tx.select().from(habitOperations).where(and(
+        eq(habitOperations.userId, userId), eq(habitOperations.source, "coach"), eq(habitOperations.habitId, habit.id),
+        sql`${habitOperations.result}->>'day' = ${day}`,
+      )).orderBy(desc(habitOperations.createdAt), desc(habitOperations.id));
+      const undone = new Set<string>();
+      let last: { id: string; result: HabitTrackResult } | undefined;
+      for (const row of history) {
+        const result = row.result as HabitTrackResult;
+        if (result.action === "undo") {
+          if (result.undoes) undone.add(result.undoes);
+        } else if (result.changed === true && !undone.has(row.id)) {
+          last = { id: row.id, result };
+          break;
+        }
+      }
+      const plan = habitUndoPlan(previousCount, last?.result);
+      if (plan.kind === "nothingToUndo") throw new HabitError(`I have no update of mine to undo for '${habit.name}' for ${habit.period === "week" ? `the week of ${day}` : day}. What should the total be?`);
+      if (plan.kind === "changedSince") throw new HabitError(`'${habit.name}' has changed since my last update (now ${previousCount}). What should the total be?`);
+      count = plan.kind === "delete" ? 0 : plan.count;
+      const undoes = last!.id;
+      if (count > 0 && habit.trackMode === "many") {
+        await setHabitCount(userId, habit.id, day, count, input.today, tx);
+      } else if (count === 0) await tx.delete(habitMarks).where(target);
+      else await tx.insert(habitMarks).values({ habitId: habit.id, day, count }).onConflictDoUpdate({ target: [habitMarks.habitId, habitMarks.day], set: { count } });
+      return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: count !== previousCount, previousCount, undoes };
+    }
     if (input.action === "setCount") {
       if (habit.trackMode !== "many") throw new HabitError("Once-habits have no count.");
       const result = await setHabitCount(userId, habit.id, input.day, input.count!, input.today, tx);
-      return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: result.changed };
+      return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: result.changed, previousCount };
     } else if (input.action === "didnt") {
       if (!habit.bad) throw new HabitError(`"I didn't" clears only a Bad habit. Did you mean undo?`);
       count = 0;
@@ -283,16 +311,16 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
       // Never lower a count: at or above the goal nothing changes ("No change to …").
       count = habit.trackMode === "once" ? Math.max(previousCount, 1) : Math.max(previousCount, habit.goalCount!);
     } else if (habit.trackMode === "once") {
-      count = input.action === "did" ? 1 : 0;
+      count = 1;
     } else {
-      const next = changeHabitCount(previousCount, input.action === "did" ? 1 : -1, habit.period);
-      if (next === null) throw new HabitError(input.action === "undo" ? "This habit's count is already 0." : `This habit's ${habit.period === "week" ? "weekly" : "daily"} count can be at most ${habitCountCap(habit.period)}.`);
+      const next = changeHabitCount(previousCount, 1, habit.period);
+      if (next === null) throw new HabitError(`This habit's ${habit.period === "week" ? "weekly" : "daily"} count can be at most ${habitCountCap(habit.period)}.`);
       count = next;
     }
     if (count !== previousCount) {
       if (count === 0) await tx.delete(habitMarks).where(target);
       else await tx.insert(habitMarks).values({ habitId: habit.id, day, count }).onConflictDoUpdate({ target: [habitMarks.habitId, habitMarks.day], set: { count } });
     }
-    return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: count !== previousCount };
+    return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: count !== previousCount, previousCount };
   });
 }

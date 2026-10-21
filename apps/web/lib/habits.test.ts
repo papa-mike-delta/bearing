@@ -710,7 +710,7 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
     }
   });
 
-  test("many-times did and undo change exactly one, markDone raises to the goal and never lowers in daily and weekly periods", async () => {
+  test("many-times undo restores the previous write, markDone raises to the goal and never lowers in daily and weekly periods", async () => {
     for (const period of ["day", "week"] as const) {
       const goalCount = period === "week" ? 200 : 3;
       const habit = await createHabit(owner, { name: "Pages", period, trackMode: "many", goalCount }, db);
@@ -811,7 +811,7 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       const habit = await createHabit(owner, { name: "Cap", period, trackMode: "many", goalCount: cap }, db);
       const track = (action: "did" | "undo" | "markDone") => trackCoachHabit(owner, { habitId: habit.id, day: today, action, ...operation() }, db);
       const before = await ledger();
-      await assert.rejects(track("undo"), /already 0/);
+      await assert.rejects(track("undo"), /I have no update of mine to undo/);
       assert.deepEqual(await ledger(), before);
       await track("markDone");
       const filled = await ledger();
@@ -820,4 +820,97 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       assert.equal((await marks(habit.id))[0]?.count, cap);
     }
   });
+  test("true undo restores totals and markDone, deletes created marks, and replays without another restore", async () => {
+    for (const period of ["day", "week"] as const) for (const bad of [false, true]) {
+      const habit = await createHabit(owner, { name: "Water undo", period, trackMode: "many", goalCount: 5, bad }, db);
+      const track = (action: "setCount" | "did" | "undo" | "markDone" | "didnt", count?: number) => trackCoachHabit(owner, { habitId: habit.id, day: today, action, count, ...operation() }, db);
+      await setHabitCount(owner, habit.id, today, 3, today, db);
+      assert.equal((await track("setCount", 8)).previousCount, 3);
+      const input = { habitId: habit.id, day: today, action: "undo" as const, ...operation() };
+      const restored = await trackCoachHabit(owner, input, db);
+      assert.equal(restored.count, 3);
+      assert.equal(restored.previousCount, 8);
+      assert.equal(restored.day, period === "week" ? "2026-10-05" : today);
+      assert.ok(restored.undoes);
+      const before = await ledger();
+      const history = await marks(habit.id);
+      assert.deepEqual(await trackCoachHabit(owner, input, db), restored);
+      assert.deepEqual(await ledger(), before);
+      assert.deepEqual(await marks(habit.id), history);
+      await setHabitCount(owner, habit.id, today, 0, today, db);
+      assert.equal((await track("did")).previousCount, 0);
+      assert.equal((await track("undo")).count, 0);
+      assert.deepEqual(await marks(habit.id), []);
+      if (!bad) {
+        await setHabitCount(owner, habit.id, today, 2, today, db);
+        assert.equal((await track("markDone")).count, 5);
+        assert.equal((await track("undo")).count, 2);
+      } else {
+        await track("setCount", 4);
+        assert.equal((await track("didnt")).previousCount, 4);
+        assert.equal((await track("undo")).count, 4);
+      }
+    }
+  });
+
+  test("repeated undo steps back through Coach writes and never redoes", async () => {
+    const habit = await createHabit(owner, { name: "Steps", trackMode: "many", goalCount: 5 }, db);
+    const track = (action: "did" | "setCount" | "undo", count?: number) => trackCoachHabit(owner, { habitId: habit.id, day: today, action, count, ...operation() }, db);
+    await track("did");
+    await track("setCount", 4);
+    assert.equal((await track("undo")).count, 1);
+    assert.equal((await track("undo")).count, 0);
+    assert.deepEqual(await marks(habit.id), []);
+    const before = await ledger();
+    await assert.rejects(track("undo"), { message: `I have no update of mine to undo for 'Steps' for ${today}. What should the total be?` });
+    assert.deepEqual(await ledger(), before);
+  });
+
+  test("undo refuses page edits, missing history, legacy history and another user's rows without writes", async () => {
+    for (const period of ["day", "week"] as const) for (const scenario of ["page", "pageOnly", "empty", "legacy", "foreign", "checked"]) {
+      const habit = await createHabit(owner, { name: "Refuse undo", period, ...(scenario === "checked" ? {} : { trackMode: "many" as const, goalCount: 5 }) }, db);
+      const day = period === "week" ? "2026-10-05" : today;
+      const input = { habitId: habit.id, day: today, ...operation() };
+      if (scenario === "page") {
+        await trackCoachHabit(owner, { ...input, action: "setCount", count: 8 }, db);
+        await setHabitCount(owner, habit.id, today, 6, today, db);
+      } else if (scenario === "pageOnly") {
+        await setHabitCount(owner, habit.id, today, 6, today, db);
+      } else if (scenario === "checked") {
+        await setHabitDay(owner, habit.id, today, true, today, db);
+        assert.equal((await trackCoachHabit(owner, { ...input, action: "did" }, db)).changed, false);
+      } else if (scenario === "legacy" || scenario === "foreign") {
+        await setHabitCount(owner, habit.id, today, 8, today, db);
+        await db.insert(habitOperations).values({ userId: scenario === "foreign" ? other : owner, source: "coach", operationId: randomUUID(), habitId: habit.id,
+          result: { id: habit.id, day, action: "setCount", changed: true, count: 8, ...(scenario === "foreign" ? { previousCount: 3 } : {}) } });
+      }
+      const before = await ledger();
+      const otherBefore = await ledger(other);
+      const history = await marks(habit.id);
+      const message = scenario === "page" ? "'Refuse undo' has changed since my last update (now 6). What should the total be?"
+        : `I have no update of mine to undo for 'Refuse undo' for ${period === "week" ? `the week of ${day}` : day}. What should the total be?`;
+      await assert.rejects(trackCoachHabit(owner, { ...input, ...operation(), action: "undo" }, db), { message });
+      assert.deepEqual(await ledger(), before);
+      assert.deepEqual(await ledger(other), otherBefore);
+      assert.deepEqual(await marks(habit.id), history);
+    }
+  });
+
+  test("undo restores daily and weekly caps and refuses a restored total above the current period cap", async () => {
+    for (const period of ["day", "week"] as const) {
+      const cap = period === "week" ? 999 : 99;
+      const habit = await createHabit(owner, { name: "Restore cap", period, trackMode: "many", goalCount: 5 }, db);
+      await setHabitCount(owner, habit.id, today, cap, today, db);
+      await trackCoachHabit(owner, { habitId: habit.id, day: today, action: "setCount", count: 1, ...operation() }, db);
+      assert.equal((await trackCoachHabit(owner, { habitId: habit.id, day: today, action: "undo", ...operation() }, db)).count, cap);
+      const result = { id: habit.id, day: period === "week" ? "2026-10-05" : today, action: "setCount", count: cap, changed: true, previousCount: cap + 1 };
+      await db.insert(habitOperations).values({ userId: owner, source: "coach", operationId: randomUUID(), habitId: habit.id, result });
+      const before = await ledger();
+      const history = await marks(habit.id);
+      await assert.rejects(trackCoachHabit(owner, { habitId: habit.id, day: today, action: "undo", ...operation() }, db), { message: `Up to ${cap}` });
+      assert.deepEqual(await ledger(), before);
+      assert.deepEqual(await marks(habit.id), history);
+    }
+  });
+
 });

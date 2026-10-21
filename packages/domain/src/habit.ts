@@ -207,3 +207,15 @@ function currentStreak(days: readonly string[], today: string, step = 1): number
   }
   return streak;
 }
+
+export type HabitUndoPlan =
+  | { kind: "restore"; count: number }
+  | { kind: "delete" }
+  | { kind: "changedSince" }
+  | { kind: "nothingToUndo" };
+
+export function habitUndoPlan(currentCount: number, target: { count: number; previousCount?: number } | null | undefined): HabitUndoPlan {
+  if (!target || target.previousCount === undefined) return { kind: "nothingToUndo" };
+  if (currentCount !== target.count) return { kind: "changedSince" };
+  return target.previousCount === 0 ? { kind: "delete" } : { kind: "restore", count: target.previousCount };
+}

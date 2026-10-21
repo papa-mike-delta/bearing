@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  habitUndoPlan,
   changeHabitCount,
   editHabitRules,
   habitProgress,
@@ -335,4 +336,13 @@ test("Habit count totals validate zero, daily and weekly caps, fractions, negati
   assert.deepEqual(parse("2.5", 99), { ok: false, kind: "not-whole" });
   assert.deepEqual(parse("-1", 99), { ok: false, kind: "negative" });
   assert.deepEqual(parse("", 99), { ok: false, kind: "empty" });
+});
+
+test("habitUndoPlan restores the earlier Habit count, deletes a created mark, and refuses guesses", () => {
+  assert.deepEqual(habitUndoPlan(8, { count: 8, previousCount: 3 }), { kind: "restore", count: 3 });
+  assert.deepEqual(habitUndoPlan(5, { count: 5, previousCount: 2 }), { kind: "restore", count: 2 });
+  assert.deepEqual(habitUndoPlan(1, { count: 1, previousCount: 0 }), { kind: "delete" });
+  assert.deepEqual(habitUndoPlan(0, { count: 0, previousCount: 4 }), { kind: "restore", count: 4 });
+  assert.deepEqual(habitUndoPlan(7, { count: 8, previousCount: 3 }), { kind: "changedSince" });
+  for (const target of [null, undefined, { count: 8 }]) assert.deepEqual(habitUndoPlan(8, target), { kind: "nothingToUndo" });
 });
