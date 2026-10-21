@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { coachWriteKey } from "./write-identity.ts";
@@ -26,4 +27,21 @@ test("journal operation ids no longer match pre-#140 position-keyed ledger rows"
   const day = "2026-10-08";
   const legacy = `msg-1:appendJournal:${day}:1`;
   assert.notEqual(coachJournalOperationId("msg-1", day, 1, coachWriteKey("appendJournal", { day, text: "hello" }, day)), legacy);
+});
+
+test("Habit and Journal text keys case-fold and collapse whitespace", () => {
+  for (const [tool, field] of [["createHabit", "name"], ["appendJournal", "text"]]) {
+    assert.equal(coachWriteKey(tool!, { [field!]: "  Morning\n WALK  " }, today), coachWriteKey(tool!, { [field!]: "morning walk" }, today));
+  }
+});
+
+test("old trim-only hash rows are not matched when text normalization changes the hash", () => {
+  // The ledger is not rewritten: an old mixed-case or spaced write can apply again.
+  for (const tool of ["createHabit", "appendJournal"]) {
+    const oldArguments = tool === "createHabit"
+      ? { name: "Morning  Walk", period: "day", trackMode: "once", goalCount: null, bad: false }
+      : { day: today, text: "Morning  Walk" };
+    const oldHash = createHash("sha256").update(JSON.stringify(Object.keys(oldArguments).sort().map(key => [key, oldArguments[key as keyof typeof oldArguments]]))).digest("hex").slice(0, 32);
+    assert.notEqual(coachWriteKey(tool, oldArguments, today), oldHash);
+  }
 });

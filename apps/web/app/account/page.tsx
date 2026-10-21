@@ -57,7 +57,7 @@ export default async function Account({
           <ColorModeSwitch />
           <form action={chooseAccountTheme} className="themes">
             <fieldset>
-              <legend>Built-in themes</legend>
+              <legend>Themes</legend>
               <div className="choices">
                 {themeChoices(account).map((choice) => (
                   <Button
@@ -66,6 +66,7 @@ export default async function Account({
                     name="choice"
                     value={choice.id}
                     variant={choice.selected ? "default" : "outline"}
+                    className="theme-chip"
                     aria-pressed={choice.selected}
                   >
                     {choice.name}

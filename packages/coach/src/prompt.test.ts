@@ -199,7 +199,7 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "If the behaviour is unclear, ask", "Non-Bad many-times without a goal is a question",
     "A goal above 99 with no period is a question", "maximum 99", "maximum 999", "Weekly 200 is allowed",
     "habitId from listHabits", "If two habits share a name, ask which one", "adds exactly one",
-    "Undo clears the check or removes one", `"I didn't" leaves an empty period empty`,
+    "undo restores the habit to before your last update to it", `"I didn't" leaves an empty period empty`,
     "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
     "on every Bad many-times habit, with or without a limit, ask first", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
@@ -258,4 +258,14 @@ test("replies use day words while tool inputs keep ISO calendar days", () => {
   assert.match(coachSystemPrompt(), /today, yesterday, a weekday name like Monday/);
   assert.match(coachSystemPrompt(), /last Monday.*Oct 12/);
   assert.match(coachSystemPrompt(), /Never show ISO YYYY-MM-DD dates in replies; tool inputs still use YYYY-MM-DD/);
+});
+
+test("prompt and README describe true undo and convert fewer into a setCount total", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const readme = await readFile(new URL("../../../README.md", import.meta.url), "utf8");
+  for (const text of [coachSystemPrompt(), readme]) {
+    assert.ok(text.includes("undo restores the habit to before your last update to it; it never subtracts one. If it refuses, ask the total."));
+    for (const phrase of ["N fewer", "one less", "setCount"]) assert.ok(text.includes(phrase));
+    assert.doesNotMatch(text, /removes? one/);
+  }
 });

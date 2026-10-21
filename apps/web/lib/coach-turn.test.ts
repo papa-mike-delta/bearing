@@ -50,7 +50,7 @@ import {
   maxReplyTokens,
   appliedWritesBlock,
 } from "./coach-turn.ts";
-import { createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
+import { HabitError, createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { createNotebook, fileDraftAsNote, getNote, listNotes, saveNote } from "./notes.ts";
 import {
@@ -2592,7 +2592,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     writeToolsOffered(model.doStreamCalls[0]!);
   });
 
-  test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
+  test("a failed turn logs one coach.turn.error line with safe metadata and status, and nothing private", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const model = new MockLanguageModelV4({
@@ -2623,12 +2623,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
           threadId: thread,
           model: "mock-model-id",
           error: "AI_APICallError",
-          message: `${"x".repeat(350)}: Expected thinking`.slice(0, 300),
           status: 400,
         },
       ],
     );
-    assert.equal(JSON.parse(lines[0]!).message.length, 300);
+    assert.equal(JSON.parse(lines[0]!).message, undefined);
+    assert.ok(!lines[0]!.includes("Expected thinking"));
     for (const secret of [c, "What's on my list?"]) {
       assert.ok(!lines[0]!.includes(secret), secret);
     }
@@ -3449,4 +3449,37 @@ test("appliedWritesBlock ignores readSkill parts", () => {
     { type: "tool-readSkill", toolCallId: "b", state: "output-available", input: { name: "x" }, output: "unknown skill" },
   ] } as unknown as UIMessage;
   assert.equal(appliedWritesBlock([message]), "");
+});
+
+test("fake CoachData undo refusals surface the question and release their write slot; an applied undo uses one", async () => {
+  const habitId = randomUUID();
+  const context = { userId: randomUUID(), messageId: randomUUID(), today: "2026-10-09" };
+  const questions = [
+    "'Water' has changed since my last update (now 6). What should the total be?",
+    "I have no update of mine to undo for 'Water' for 2026-10-09. What should the total be?",
+  ];
+  let calls = 0;
+  const tools = coachTools({
+    ...unusedWrites,
+    listOpenTasks: async () => [],
+    trackHabit: async (_userId, input) => {
+      const question = questions[calls++];
+      if (question) throw new HabitError(question);
+      return { id: habitId, name: "Water", period: "day", trackMode: "many", goalCount: 5, bad: false,
+        day: input.day, action: input.action, count: 3, changed: true, previousCount: 8, undoes: randomUUID(), done: false, due: true, streak: null, record: null };
+    },
+  });
+  const execute = async () => tools.trackHabit.execute!({ habitId, action: "undo" }, { context, toolCallId: randomUUID(), messages: [] });
+  for (const question of questions) {
+    await assert.rejects(execute(), { message: question });
+    const part = { type: "tool-trackHabit", toolCallId: randomUUID(), state: "output-error", errorText: question };
+    assert.equal(receipt(part), "Couldn't track that habit");
+    assert.ok(!receipt(part)!.includes("Undid"));
+  }
+  for (let i = 0; i < 3; i++) {
+    const output = await execute();
+    assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output }, context.today), "Undid 'Water' for today");
+  }
+  await assert.rejects(execute(), /only 3 .* writes per reply/);
+  assert.equal(calls, 5);
 });

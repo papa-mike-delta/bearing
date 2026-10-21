@@ -15,13 +15,14 @@ export function ColorModeSwitch() {
   return (
     <div className="color-mode">
       <fieldset>
-        <legend>Light or dark</legend>
+        <legend>Mode</legend>
         <div className="choices">
           {colorModes.map((mode) => (
             <Button
               key={mode.id}
               type="button"
               variant={selected === mode.id ? "default" : "outline"}
+              className="theme-chip"
               aria-pressed={selected === mode.id}
               onClick={() => setTheme(mode.id)}
             >

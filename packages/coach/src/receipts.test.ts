@@ -461,7 +461,7 @@ for (const [type, action, period, label] of [
   ["trackHabit", "undo", "week", "Undid 'Walk' for the week of Oct 5"],
 ] as const) {
   test(`${type} ${action ?? "create"} ${period} receipt links to Habits and survives serialization`, () => {
-    const part = { type: `tool-${type}`, toolCallId: "habit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Walk", href: "/habits", period, day: period === "day" ? "2026-10-08" : "2026-10-05", action, changed: true } };
+    const part = { type: `tool-${type}`, toolCallId: "habit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Walk", href: "/habits", period, day: period === "day" ? "2026-10-08" : "2026-10-05", action, changed: true, previousCount: 8, ...(action === "undo" ? { undoes: "original-operation" } : {}) } };
     const expected = [{ key: "habit", receipt: label, calls: 1, href: "/habits" }];
     assert.deepEqual(shownParts([part]), expected);
     assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
