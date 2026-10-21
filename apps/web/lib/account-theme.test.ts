@@ -205,6 +205,8 @@ test("the account lists the six themes by their spec names in sentence case, and
     ],
   );
   const choices = themeChoices(defaultAccountTheme);
+  // No import, no import chip.
+  assert.equal(choices.some((choice) => choice.id === "imported"), false);
   assert.deepEqual(
     choices.map((choice) => [choice.id, choice.name]),
     [
@@ -273,9 +275,11 @@ test("a built-in paints over a stored import, and imported paints it again", () 
   assert.equal(themeDeclarations(back, "light"), imported.light);
   assert.equal(themeDeclarations(back, "dark"), imported.dark);
   const whileNavy = themeChoices(navy);
-  assert.equal(whileNavy.some((choice) => choice.id === "imported"), false);
+  assert.deepEqual(whileNavy.filter((choice) => choice.id === "imported"), [{ id: "imported", name: "My theme", selected: false }]);
   assert.equal(whileNavy.find((choice) => choice.id === "navy")?.selected, true);
-  assert.equal(themeChoices(back).some((choice) => choice.id === "imported"), false);
+  const whileImported = themeChoices(back);
+  assert.deepEqual(whileImported.filter((choice) => choice.id === "imported"), [{ id: "imported", name: "My theme", selected: true }]);
+  assert.equal(whileImported.filter((choice) => choice.selected).length, 1);
 });
 
 test("miscased ids and display names are not built-in ids", () => {

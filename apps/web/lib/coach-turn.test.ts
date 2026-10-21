@@ -49,6 +49,7 @@ import {
   historyWindow,
   maxReplyTokens,
   appliedWritesBlock,
+  checkedResultsBlock,
 } from "./coach-turn.ts";
 import { HabitError, createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
@@ -512,6 +513,27 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(read.output?.day, "2026-10-08");
     assert.equal(read.output?.habits?.find((h) => h.name === "Water")?.count, 3);
     assert.equal(receipt(read as never, "2026-10-09"), "Read your habits for yesterday (1)");
+  });
+
+  test("an undo refusal is a checked result the next turn keeps, not an applied write", async () => {
+    const c = await account();
+    const water = await createHabit(c, { name: "Water", period: "day", trackMode: "many", goalCount: 8 }, db);
+    const thread = await coachThread(c, db);
+    const before = (await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length;
+    await turn(c, thread, userMessage("undo water"), scripted(
+      { trackHabit: JSON.stringify({ habitId: water.id, action: "undo" }) },
+      { text: "I have no recent Water update to undo. What should the total be?" },
+    ));
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, before);
+    assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, 0);
+    const stored = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-trackHabit");
+    assert.equal(receipt(stored as never, "2026-10-09"), "Nothing to undo for 'Water' for today");
+    const next = scripted({ text: "You're welcome." });
+    await turn(c, thread, userMessage("thanks"), next);
+    const system = next.doStreamCalls[0]!.prompt.find((m) => m.role === "system")!.content as string;
+    assert.ok(system.includes("Checked results in this thread (nothing written):\n- Nothing to undo for 'Water' for Fri, Oct 9"));
+    assert.ok(!system.includes("Applied writes in this thread"));
+    assert.ok(system.includes("never call them guesses or retract them"));
   });
 
   test("content replay survives reordered Journal/habit writes, inserted reads and a new write", async () => {
@@ -3451,30 +3473,34 @@ test("appliedWritesBlock ignores readSkill parts", () => {
   assert.equal(appliedWritesBlock([message]), "");
 });
 
-test("fake CoachData undo refusals surface the question and release their write slot; an applied undo uses one", async () => {
+test("fake CoachData undo refusals return a neutral receipt and release their write slot; an applied undo uses one", async () => {
   const habitId = randomUUID();
   const context = { userId: randomUUID(), messageId: randomUUID(), today: "2026-10-09" };
-  const questions = [
-    "'Water' has changed since my last update (now 6). What should the total be?",
-    "I have no update of mine to undo for 'Water' for 2026-10-09. What should the total be?",
+  const refusals = [
+    { reason: "changedSince" as const, count: 6, question: "'Water' has changed since my last update (now 6). What should the total be?", line: "'Water' has changed since (now 6)" },
+    { reason: "nothingToUndo" as const, count: 0, question: "I have no update of mine to undo for 'Water' for today. What should the total be?", line: "Nothing to undo for 'Water' for today" },
   ];
   let calls = 0;
   const tools = coachTools({
     ...unusedWrites,
     listOpenTasks: async () => [],
     trackHabit: async (_userId, input) => {
-      const question = questions[calls++];
-      if (question) throw new HabitError(question);
+      const refusal = refusals[calls++];
+      if (refusal) return { refused: true, reason: refusal.reason, id: habitId, name: "Water", period: "day", day: input.day, action: "undo", count: refusal.count, question: refusal.question };
       return { id: habitId, name: "Water", period: "day", trackMode: "many", goalCount: 5, bad: false,
         day: input.day, action: input.action, count: 3, changed: true, previousCount: 8, undoes: randomUUID(), done: false, due: true, streak: null, record: null };
     },
   });
   const execute = async () => tools.trackHabit.execute!({ habitId, action: "undo" }, { context, toolCallId: randomUUID(), messages: [] });
-  for (const question of questions) {
-    await assert.rejects(execute(), { message: question });
-    const part = { type: "tool-trackHabit", toolCallId: randomUUID(), state: "output-error", errorText: question };
-    assert.equal(receipt(part), "Couldn't track that habit");
-    assert.ok(!receipt(part)!.includes("Undid"));
+  for (const refusal of refusals) {
+    const output = await execute() as { refused?: boolean; question?: string };
+    assert.equal(output.refused, true);
+    assert.equal(output.question, refusal.question);
+    const part = { type: "tool-trackHabit", toolCallId: randomUUID(), state: "output-available", output };
+    assert.equal(receipt(part, context.today), refusal.line);
+    const message = { id: "m", role: "assistant", parts: [part] } as unknown as UIMessage;
+    assert.equal(appliedWritesBlock([message]), "");
+    assert.match(checkedResultsBlock([message]), /Checked results in this thread \(nothing written\)/);
   }
   for (let i = 0; i < 3; i++) {
     const output = await execute();

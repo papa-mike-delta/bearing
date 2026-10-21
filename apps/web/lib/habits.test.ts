@@ -1,3 +1,4 @@
+import type { HabitTrackResult } from "@repo/coach";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
@@ -7,13 +8,17 @@ import { sql, eq, inArray } from "drizzle-orm";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { closeTools } from "./daily-close/tools.ts";
 import type { HabitEdit } from "@repo/domain";
-import { setHabitCount, createCoachHabit, trackCoachHabit, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
+import { setHabitCount, createCoachHabit, trackCoachHabit as trackCoachHabitResult, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, listHabits, setHabitDay } from "./habits.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
 if (!url && process.env.CI) test("Habit database tests require Postgres in CI", () => assert.fail("TEST_POSTGRES_URL missing"));
 
 const today = "2026-10-08";
 const week = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"];
+
+// Tests read both shapes: a tracked state or an undo refusal.
+const trackCoachHabit = (...args: Parameters<typeof trackCoachHabitResult>) =>
+  trackCoachHabitResult(...args) as Promise<HabitTrackResult & { refused?: true; reason?: string; question?: string }>;
 
 describe("Habit persistence", { skip: !url && "TEST_POSTGRES_URL missing", concurrency: 1 }, () => {
   const db = createDb(url!);
@@ -811,7 +816,7 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       const habit = await createHabit(owner, { name: "Cap", period, trackMode: "many", goalCount: cap }, db);
       const track = (action: "did" | "undo" | "markDone") => trackCoachHabit(owner, { habitId: habit.id, day: today, action, ...operation() }, db);
       const before = await ledger();
-      await assert.rejects(track("undo"), /I have no update of mine to undo/);
+      assert.match(String(((await track("undo")) as { question?: string }).question), /I have no update of mine to undo/);
       assert.deepEqual(await ledger(), before);
       await track("markDone");
       const filled = await ledger();
@@ -862,8 +867,28 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
     assert.equal((await track("undo")).count, 0);
     assert.deepEqual(await marks(habit.id), []);
     const before = await ledger();
-    await assert.rejects(track("undo"), { message: `I have no update of mine to undo for 'Steps' for ${today}. What should the total be?` });
+    assert.deepEqual(await track("undo"), { refused: true, reason: "nothingToUndo", id: habit.id, name: "Steps", period: "day", day: today, action: "undo", count: 0, question: `I have no update of mine to undo for 'Steps' for today. What should the total be?` });
     assert.deepEqual(await ledger(), before);
+  });
+
+  test("nothing-to-undo names the period in day words, never an ISO date", async () => {
+    const daily = await createHabit(owner, { name: "Past undo", trackMode: "many", goalCount: 5 }, db);
+    const weekly = await createHabit(owner, { name: "Past week undo", period: "week", trackMode: "many", goalCount: 5 }, db);
+    const yesterday = new Date(Date.parse(today + "T00:00:00Z") - 86_400_000).toISOString().slice(0, 10);
+    const lastWeek = new Date(Date.parse(today + "T00:00:00Z") - 7 * 86_400_000).toISOString().slice(0, 10);
+    const lastMonday = (() => { const d = new Date(lastWeek + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d; })();
+    const weekWords = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(lastMonday);
+    const cases = [
+      [daily, yesterday, "yesterday"],
+      [daily, lastWeek, new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(lastWeek + "T00:00:00Z"))],
+      [weekly, lastWeek, `the week of ${weekWords}`],
+    ] as const;
+    for (const [habit, day, words] of cases) {
+      const result = await trackCoachHabit(owner, { habitId: habit.id, day, action: "undo", ...operation() }, db) as { refused?: boolean; question?: string };
+      assert.equal(result.refused, true);
+      assert.equal(result.question, `I have no update of mine to undo for '${habit.name}' for ${words}. What should the total be?`);
+      assert.doesNotMatch(result.question!, /\d{4}-\d{2}-\d{2}/);
+    }
   });
 
   test("undo refuses page edits, missing history, legacy history and another user's rows without writes", async () => {
@@ -888,8 +913,11 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       const otherBefore = await ledger(other);
       const history = await marks(habit.id);
       const message = scenario === "page" ? "'Refuse undo' has changed since my last update (now 6). What should the total be?"
-        : `I have no update of mine to undo for 'Refuse undo' for ${period === "week" ? `the week of ${day}` : day}. What should the total be?`;
-      await assert.rejects(trackCoachHabit(owner, { ...input, ...operation(), action: "undo" }, db), { message });
+        : `I have no update of mine to undo for 'Refuse undo' for ${period === "week" ? "this week" : "today"}. What should the total be?`;
+      const refusal = await trackCoachHabit(owner, { ...input, ...operation(), action: "undo" }, db) as { refused?: boolean; reason?: string; question?: string };
+      assert.equal(refusal.refused, true);
+      assert.equal(refusal.reason, scenario === "page" ? "changedSince" : "nothingToUndo");
+      assert.equal(refusal.question, message);
       assert.deepEqual(await ledger(), before);
       assert.deepEqual(await ledger(other), otherBefore);
       assert.deepEqual(await marks(habit.id), history);
