@@ -34,6 +34,6 @@ export { listHabits } from "./tools/list-habits.ts";
 
 export { createHabit, coachHabitOperationId } from "./tools/create-habit.ts";
 export { trackHabit } from "./tools/track-habit.ts";
-export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "./data.ts";
+export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult, HabitUndoRefusal } from "./data.ts";
 
 export { coachWriteKey } from "./write-identity.ts";

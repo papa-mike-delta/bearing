@@ -126,7 +126,7 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: prepared.system + appliedWritesBlock(prepared.prior),
+    system: prepared.system + appliedWritesBlock(prepared.prior) + checkedResultsBlock(prepared.prior),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: prepared.toolsContext,
@@ -210,6 +210,25 @@ function appliedReceipts(message: UIMessage): string[] {
 export function appliedWritesBlock(messages: UIMessage[], max = 10): string {
   const lines = messages.filter((m) => m.role === "assistant").flatMap(appliedReceipts).slice(-max);
   return lines.length ? `\n\nApplied writes in this thread (saved receipts; these happened):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
+}
+
+// Refused and No-change results from the reloaded thread: checks that wrote
+// nothing. They are true too, so the next turn never calls them guesses.
+function checkedReceipts(message: UIMessage): string[] {
+  return message.parts.flatMap((part) => {
+    if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
+    const tool = part as { type: string; state?: string; output?: unknown };
+    if (tool.state !== "output-available") return [];
+    const output = tool.output as Record<string, unknown> | null | undefined;
+    if (!output || typeof output !== "object" || !(output.refused === true || output.changed === false)) return [];
+    const line = receipt(tool);
+    return line ? [line] : [];
+  });
+}
+
+export function checkedResultsBlock(messages: UIMessage[], max = 10): string {
+  const lines = messages.filter((m) => m.role === "assistant").flatMap(checkedReceipts).slice(-max);
+  return lines.length ? `\n\nChecked results in this thread (nothing written):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
 }
 
 function textOnly(messages: UIMessage[]) {

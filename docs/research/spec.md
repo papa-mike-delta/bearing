@@ -323,7 +323,7 @@ Write tools, same mutations the UI uses:
   - `didnt`: Bad habits only. Clears the period only if it was already logged.
   - `markDone`: a habit that is not Bad goes up to its goal and is never lowered. On a Bad once-habit it records the lapse (count 1), like `did`. On a Bad many-times habit it is refused and the Coach asks how many times there were in total instead.
   - `setCount`: sets an explicit total the person stated (§4.3).
-  - `undo`: restores the count from before the Coach's last write to that habit and period, including after a `setCount` total. If that write created the mark, undo deletes it. Undo is never a blind −1. If nothing can be restored, the Coach asks for the total rather than guessing. (Paul, Oct 21, 2026.)
+  - `undo`: restores the count from before the Coach's last write to that habit and period, including after a `setCount` total. If that write created the mark, undo deletes it. Undo is never a blind −1. If nothing can be restored, the Coach asks for the total rather than guessing. (Paul, Oct 21, 2026.) A refused undo (nothing of the Coach's to undo, or the count changed since) is a checked result, not a failure: it returns refused with the question, writes no mark and no ledger row, uses no write slot, and shows a neutral receipt ("Nothing to undo for 'Water' for today" or "'Water' has changed since (now 6)"). Later turns get refusals and No change results in a "Checked results in this thread (nothing written)" system-prompt block, capped at 10 like Applied writes, and never call them guesses or retract them.
 - `logPerson` — timeline note, optional last-connected = today
 - `createNote`
 

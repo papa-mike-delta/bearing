@@ -1,4 +1,4 @@
-import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "@repo/coach";
+import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult, HabitUndoRefusal } from "@repo/coach";
 import { habitPeriodWords } from "@repo/coach";
 import { db as defaultDb, habitMarks, habitOperations, habits, users } from "@repo/db";
 import { habitUndoPlan, parseHabitCountTotal, changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
@@ -226,7 +226,7 @@ export async function deleteHabit(userId: string, habitId: string, db: Db = defa
 // Lock the account before checking the ledger. Concurrent resends, creation,
 // edits and section ordering therefore share one transaction order. The ledger
 // stores the complete original state independently of the editable habit.
-async function habitOperation<Result extends HabitWriteState>(userId: string, input: HabitOperation, db: Db, apply: (tx: Db) => Promise<Result>): Promise<Result> {
+async function habitOperation<Result extends HabitWriteState | HabitUndoRefusal>(userId: string, input: HabitOperation, db: Db, apply: (tx: Db) => Promise<Result>): Promise<Result> {
   if (input.source !== "coach" || !input.operationId?.trim() || input.operationId.length > 250) throw new HabitError(unavailable);
   return db.transaction(async (tx) => {
     const [account] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -239,7 +239,9 @@ async function habitOperation<Result extends HabitWriteState>(userId: string, in
     const result = await apply(tx);
     // "I didn't" on an empty Bad period is entirely read-only, including the
     // ledger. It reports no change and must not claim a successful write.
-    if (!("action" in result && result.action === "didnt" && "changed" in result && !result.changed)) {
+    // An undo refusal is likewise read-only.
+    const flags = result as { refused?: boolean; action?: string; changed?: boolean };
+    if (!flags.refused && !(flags.action === "didnt" && flags.changed === false)) {
       // Record lock order, rather than the start time of concurrent transactions.
       await tx.insert(habitOperations).values({ userId, source: input.source, operationId: input.operationId, habitId: result.id, result, createdAt: sql`clock_timestamp()` });
     }
@@ -262,7 +264,7 @@ export async function createCoachHabit(userId: string, input: HabitTracking & { 
   });
 }
 
-export async function trackCoachHabit(userId: string, input: { habitId: string; day: string; action: HabitAction; count?: number } & HabitOperation, db: Db = defaultDb): Promise<HabitTrackResult> {
+export async function trackCoachHabit(userId: string, input: { habitId: string; day: string; action: HabitAction; count?: number } & HabitOperation, db: Db = defaultDb): Promise<HabitTrackResult | HabitUndoRefusal> {
   return habitOperation(userId, input, db, async (tx) => {
     if (!isUuid(input.habitId) || !isCalendarDay(input.day) || !["did", "undo", "didnt", "markDone", "setCount"].includes(input.action)) throw new HabitError(unavailable);
     const [habit] = await tx.select().from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, userId))).for("update");
@@ -290,8 +292,11 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
         }
       }
       const plan = habitUndoPlan(previousCount, last?.result);
-      if (plan.kind === "nothingToUndo") throw new HabitError(`I have no update of mine to undo for '${habit.name}' for ${habitPeriodWords(habit.period, day, input.today)}. What should the total be?`);
-      if (plan.kind === "changedSince") throw new HabitError(`'${habit.name}' has changed since my last update (now ${previousCount}). What should the total be?`);
+      // Expected outcomes, not failures: a refused result with the question,
+      // and no mark or ledger row.
+      const refusal = { refused: true as const, id: habit.id, name: habit.name, period: habit.period, day, action: "undo" as const, count: previousCount };
+      if (plan.kind === "nothingToUndo") return { ...refusal, reason: "nothingToUndo" as const, question: `I have no update of mine to undo for '${habit.name}' for ${habitPeriodWords(habit.period, day, input.today)}. What should the total be?` };
+      if (plan.kind === "changedSince") return { ...refusal, reason: "changedSince" as const, question: `'${habit.name}' has changed since my last update (now ${previousCount}). What should the total be?` };
       count = plan.kind === "delete" ? 0 : plan.count;
       const undoes = last!.id;
       if (count > 0 && habit.trackMode === "many") {

@@ -136,6 +136,12 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const creating = part.type === "tool-createHabit";
     if (pending(part.state)) return { line: creating ? "Creating a habit…" : "Tracking a habit…" };
     const output = part.output as { id?: unknown; name?: unknown; href?: unknown; day?: unknown; period?: unknown; action?: unknown; changed?: unknown; count?: unknown } | undefined;
+    const refusal = part.output as { reason?: unknown; count?: unknown } | undefined;
+    if (!creating && part.state === "output-available" && flag(part.output, "refused") && typeof output?.name === "string" && output.name && typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week")) {
+      // An undo Bearing declined: a checked result, not a failure.
+      if (refusal?.reason === "nothingToUndo") return { line: `Nothing to undo for '${output.name}' for ${habitPeriodWords(output.period, output.day, today)}`, href: "/habits" };
+      if (refusal?.reason === "changedSince" && typeof refusal.count === "number") return { line: `'${output.name}' has changed since (now ${refusal.count})`, href: "/habits" };
+    }
     if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name && output.href === "/habits") {
       if (creating) return { line: `Created habit '${output.name}'`, href: "/habits" };
       if (typeof output.day === "string" && isCalendarDay(output.day) && (output.period === "day" || output.period === "week") && habitPeriodDay(output.period, output.day) === output.day && ["did", "undo", "didnt", "markDone", "setCount"].includes(String(output.action)) && typeof output.changed === "boolean") {
