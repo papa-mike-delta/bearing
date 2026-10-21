@@ -1,4 +1,5 @@
 import type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult } from "@repo/coach";
+import { habitPeriodWords } from "@repo/coach";
 import { db as defaultDb, habitMarks, habitOperations, habits, users } from "@repo/db";
 import { habitUndoPlan, parseHabitCountTotal, changeHabitCount, habitIsDue, editHabitRules, habitProgress, habitCountCap, habitName, habitPeriodDay, isCalendarDay, maxHabitNameLength, validHabitGoal, type HabitEdit, type HabitTracking } from "@repo/domain";
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
@@ -289,7 +290,7 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
         }
       }
       const plan = habitUndoPlan(previousCount, last?.result);
-      if (plan.kind === "nothingToUndo") throw new HabitError(`I have no update of mine to undo for '${habit.name}' for ${habit.period === "week" ? `the week of ${day}` : day}. What should the total be?`);
+      if (plan.kind === "nothingToUndo") throw new HabitError(`I have no update of mine to undo for '${habit.name}' for ${habitPeriodWords(habit.period, day, input.today)}. What should the total be?`);
       if (plan.kind === "changedSince") throw new HabitError(`'${habit.name}' has changed since my last update (now ${previousCount}). What should the total be?`);
       count = plan.kind === "delete" ? 0 : plan.count;
       const undoes = last!.id;

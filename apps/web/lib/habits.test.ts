@@ -862,8 +862,28 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
     assert.equal((await track("undo")).count, 0);
     assert.deepEqual(await marks(habit.id), []);
     const before = await ledger();
-    await assert.rejects(track("undo"), { message: `I have no update of mine to undo for 'Steps' for ${today}. What should the total be?` });
+    await assert.rejects(track("undo"), { message: `I have no update of mine to undo for 'Steps' for today. What should the total be?` });
     assert.deepEqual(await ledger(), before);
+  });
+
+  test("nothing-to-undo names the period in day words, never an ISO date", async () => {
+    const daily = await createHabit(owner, { name: "Past undo", trackMode: "many", goalCount: 5 }, db);
+    const weekly = await createHabit(owner, { name: "Past week undo", period: "week", trackMode: "many", goalCount: 5 }, db);
+    const yesterday = new Date(Date.parse(today + "T00:00:00Z") - 86_400_000).toISOString().slice(0, 10);
+    const lastWeek = new Date(Date.parse(today + "T00:00:00Z") - 7 * 86_400_000).toISOString().slice(0, 10);
+    const lastMonday = (() => { const d = new Date(lastWeek + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d; })();
+    const weekWords = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(lastMonday);
+    const cases = [
+      [daily, yesterday, "yesterday"],
+      [daily, lastWeek, new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(lastWeek + "T00:00:00Z"))],
+      [weekly, lastWeek, `the week of ${weekWords}`],
+    ] as const;
+    for (const [habit, day, words] of cases) {
+      const error = await trackCoachHabit(owner, { habitId: habit.id, day, action: "undo", ...operation() }, db).then(() => null, (e: Error) => e);
+      assert.ok(error);
+      assert.equal(error.message, `I have no update of mine to undo for '${habit.name}' for ${words}. What should the total be?`);
+      assert.doesNotMatch(error.message, /\d{4}-\d{2}-\d{2}/);
+    }
   });
 
   test("undo refuses page edits, missing history, legacy history and another user's rows without writes", async () => {
@@ -888,7 +908,7 @@ describe("Coach Habit writes", { skip: !url && "TEST_POSTGRES_URL missing", conc
       const otherBefore = await ledger(other);
       const history = await marks(habit.id);
       const message = scenario === "page" ? "'Refuse undo' has changed since my last update (now 6). What should the total be?"
-        : `I have no update of mine to undo for 'Refuse undo' for ${period === "week" ? `the week of ${day}` : day}. What should the total be?`;
+        : `I have no update of mine to undo for 'Refuse undo' for ${period === "week" ? "this week" : "today"}. What should the total be?`;
       await assert.rejects(trackCoachHabit(owner, { ...input, ...operation(), action: "undo" }, db), { message });
       assert.deepEqual(await ledger(), before);
       assert.deepEqual(await ledger(other), otherBefore);
