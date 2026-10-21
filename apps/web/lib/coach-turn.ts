@@ -2,6 +2,7 @@ import {
   type CoachData,
   CloseRefusal,
   receipt,
+  coachReadToolTypes,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -189,13 +190,12 @@ export async function coachTurn({
 // step markers and blank text. A reply left with nothing is dropped, and
 // back-to-back messages from one side are joined (a message whose reply
 // failed, then the next one), so the thread alternates as providers expect.
-const coachReadTools = new Set(["tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
 // The successful write receipts of one stored message, with absolute dates
 // (no today passed). Reads and failed, refused or unchanged writes go.
 function appliedReceipts(message: UIMessage): string[] {
   return message.parts.flatMap((part) => {
-    if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
+    if (!part.type.startsWith("tool-") || coachReadToolTypes.has(part.type)) return [];
     const tool = part as { type: string; state?: string; output?: unknown };
     if (tool.state !== "output-available") return [];
     const output = tool.output as Record<string, unknown> | null | undefined;
@@ -216,7 +216,7 @@ export function appliedWritesBlock(messages: UIMessage[], max = 10): string {
 // nothing. They are true too, so the next turn never calls them guesses.
 function checkedReceipts(message: UIMessage): string[] {
   return message.parts.flatMap((part) => {
-    if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
+    if (!part.type.startsWith("tool-") || coachReadToolTypes.has(part.type)) return [];
     const tool = part as { type: string; state?: string; output?: unknown };
     if (tool.state !== "output-available") return [];
     const output = tool.output as Record<string, unknown> | null | undefined;

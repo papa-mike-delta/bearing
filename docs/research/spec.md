@@ -345,7 +345,7 @@ A skill is a markdown file with a name, a description, and the tools it is allow
 | Daily close | prompt the journal template, set mood, file stray inbox drafts |
 | Empty Now | if Now is over the WIP limit, propose what goes back to Later |
 
-Skills are prompts plus an allow-list. They are not code plugins. New skills are files in `packages/coach/skills`.
+Skills are prompts plus an allow-list. They are not code plugins. In v1 only Habit design loads through `readSkill`; Weekly review waits for its ticket (its file names tools that do not exist yet). Habit design's allow-list (listHabits, searchKnowledge, createHabit; readSkill stays available) holds for the rest of the reply and for calls earlier in the same step: loading it after an outside tool ran in that step is refused. createHabit is refused in the reply that loaded Habit design, so the proposal writes nothing and the yes in a later message creates the habit. A `readSkill` receipt is a read, never an applied write. New skills are files in `packages/coach/skills`.
 
 ### 8.4 Knowledge base
 
