@@ -487,6 +487,32 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     }
   });
 
+  test("an applied past-day setCount stays visible to the model on the next turn", async () => {
+    const c = await account();
+    const water = await createHabit(c, { name: "Water", period: "day", trackMode: "many", goalCount: 8 }, db);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("I drank 3 glasses of water yesterday"), scripted(
+      { trackHabit: JSON.stringify({ habitId: water.id, action: "setCount", count: 3, day: "2026-10-08" }) },
+      { text: "Recorded 3 for yesterday." },
+    ));
+    // The persisted shape textOnly reads on the next turn.
+    const stored = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-trackHabit") as { state?: string; output?: { changed?: boolean } } | undefined;
+    assert.equal(stored?.state, "output-available");
+    assert.notEqual(stored?.output?.changed, false);
+    const next = scripted({ listHabits: JSON.stringify({ day: "2026-10-08" }) }, { text: "Yes, 3 is recorded." });
+    await turn(c, thread, userMessage("thanks"), next);
+    const seen = promptText(next);
+    assert.match(seen, /Set 'Water' to 3 for/);
+    const system = next.doStreamCalls[0]!.prompt.find((m) => m.role === "system")!.content as string;
+    assert.ok(system.includes("Applied writes in this thread (saved receipts; these happened):\n- Set 'Water' to 3 for Thu, Oct 8"));
+    assert.ok(system.includes("never retract an earlier receipt; only a later write receipt changes it"));
+    assert.ok(seen.includes("Earlier receipts in this thread are real writes"));
+    const read = (await threadMessages(c, thread, db))!.at(-1)!.parts.find((p) => p.type === "tool-listHabits") as { output?: { day?: string; habits?: { name: string; count: number }[] } };
+    assert.equal(read.output?.day, "2026-10-08");
+    assert.equal(read.output?.habits?.find((h) => h.name === "Water")?.count, 3);
+    assert.equal(receipt(read as never, "2026-10-09"), "Read your habits for yesterday (1)");
+  });
+
   test("content replay survives reordered Journal/habit writes, inserted reads and a new write", async () => {
     const c = await account();
     const thread = await coachThread(c, db);

@@ -114,7 +114,9 @@ test("knowledge titles are listed and the article bodies are not", () => {
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
   assert.ok(prompt.includes("Bearing has daily and weekly Habits on the Habits page, once or many-times, including Bad habits in either period."));
-  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, create with createHabit and track with trackHabit"));
+  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, or a past day with its day input, create with createHabit and track with trackHabit"));
+  assert.ok(prompt.includes("listHabits without day shows only the open period"));
+  assert.ok(prompt.includes("Resolve dates silently and say one day word"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
   assert.equal(prompt.includes("You can create a habit"), false);
@@ -201,6 +203,7 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
     "on every Bad many-times habit, with or without a limit, ask first", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
+    "never retract an earlier receipt; only a later write receipt changes it",
   ]) assert.ok(prompt.includes(rule), rule);
 });
 
@@ -245,6 +248,7 @@ test("Coach knowledge and README teach ask-first, total versus addition, and app
   assert.ok(readme.includes("Non-Bad many-times without a goal needs a question."));
   assert.ok(!readme.includes("Non-Every"));
   assert.equal(readme.split("That reply makes no tool call").length - 1, 1);
+  assert.ok(!readme.includes("1-based ordinal of appendJournal calls"));
 });
 
 test("replies use day words while tool inputs keep ISO calendar days", () => {
