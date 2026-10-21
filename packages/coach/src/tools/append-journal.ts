@@ -1,5 +1,6 @@
 import { isCalendarDay, maxNoteBodyLength } from "@repo/domain";
 import { z } from "zod";
+import { coachWriteKey } from "../write-identity.ts";
 import type { ToolRunContext } from "../data.ts";
 
 export const journalDaySchema = z
@@ -24,14 +25,15 @@ export function resolveCoachJournalDay(
   return resolved;
 }
 
-// Replay identity is the turn position, not the text. The Journal mutation
-// still hashes [day, text] and conflicts when a resend changes the payload.
+// Content and its occurrence identify a replay. The Journal mutation still
+// hashes [day, text] and rejects conflicting payloads for an operation id.
 export function coachJournalOperationId(
   messageId: string,
   day: string,
   n: number,
+  key?: string,
 ) {
-  return `${messageId}:${day}:${n}`;
+  return `${messageId}:appendJournal:${key ?? day}:${n}`;
 }
 
 const inputSchema = z.object({
@@ -64,7 +66,7 @@ export const appendJournal = {
       today: today!,
       text: parsed.text,
       source: "coach",
-      operationId: coachJournalOperationId(messageId, day, appendOrdinal),
+      operationId: coachJournalOperationId(messageId, day, appendOrdinal, coachWriteKey("appendJournal", parsed, today)),
     });
     if (result.day !== day || !z.uuid().safeParse(result.id).success)
       throw new Error("Invalid Journal result.");

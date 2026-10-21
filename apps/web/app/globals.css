@@ -665,9 +665,16 @@
     font-size: 12px;
   }
 
+  /* Writes are the only underlined, foreground-coloured receipt lines;
+     reads stay muted and plain, even when they link. */
   .thread p.receipt a {
-    color: var(--primary);
+    color: var(--foreground);
     text-decoration: underline;
+  }
+
+  .thread p.receipt-read a {
+    color: inherit;
+    text-decoration: none;
   }
 
   .thread p.receipt + p:not(.receipt) {
@@ -941,23 +948,31 @@ li[draggable="true"] {
 }
 
 /* Theme chips: a wrapping row inside the Theme panel. */
-form.themes fieldset {
+form.themes fieldset,
+.color-mode fieldset {
   margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
 
-form.themes legend {
+form.themes legend,
+.color-mode legend {
   margin-bottom: 0.5rem;
   font-size: 12px;
   font-weight: 500;
 }
 
-form.themes .choices {
+form.themes .choices,
+.color-mode .choices {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+/* Light or dark sits above the palette chips. */
+.color-mode {
+  margin-bottom: 1.5rem;
 }
 
 form.flex-row {
@@ -969,6 +984,9 @@ form.flex-row {
   max-width: 100%;
   margin-top: 1rem;
   overflow-x: auto;
+  /* Hit-area overlays may reach past the last row; never add a vertical
+     scrollbar for them (a classic scrollbar would also steal width). */
+  overflow-y: hidden;
 }
 
 .habit-grid table {
@@ -1009,12 +1027,84 @@ form.flex-row {
   font-weight: 400;
 }
 
-.habit-grid .habit-delete {
+.habit-grid .habit-delete,
+.habit-grid .habit-edit {
+  border: 0;
   height: auto;
   padding: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
   font-weight: 400;
+}
+
+.habit-grid .habit-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  margin-top: 0.125rem;
+}
+
+/* A 40px hit area from an overlay, so the visible size and the cell's
+   layout width stay as before (a larger min-width widened the table at 375). */
+.habit-grid .habit-controls > button,
+.habit-grid .habit-delete {
+  position: relative;
+}
+
+.habit-grid .habit-controls > button::before,
+.habit-grid .habit-delete::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 40px);
+  height: max(100%, 40px);
+  transform: translate(-50%, -50%);
+}
+
+.habit-grid .habit-delete {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.habit-grid .habit-controls .habit-edit {
+  justify-content: flex-start;
+}
+
+/* No width on the spanning cell itself: a percentage there takes width from
+   the name column. The form inside fills the row instead. */
+.habit-grid .habit-edit-cell {
+  text-align: left;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.habit-edit-form {
+  /* A spanning form must not contribute an intrinsic width to the table. */
+  contain: inline-size;
+  min-width: 0;
+  width: 100%;
+  max-width: min(100%, 28rem);
+  margin: 0.5rem 0;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.habit-edit-form :is([data-slot="field-group"], [data-slot="field"], [data-slot="native-select-wrapper"], input, select) {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.habit-edit-form [data-slot="field-label"] {
+  min-width: 0;
+  white-space: normal;
+}
+
+.habit-edit-form > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .habit-grid .habit-confirm {
@@ -1028,8 +1118,16 @@ form.flex-row {
 }
 
 @media (max-width: 480px) {
+  /* Zero-width rather than display:none: hidden cells would leave the Edit
+     row's colSpan with phantom auto columns that share the name column. */
   .habit-grid .habit-stat {
-    display: none;
+    width: 0;
+    max-width: 0;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    visibility: hidden;
+    font-size: 0;
   }
   .habit-grid .habit-meta {
     display: block;
@@ -1045,7 +1143,7 @@ form.flex-row {
 }
 
 /* At 480px and below all seven days fit at 393px without sideways scroll:
-   one-letter day headers, 32px day cells, a ~7rem name column, one-line meta. */
+   one-letter day headers, 32px day cells, a flexible name column, stacked meta. */
 @media (max-width: 480px) {
   .habit-grid table {
     table-layout: fixed;
@@ -1054,10 +1152,12 @@ form.flex-row {
   .habit-grid td {
     padding: 0.3rem 0;
   }
+  /* The name column takes what the seven 32px days leave, so a narrower
+     screen (375, or 393 with a classic scrollbar) never scrolls sideways. */
   .habit-grid .habit-name {
-    width: 7.5rem;
+    width: auto;
     min-width: 0;
-    max-width: 7.5rem;
+    max-width: none;
     padding-right: 0.25rem;
   }
   .habit-grid .day {
@@ -1075,9 +1175,16 @@ form.flex-row {
   .habit-grid .day-short {
     display: block;
   }
+  /* Streak and Record on their own lines, wrapping inside the habit cell. */
   .habit-grid .habit-meta {
-    white-space: nowrap;
     font-size: 0.6875rem;
+    overflow-wrap: anywhere;
+  }
+  .habit-grid .habit-meta > span {
+    display: block;
+  }
+  .habit-grid .habit-meta .habit-meta-sep {
+    display: none;
   }
 }
 
@@ -1088,8 +1195,33 @@ form.flex-row {
   font-weight: 400;
 }
 
+/* The current day or week: accent, semibold and a quiet underline. */
 .habit-grid th[aria-current="date"] {
   color: var(--primary);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.habit-grid th[aria-current="date"] .day-number {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* A larger hit area around each checkbox; the visible box stays 1.15rem. */
+.habit-grid .habit-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .habit-grid .habit-hit {
+    min-width: 2rem;
+  }
 }
 
 .habit-grid input[type="checkbox"] {
@@ -1117,3 +1249,139 @@ form.flex-row {
   line-height: 1.25rem;
   text-align: center;
 }
+
+.habit-grid .habit-goal {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The count reads n/goal on the habit name's line; met or over goal is the accent, never grey. */
+.habit-counter .habit-count-button {
+  min-width: 1.5rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+.habit-counter .habit-of-goal {
+  color: var(--muted-foreground);
+}
+
+.habit-counter .habit-met-goal,
+.habit-counter .habit-met-goal .habit-of-goal {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Small outline steppers in the shared button style, at least 32 by 40. */
+.habit-counter .habit-step {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Many-times rows top-align so the count sits on the habit name's line. */
+.habit-grid tr.habit-many > th,
+.habit-grid tr.habit-many > td {
+  vertical-align: top;
+}
+
+.habit-grid tr.habit-many .habit-title {
+  line-height: 1.25rem;
+}
+
+.habits-intro {
+  margin-bottom: 2rem;
+}
+
+/* Below md the inputs are 16px; the Track select matches them. */
+@media (max-width: 47.99rem) {
+  .habit-form select {
+    font-size: 1rem;
+  }
+}
+
+/* A hairline marks counts above either a goal or a Bad limit. */
+.habit-counter .habit-over-goal {
+  box-shadow: 0 -1px 0 var(--muted-foreground);
+}
+
+.habit-counter .habit-met-goal {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.habit-grid .habit-bad-label {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.habit-grid .habit-bad .habit-counter .habit-count-button {
+  color: var(--muted-foreground);
+}
+
+.habit-grid .habit-bad input[type="checkbox"] {
+  accent-color: var(--muted-foreground);
+}
+
+@media (max-width: 480px) {
+  .habit-counter .habit-step {
+    width: calc(100% - 3px);
+    min-width: 0;
+  }
+}
+
+/* Four whole weeks, with Monday dates that stay readable on a phone. */
+.habit-weekly-grid .day { min-width: 3rem; }
+@media (max-width: 480px) {
+  .habit-weekly-grid .day { width: auto; min-width: 0; font-size: 0.75rem; }
+  /* Leave room for four full 999/999 counts beside the habit name at 393px. */
+  .habit-weekly-grid .habit-name { width: 6.5rem; max-width: 6.5rem; }
+  .habit-weekly-grid .habit-counter .habit-count-button { font-size: 13px; }
+}
+
+/* Reserve the same slot for the count and its 16px editor. */
+.habit-count-editor { position: relative; display: block; width: 100%; height: 40px; }
+.habit-counter .habit-count-button, .habit-count-input {
+  position: relative; display: block; width: 100%; min-width: 0; height: 40px;
+  padding: 0; text-align: center; background: transparent; border: 0;
+  border-radius: var(--radius); font-variant-numeric: tabular-nums;
+}
+.habit-count-button::before, .habit-count-editor.is-editing::before {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: max(100%, 40px); height: 40px; transform: translate(-50%, -50%);
+}
+.habit-count-input { font-size: 16px; appearance: textfield; outline: 1px solid var(--ring); }
+.habit-count-input::-webkit-inner-spin-button, .habit-count-input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+/* The cap error sits above the input and lets taps through, so it never covers a +/- control. */
+.habit-count-error { position: absolute; z-index: 2; bottom: 100%; right: 0; width: max-content; background: var(--background); pointer-events: none; }
+
+/* Keep the final 40px hit area inside the table, including its 32px day cell. */
+.habit-grid tr > .day:nth-last-child(3) .habit-count-button::before,
+.habit-grid tr > .day:nth-last-child(3) .habit-count-editor.is-editing::before {
+  left: auto; right: 0; transform: translateY(-50%);
+}
+
+@media (max-width: 480px) {
+  main:has(.habits-intro) { padding-bottom: 7rem; scroll-padding-bottom: 7rem; }
+}
+
+/* Account choices have a 40px minimum target. */
+.theme-chip { min-width: 40px; min-height: 40px; }
+main form p.hint a { color: var(--foreground); text-decoration: underline; }

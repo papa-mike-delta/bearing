@@ -90,7 +90,7 @@ test("two identical reads in a row show as one receipt", () => {
       text("Empty."),
     ]),
     [
-      { key: "c1", receipt: "Read your list (0 open)", calls: 2 },
+      { key: "c1", receipt: "Read your list (0 open)", calls: 2, read: true },
       { key: "text-5", text: "Empty." },
     ],
   );
@@ -98,29 +98,29 @@ test("two identical reads in a row show as one receipt", () => {
 
 test("reads with different results stay separate", () => {
   assert.deepEqual(shownParts([read("c1", 0), read("c2", 3)]), [
-    { key: "c1", receipt: "Read your list (0 open)", calls: 1 },
-    { key: "c2", receipt: "Read your list (3 open)", calls: 1 },
+    { key: "c1", receipt: "Read your list (0 open)", calls: 1, read: true },
+    { key: "c2", receipt: "Read your list (3 open)", calls: 1, read: true },
   ]);
 });
 
 test("a repeated read after some text stays", () => {
   assert.deepEqual(shownParts([read("c1", 2), text("Two."), read("c2", 2)]), [
-    { key: "c1", receipt: "Read your list (2 open)", calls: 1 },
+    { key: "c1", receipt: "Read your list (2 open)", calls: 1, read: true },
     { key: "text-1", text: "Two." },
-    { key: "c2", receipt: "Read your list (2 open)", calls: 1 },
+    { key: "c2", receipt: "Read your list (2 open)", calls: 1, read: true },
   ]);
 });
 
 test("a failed or unfinished read isn't merged with a finished one", () => {
   assert.deepEqual(shownParts([read("c1", 0), read("c2", 0, "output-error")]), [
-    { key: "c1", receipt: "Read your list (0 open)", calls: 1 },
-    { key: "c2", receipt: "Couldn't read your list", calls: 1 },
+    { key: "c1", receipt: "Read your list (0 open)", calls: 1, read: true },
+    { key: "c2", receipt: "Couldn't read your list", calls: 1, read: true },
   ]);
   assert.deepEqual(
     shownParts([read("c1", 0), read("c2", 0, "input-available")]),
     [
-      { key: "c1", receipt: "Read your list (0 open)", calls: 1 },
-      { key: "c2", receipt: "Reading your list…", calls: 1 },
+      { key: "c1", receipt: "Read your list (0 open)", calls: 1, read: true },
+      { key: "c2", receipt: "Reading your list…", calls: 1, read: true },
     ],
   );
 });
@@ -129,8 +129,8 @@ test("failed reads aren't merged, even with each other", () => {
   assert.deepEqual(
     shownParts([read("c1", 0, "output-error"), read("c2", 0, "output-error")]),
     [
-      { key: "c1", receipt: "Couldn't read your list", calls: 1 },
-      { key: "c2", receipt: "Couldn't read your list", calls: 1 },
+      { key: "c1", receipt: "Couldn't read your list", calls: 1, read: true },
+      { key: "c2", receipt: "Couldn't read your list", calls: 1, read: true },
     ],
   );
 });
@@ -395,6 +395,20 @@ test("two creates in a row stay two lines", () => {
   );
 });
 
+test("a Daily close habits receipt keeps its selected day and Habits link after serialization", () => {
+  for (const habits of [[], [{ name: "Walk" }]]) {
+    const part = { type: "tool-listHabits", toolCallId: "close-habits", state: "output-available", output: { day: "2026-10-08", habits } };
+    const expected = [{ key: "close-habits", receipt: `Read your habits for Thu, Oct 8 (${habits.length})`, calls: 1, href: "/habits", read: true }];
+    assert.deepEqual(shownParts([part]), expected);
+    assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
+  }
+  for (const day of ["2026-02-30", "https://untrusted.invalid", null, 42]) {
+    assert.deepEqual(shownParts([{ type: "tool-listHabits", state: "output-available", output: { day, habits: [] } }]), [
+      { key: "part-0", receipt: "Couldn't read your habits", calls: 1, read: true },
+    ]);
+  }
+});
+
 test("a habits lookup receipt names the section and rejects a foreign link", () => {
   const part = {
     type: "tool-searchKnowledge",
@@ -423,3 +437,104 @@ test("a habits lookup receipt names the section and rejects a foreign link", () 
   );
 });
 
+
+
+test("habit read receipts show the count and link to Habits", () => {
+  const part = { type: "tool-listHabits", toolCallId: "habits" };
+  assert.equal(receipt({ ...part, state: "input-available" }), "Reading your habits…");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't read your habits");
+  assert.equal(receipt({ ...part, state: "output-available", output: {} }), "Couldn't read your habits");
+  assert.deepEqual(shownParts([{ ...part, state: "output-available", output: { habits: [{ name: "Walk" }] } }]), [
+    { key: "habits", receipt: "Read your habits (1)", calls: 1, href: "/habits", read: true },
+  ]);
+  assert.equal(receipt({ ...part, state: "output-available", output: { habits: [] } }), "Read your habits (0)");
+});
+
+
+for (const [type, action, period, label] of [
+  ["createHabit", undefined, "day", "Created habit 'Walk'"],
+  ["trackHabit", "did", "day", "Tracked 'Walk' for Thu, Oct 8"],
+  ["trackHabit", "markDone", "day", "Tracked 'Walk' for Thu, Oct 8"],
+  ["trackHabit", "undo", "day", "Undid 'Walk' for Thu, Oct 8"],
+  ["trackHabit", "didnt", "day", "Undid 'Walk' for Thu, Oct 8"],
+  ["trackHabit", "did", "week", "Tracked 'Walk' for the week of Oct 5"],
+  ["trackHabit", "undo", "week", "Undid 'Walk' for the week of Oct 5"],
+] as const) {
+  test(`${type} ${action ?? "create"} ${period} receipt links to Habits and survives serialization`, () => {
+    const part = { type: `tool-${type}`, toolCallId: "habit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Walk", href: "/habits", period, day: period === "day" ? "2026-10-08" : "2026-10-05", action, changed: true, previousCount: 8, ...(action === "undo" ? { undoes: "original-operation" } : {}) } };
+    const expected = [{ key: "habit", receipt: label, calls: 1, href: "/habits" }];
+    assert.deepEqual(shownParts([part]), expected);
+    assert.deepEqual(shownParts(JSON.parse(JSON.stringify([part]))), expected);
+    for (const bad of [
+      { ...part, state: "output-error" },
+      { ...part, output: { ...part.output, refused: true } },
+      { ...part, output: { ...part.output, id: "invalid" } },
+      { ...part, output: { ...part.output, href: "https://untrusted.invalid" } },
+      { ...part, output: {} },
+    ]) assert.deepEqual(shownParts([bad]), [{ key: "habit", receipt: type === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit", calls: 1 }]);
+  });
+}
+
+test("an empty Bad didnt is shown as unchanged, without claiming a write", () => {
+  assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Smoking", href: "/habits", period: "day", day: "2026-10-08", action: "didnt", changed: false } }), "No change to 'Smoking' for Thu, Oct 8");
+});
+
+test("markDone at or above the goal is shown as unchanged, not tracked", () => {
+  assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Pages", href: "/habits", period: "week", day: "2026-10-05", action: "markDone", changed: false } }), "No change to 'Pages' for the week of Oct 5");
+});
+
+test("habit receipts word the saved day against the viewer's Today at render", () => {
+  const out = (period: "day" | "week", day: string, today?: string | null, action = "did", changed = true) => receipt({ type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period, day, action, changed } }, today);
+  assert.equal(out("day", "2026-10-17", "2026-10-18", "undo"), "Undid 'Reading' for yesterday");
+  assert.equal(out("day", "2026-09-30", "2026-10-01"), "Tracked 'Reading' for yesterday");
+  assert.equal(out("day", "2026-10-18", null), "Tracked 'Reading' for Sun, Oct 18");
+  assert.equal(out("day", "2026-10-18"), "Tracked 'Reading' for Sun, Oct 18");
+  assert.equal(out("day", "2026-10-18", "not-a-day"), "Tracked 'Reading' for Sun, Oct 18");
+  assert.equal(out("week", "2026-10-12", "2026-10-12"), "Tracked 'Reading' for this week");
+  assert.equal(out("week", "2026-10-12", "2026-10-18", "markDone", false), "No change to 'Reading' for this week");
+  assert.equal(out("week", "2026-10-12", null), "Tracked 'Reading' for the week of Oct 12");
+});
+
+test("one saved receipt read the same day, the next day and a week later", () => {
+  const part = JSON.parse(JSON.stringify({ type: "tool-trackHabit", toolCallId: "t", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Reading", href: "/habits", period: "day", day: "2026-10-16", action: "markDone", changed: false } }));
+  assert.equal(receipt(part, "2026-10-16"), "No change to 'Reading' for today");
+  assert.equal(receipt(part, "2026-10-17"), "No change to 'Reading' for yesterday");
+  assert.equal(receipt(part, "2026-10-23"), "No change to 'Reading' for Fri, Oct 16");
+  // The stored output holds the absolute day only, never the word.
+  assert.deepEqual(Object.keys(part.output).sort(), ["action", "changed", "day", "href", "id", "name", "period"]);
+});
+
+test("a weekly receipt says this week only during its week", () => {
+  const part = { type: "tool-trackHabit", state: "output-available", output: { id: "11111111-1111-4111-8111-111111111111", name: "Long run", href: "/habits", period: "week", day: "2026-10-05", action: "did", changed: true } };
+  for (const today of ["2026-10-05", "2026-10-08", "2026-10-11"]) assert.equal(receipt(part, today), "Tracked 'Long run' for this week", today);
+  for (const today of ["2026-10-12", "2026-10-04"]) assert.equal(receipt(part, today), "Tracked 'Long run' for the week of Oct 5", today);
+});
+
+test("the Daily close read line uses the same words", () => {
+  const part = { type: "tool-listHabits", state: "output-available", output: { habits: [{}, {}], day: "2026-10-08" } };
+  assert.equal(receipt(part, "2026-10-09"), "Read your habits for yesterday (2)");
+  assert.equal(receipt(part, "2026-10-08"), "Read your habits for today (2)");
+  assert.equal(receipt(part, "2026-10-20"), "Read your habits for Thu, Oct 8 (2)");
+  assert.equal(receipt(part), "Read your habits for Thu, Oct 8 (2)");
+  assert.deepEqual(shownParts([part], "2026-10-09").map((p) => "receipt" in p && p.receipt), ["Read your habits for yesterday (2)"]);
+});
+
+test("only read receipts are marked read, so writes are the only action-styled lines", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const shown = shownParts([
+    { type: "tool-listHabits", toolCallId: "r", state: "output-available", output: { habits: [] } },
+    { type: "tool-trackHabit", toolCallId: "w", state: "output-available", output: { id, name: "Walk", href: "/habits", period: "day", day: "2026-10-08", action: "did", changed: true } },
+  ]);
+  assert.deepEqual(shown.map((part) => "receipt" in part && part.read === true), [true, false]);
+});
+
+test("setCount receipts preserve total and unchanged date words after reload", () => {
+  for (const [period, day, words, count] of [["day", "2026-10-08", "today", 4], ["week", "2026-10-05", "this week", 120]] as const) {
+    for (const changed of [true, false]) {
+      const part = { type: "tool-trackHabit", state: "output-available", output: { id: "00000000-0000-4000-8000-000000000001", name: "Cigarettes", period, day, count, changed, action: "setCount", href: "/habits" } };
+      const line = changed ? `Set 'Cigarettes' to ${count} for ${words}` : `No change to 'Cigarettes' for ${words}`;
+      assert.equal(receipt(part, "2026-10-08"), line);
+      assert.equal(receipt(JSON.parse(JSON.stringify(part)), "2026-10-08"), line);
+    }
+  }
+});

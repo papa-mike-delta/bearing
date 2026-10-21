@@ -2,16 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { countUnfinishedHabits, createHabit, deleteHabit, HabitError, setHabitDay } from "../../lib/habits";
+import type { HabitEdit } from "@repo/domain";
+import { setHabitCount, changeHabitDayCount, countUnfinishedHabits, createHabit, deleteHabit, editHabit, moveHabit, HabitError, setHabitDay } from "../../lib/habits";
 
 function failure(error: unknown, fallback: string) {
   return { error: error instanceof HabitError ? error.message : fallback };
 }
 
-export async function addHabit(name: string) {
+export async function addHabit(name: string, trackMode: "once" | "many" = "once", goalCount: number | null = null, bad = false, period: "day" | "week" = "day") {
   const user = await requireUser();
   try {
-    await createHabit(user.id, name);
+    await createHabit(user.id, { name, period, trackMode, goalCount, bad });
     revalidatePath("/habits");
     return { ok: true };
   } catch (error) { return failure(error, "Could not add the habit. Please try again."); }
@@ -26,6 +27,24 @@ export async function markHabitDay(habitId: string, day: string, checked: boolea
   } catch (error) { return failure(error, "Could not save. Please try again."); }
 }
 
+export async function countHabitDay(habitId: string, day: string, delta: 1 | -1, today: string) {
+  const user = await requireUser();
+  try {
+    const progress = await changeHabitDayCount(user.id, habitId, day, delta, today);
+    revalidatePath("/habits");
+    return progress;
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
+export async function setHabitDayCount(habitId: string, day: string, count: number, today: string) {
+  const user = await requireUser();
+  try {
+    const progress = await setHabitCount(user.id, habitId, day, count, today);
+    if (progress.changed) revalidatePath("/habits");
+    return progress;
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
 export async function removeHabit(habitId: string) {
   const user = await requireUser();
   try {
@@ -33,6 +52,24 @@ export async function removeHabit(habitId: string) {
     revalidatePath("/habits");
     return { ok: true };
   } catch { return { error: "Could not delete. Please try again." }; }
+}
+
+export async function saveHabit(habitId: string, changes: HabitEdit, today: string) {
+  const user = await requireUser();
+  try {
+    await editHabit(user.id, habitId, changes, today);
+    revalidatePath("/habits");
+    return { ok: true };
+  } catch (error) { return failure(error, "Could not save. Please try again."); }
+}
+
+export async function reorderHabit(habitId: string, direction: "up" | "down") {
+  const user = await requireUser();
+  try {
+    await moveHabit(user.id, habitId, direction);
+    revalidatePath("/habits");
+    return { ok: true };
+  } catch (error) { return failure(error, "Could not move the habit. Please try again."); }
 }
 
 export async function unfinishedHabits(today: string) {

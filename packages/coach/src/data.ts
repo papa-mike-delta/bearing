@@ -2,7 +2,7 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
-import type { FileDraftInput, FiledDraft } from "@repo/domain";
+import type { FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
@@ -13,7 +13,27 @@ export type ListedTask = {
   isNext: boolean;
 };
 
+export type ListedHabit = HabitTracking & {
+  id: string;
+  name: string;
+  count: number;
+  done: boolean;
+  streak: number | null;
+  record: number | null;
+};
+
+export type HabitWriteState = ListedHabit & { due: boolean };
+export type HabitAction = "did" | "undo" | "didnt" | "markDone" | "setCount";
+export type HabitOperation = { source: "coach"; operationId: string; today: string };
+export type HabitTrackResult = HabitWriteState & { day: string; action: HabitAction; changed: boolean; previousCount?: number; undoes?: string };
+// An undo Bearing declined with a question (nothing of the Coach's to undo,
+// or the count changed since). Nothing is written, not even the ledger.
+export type HabitUndoRefusal = { refused: true; reason: "nothingToUndo" | "changedSince"; id: string; name: string; period: "day" | "week"; day: string; action: "undo"; count: number; question: string };
+
 export type CoachData = {
+  createHabit?(userId: string, input: HabitTracking & { name: string } & HabitOperation): Promise<HabitWriteState>;
+  trackHabit?(userId: string, input: { habitId: string; day: string; action: HabitAction; count?: number } & HabitOperation): Promise<HabitTrackResult | HabitUndoRefusal>;
+  listHabits?(userId: string, today: string): Promise<ListedHabit[]>;
   getMood(userId: string, day: string): Promise<CoachMood | null>;
   readJournalDay?(userId: string, day: string): Promise<{ day: string; body: string; truncated: boolean }>;
   getJournalTemplate?(userId: string): Promise<{ template: string }>;

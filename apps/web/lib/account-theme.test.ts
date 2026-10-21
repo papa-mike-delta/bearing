@@ -6,6 +6,7 @@ import {
   builtInThemes,
   defaultAccountTheme,
   importError,
+  isLegacyPreset,
   importNotice,
   isBuiltInThemeId,
   maxPresetInputLength,
@@ -161,7 +162,9 @@ test("a b-prefixed string that isn't a preset code is rejected", () => {
 
 test("a preset input longer than 512 characters is rejected", () => {
   assert.equal(maxPresetInputLength, 512);
-  assert.equal(readPreset("b".repeat(513)), null);
+  const padded = "b1sACkXE8".padEnd(512, " ");
+  assert.equal(readPreset(padded), "b1sACkXE8");
+  assert.equal(readPreset(padded + " "), null);
 });
 
 test("a stored block longer than 8192 characters is rejected", () => {
@@ -202,6 +205,8 @@ test("the account lists the six themes by their spec names in sentence case, and
     ],
   );
   const choices = themeChoices(defaultAccountTheme);
+  // No import, no import chip.
+  assert.equal(choices.some((choice) => choice.id === "imported"), false);
   assert.deepEqual(
     choices.map((choice) => [choice.id, choice.name]),
     [
@@ -270,13 +275,11 @@ test("a built-in paints over a stored import, and imported paints it again", () 
   assert.equal(themeDeclarations(back, "light"), imported.light);
   assert.equal(themeDeclarations(back, "dark"), imported.dark);
   const whileNavy = themeChoices(navy);
-  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.name, "Imported");
-  assert.equal(whileNavy.find((choice) => choice.id === "imported")?.selected, false);
+  assert.deepEqual(whileNavy.filter((choice) => choice.id === "imported"), [{ id: "imported", name: "My theme", selected: false }]);
   assert.equal(whileNavy.find((choice) => choice.id === "navy")?.selected, true);
-  assert.equal(
-    themeChoices(back).find((choice) => choice.id === "imported")?.selected,
-    true,
-  );
+  const whileImported = themeChoices(back);
+  assert.deepEqual(whileImported.filter((choice) => choice.id === "imported"), [{ id: "imported", name: "My theme", selected: true }]);
+  assert.equal(whileImported.filter((choice) => choice.selected).length, 1);
 });
 
 test("miscased ids and display names are not built-in ids", () => {
@@ -297,3 +300,11 @@ test("miscased ids and display names are not built-in ids", () => {
   assert.equal(isBuiltInThemeId("imported"), false);
 });
 
+
+test("theme imports require HTTPS and explain legacy codes", () => {
+  assert.equal(readPreset("http://ui.shadcn.com/create?preset=b1sACkXE8"), null);
+  assert.equal(isLegacyPreset("abc123"), true);
+  assert.equal(isLegacyPreset("https://ui.shadcn.com/create?preset=abc123"), true);
+  assert.match(importError("theme-legacy")!, /older theme code/);
+  assert.equal(isLegacyPreset("b1sACkXE8"), false);
+});

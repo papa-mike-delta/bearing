@@ -92,7 +92,7 @@ export async function closeProgress(userId: string, threadId: string, day: strin
         sql`exists (select 1 from ${journalOperations}
           where ${journalOperations.userId} = ${userId} and ${journalOperations.day} = ${day}
             and ${journalOperations.source} = 'coach'
-            and ${journalOperations.operationId} ~ ('^' || ${coachMessages.id}::text || ':' || ${day} || ':[1-9][0-9]*$'))`,
+            and ${journalOperations.operationId} ~ ('^' || ${coachMessages.id}::text || ':(' || ${day} || '|appendJournal:[a-f0-9]{32}):[1-9][0-9]*$'))`,
       ))
       .orderBy(asc(coachMessages.createdAt), asc(coachMessages.id)).limit(20),
     db.select({ draftId: draftFilings.draftId, kind: draftFilings.kind, notebookId: draftFilings.notebookId, createdAt: draftFilings.createdAt }).from(draftFilings)

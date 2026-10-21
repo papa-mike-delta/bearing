@@ -88,9 +88,10 @@ try {
   }
 } catch (error) {
   console.error(
-    "db migrate: failed; the pending migrations were rolled back. See the error below",
+    "db migrate: failed; the pending migrations were rolled back. See the safe error summary below",
   );
-  console.error(error);
+  const metadata = error instanceof Error ? error as Error & { code?: string; status?: number } : undefined;
+  console.error(JSON.stringify({ name: metadata?.name ?? "Error", code: metadata?.code, status: metadata?.status }));
   process.exitCode = 1;
 } finally {
   try {

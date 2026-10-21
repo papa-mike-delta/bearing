@@ -1,3 +1,5 @@
+import { searchKnowledge } from "@repo/coach/knowledge";
+import { access } from "node:fs/promises";
 import { dailyCloseDay as coachCloseDay } from "./daily-close/index.ts";
 // Coach turns against a real Postgres with a scripted model: no Gateway, no
 // key. Same guard as the isolation suite: needs TEST_POSTGRES_URL, fails in CI
@@ -13,6 +15,9 @@ import { after, before, describe, mock, test } from "node:test";
 import {
   coachMessages,
   drafts,
+  habitMarks,
+  habitOperations,
+  habits,
   createDb,
   notebooks,
   noteOperations,
@@ -43,7 +48,10 @@ import {
   coachTurn,
   historyWindow,
   maxReplyTokens,
+  appliedWritesBlock,
+  checkedResultsBlock,
 } from "./coach-turn.ts";
+import { HabitError, createHabit, editHabit, deleteHabit, listHabits, changeHabitDayCount, setHabitCount, setHabitDay } from "./habits.ts";
 import { coachData, coachTools } from "./coach-tools.ts";
 import { createNotebook, fileDraftAsNote, getNote, listNotes, saveNote } from "./notes.ts";
 import {
@@ -69,6 +77,9 @@ function writeToolsOffered(
     "createTask",
     "completeTask",
     "listArea",
+    "listHabits",
+    "createHabit",
+    "trackHabit",
     "listNotebooks",
     "createNote",
     "appendJournal",
@@ -237,6 +248,9 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
   | { listArea: string; toolCallId?: string }
+  | { listHabits: string; toolCallId?: string }
+  | { createHabit: string; toolCallId?: string }
+  | { trackHabit: string; toolCallId?: string }
   | { listNotebooks: string; toolCallId?: string }
   | { createTask: string; toolCallId?: string }
   | { createNote: string; toolCallId?: string }
@@ -263,6 +277,12 @@ function scripted(...steps: Step[]) {
               input: step.listArea,
               id: step.toolCallId,
             }
+          : "listHabits" in step
+            ? { name: "listHabits" as const, input: step.listHabits, id: step.toolCallId }
+          : "createHabit" in step
+            ? { name: "createHabit" as const, input: step.createHabit, id: step.toolCallId }
+          : "trackHabit" in step
+            ? { name: "trackHabit" as const, input: step.trackHabit, id: step.toolCallId }
           : "listNotebooks" in step
             ? {
                 name: "listNotebooks" as const,
@@ -371,6 +391,18 @@ function failingAfterWrite(toolName: string, input: unknown) {
   } });
 }
 
+function failingAfterWrites(...writes: { toolName: string; input: unknown }[]) {
+  let step = 0;
+  return new MockLanguageModelV4({ doStream: async () => {
+    const write = writes[step++];
+    if (!write) throw new Error("Gateway unavailable after writes");
+    return { stream: simulateReadableStream({ chunks: [
+      { type: "tool-call", toolCallId: `committed_${step}`, toolName: write.toolName, input: JSON.stringify(write.input) },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+    ] }) };
+  } });
+}
+
 const userMessage = (text: string, id: string = randomUUID()): UIMessage => ({
   id,
   role: "user",
@@ -403,20 +435,276 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     return user!.id;
   }
 
-  test("searchKnowledge quotes the 21 days section and does not offer habit tracking", async () => {
+  test("Bad many-times asks without tools, then records stated total, additions, or none", async () => {
+    for (const goalCount of [5, null]) for (const answer of ["4", "2 more", "none"]) {
+      const c = await account();
+      const habit = await createHabit(c, { name: "Cigarettes", trackMode: "many", bad: true, goalCount }, db);
+      await setHabitCount(c, habit.id, "2026-10-09", 2, "2026-10-09", db);
+      const thread = await coachThread(c, db);
+      await turn(c, thread, userMessage("Show Cigarettes"), scripted({ listHabits: "{}" }, { text: "Cigarettes: 2 recorded today." }));
+      const question = `Cigarettes has 2 recorded today${goalCount ? `, with a limit of ${goalCount}` : ""}; marking it done would log unreported lapses. How many times were there in total?`;
+      await turn(c, thread, userMessage("Mark Cigarettes done"), scripted({ text: question }));
+      let messages = (await threadMessages(c, thread, db))!;
+      const ask = messages.at(-1)!;
+      // Normal turns always inject freshRead; the scripted asking reply calls no tools.
+      assert.ok(ask.parts.filter((p) => p.type.startsWith("tool-")).every((p) => p.type === "tool-listArea"));
+      assert.equal(ask.parts.filter((p) => p.type === "text").map((p) => p.text).join(""), question);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 0);
+      const message = userMessage(answer);
+      if (answer === "none") await turn(c, thread, message, scripted({ text: "No changes." }));
+      else {
+        const input = { habitId: habit.id, action: "setCount", count: 4 };
+        await turn(c, thread, message, failingAfterWrite("trackHabit", input));
+        await turn(c, thread, message, scripted({ trackHabit: JSON.stringify(input) }, { text: "Recorded 4 in total today." }));
+      }
+      messages = (await threadMessages(c, thread, db))!;
+      assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, answer === "none" ? 2 : 4);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, answer === "none" ? 0 : 1);
+      const receipts = messages.flatMap((m) => m.parts.flatMap((p) => receipt(p, "2026-10-09") ?? []));
+      assert.equal(receipts.includes("Set 'Cigarettes' to 4 for today"), answer !== "none");
+    }
+  });
+
+  test("stated daily and weekly totals use one setCount without a question and leave two shared slots", async () => {
+    for (const period of ["day", "week"] as const) {
+      const c = await account();
+      const name = period === "day" ? "Water" : "Pages";
+      const count = period === "day" ? 8 : 120;
+      const habit = await createHabit(c, { name, period, trackMode: "many", goalCount: 3 }, db);
+      const thread = await coachThread(c, db);
+      await turn(c, thread, userMessage(period === "day" ? "log 8 glasses" : "I've read 120 pages this week"), scripted(
+        { listHabits: "{}" },
+        { trackHabit: JSON.stringify({ habitId: habit.id, action: "setCount", count }) },
+        { createTask: JSON.stringify({ name: "First" }) },
+        { createTask: JSON.stringify({ name: "Second" }) },
+        { createTask: JSON.stringify({ name: "Fourth write" }) },
+        { text: `Recorded ${count}. Made 3 writes.` },
+      ));
+      assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, count);
+      assert.equal((await openTasks(c, db)).length, 2);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 1);
+      const messages = (await threadMessages(c, thread, db))!;
+      assert.equal(messages.flatMap((m) => m.parts).filter((p) => p.type === "tool-trackHabit").length, 1);
+      assert.ok(messages.flatMap((m) => m.parts).some((p) => receipt(p, "2026-10-09") === `Set '${name}' to ${count} for ${period === "day" ? "today" : "this week"}`));
+    }
+  });
+
+  test("an applied past-day setCount stays visible to the model on the next turn", async () => {
+    const c = await account();
+    const water = await createHabit(c, { name: "Water", period: "day", trackMode: "many", goalCount: 8 }, db);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("I drank 3 glasses of water yesterday"), scripted(
+      { trackHabit: JSON.stringify({ habitId: water.id, action: "setCount", count: 3, day: "2026-10-08" }) },
+      { text: "Recorded 3 for yesterday." },
+    ));
+    // The persisted shape textOnly reads on the next turn.
+    const stored = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-trackHabit") as { state?: string; output?: { changed?: boolean } } | undefined;
+    assert.equal(stored?.state, "output-available");
+    assert.notEqual(stored?.output?.changed, false);
+    const next = scripted({ listHabits: JSON.stringify({ day: "2026-10-08" }) }, { text: "Yes, 3 is recorded." });
+    await turn(c, thread, userMessage("thanks"), next);
+    const seen = promptText(next);
+    assert.match(seen, /Set 'Water' to 3 for/);
+    const system = next.doStreamCalls[0]!.prompt.find((m) => m.role === "system")!.content as string;
+    assert.ok(system.includes("Applied writes in this thread (saved receipts; these happened):\n- Set 'Water' to 3 for Thu, Oct 8"));
+    assert.ok(system.includes("never retract an earlier receipt; only a later write receipt changes it"));
+    assert.ok(seen.includes("Earlier receipts in this thread are real writes"));
+    const read = (await threadMessages(c, thread, db))!.at(-1)!.parts.find((p) => p.type === "tool-listHabits") as { output?: { day?: string; habits?: { name: string; count: number }[] } };
+    assert.equal(read.output?.day, "2026-10-08");
+    assert.equal(read.output?.habits?.find((h) => h.name === "Water")?.count, 3);
+    assert.equal(receipt(read as never, "2026-10-09"), "Read your habits for yesterday (1)");
+  });
+
+  test("an undo refusal is a checked result the next turn keeps, not an applied write", async () => {
+    const c = await account();
+    const water = await createHabit(c, { name: "Water", period: "day", trackMode: "many", goalCount: 8 }, db);
+    const thread = await coachThread(c, db);
+    const before = (await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length;
+    await turn(c, thread, userMessage("undo water"), scripted(
+      { trackHabit: JSON.stringify({ habitId: water.id, action: "undo" }) },
+      { text: "I have no recent Water update to undo. What should the total be?" },
+    ));
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, before);
+    assert.equal((await listHabits(c, "2026-10-09", ["2026-10-09"], db))[0]!.count, 0);
+    const stored = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts).find((p) => p.type === "tool-trackHabit");
+    assert.equal(receipt(stored as never, "2026-10-09"), "Nothing to undo for 'Water' for today");
+    const next = scripted({ text: "You're welcome." });
+    await turn(c, thread, userMessage("thanks"), next);
+    const system = next.doStreamCalls[0]!.prompt.find((m) => m.role === "system")!.content as string;
+    assert.ok(system.includes("Checked results in this thread (nothing written):\n- Nothing to undo for 'Water' for Fri, Oct 9"));
+    assert.ok(!system.includes("Applied writes in this thread"));
+    assert.ok(system.includes("never call them guesses or retract them"));
+  });
+
+  test("content replay survives reordered Journal/habit writes, inserted reads and a new write", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
+    const message = userMessage("Create Walk and save reflection");
+    await turn(c, thread, message, failingAfterWrites(
+      { toolName: "createHabit", input: { name: "Walk" } },
+      { toolName: "appendJournal", input: { text: "Reflection" } },
+    ));
+    const before = (await getJournalDay(c, "2026-10-09", db))!;
+    await turn(c, thread, message, scripted(
+      { listHabits: "{}" },
+      { createHabit: JSON.stringify({ name: "Inserted" }) },
+      { appendJournal: JSON.stringify({ day: "2026-10-09", text: "Reflection" }) },
+      { createHabit: JSON.stringify({ name: " Walk ", period: "day", trackMode: "once", bad: false }) },
+      { text: "Saved." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.revision, before.revision);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Reflection");
+    assert.deepEqual((await listHabits(c, "2026-10-09", [], db)).map(h => h.name).sort(), ["Inserted", "Walk"]);
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 2);
+    const parts = (await threadMessages(c, thread, db))!.at(-1)!.parts;
+    assert.equal(parts.filter(p => p.type === "tool-appendJournal" || p.type === "tool-createHabit").length, 3);
+    assert.ok(!parts.some(p => "state" in p && p.state === "output-error"));
+  });
+
+  test("two identical did calls in a turn both apply and replay after another write moves before them", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const habit = await createHabit(c, "Water", db);
+    await editHabit(c, habit.id, { trackMode: "many", goalCount: 8 }, undefined, db);
+    const message = userMessage("I had water, and again. Create Walk.");
+    const did = { habitId: habit.id, action: "did" };
+    await turn(c, thread, message, failingAfterWrites(
+      { toolName: "trackHabit", input: did }, { toolName: "trackHabit", input: did },
+      { toolName: "createHabit", input: { name: "Walk" } },
+    ));
+    await turn(c, thread, message, scripted(
+      { listHabits: "{}" }, { createHabit: JSON.stringify({ name: "Walk" }) },
+      { trackHabit: JSON.stringify({ ...did, day: "2026-10-09" }) },
+      { trackHabit: JSON.stringify({ ...did, day: "today" }) }, { text: "Recorded twice." },
+    ));
+    assert.equal((await listHabits(c, "2026-10-09", [], db)).find(h => h.id === habit.id)!.count, 2);
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 3);
+    const parts = (await threadMessages(c, thread, db))!.at(-1)!.parts;
+    const results = parts.filter(p => p.type === "tool-trackHabit") as { output: { count: number } }[];
+    assert.deepEqual(results.map(p => p.output.count), [1, 2]);
+  });
+
+  test("explicit habit creation and track receipts survive failed-turn resend, edits, deletion and reload", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Create a habit Walk");
+    const input = { name: "Walk" };
+    await turn(c, thread, message, failingAfterWrite("createHabit", input));
+    await turn(c, thread, message, scripted({ createHabit: JSON.stringify(input), toolCallId: "different_provider_id" }, { text: "Created Walk." }), "2026-10-10");
+    const rows = await listHabits(c, "2026-10-09", [], db);
+    assert.equal(rows.length, 1);
+    const habit = rows[0]!;
+    assert.deepEqual(shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts).filter((part) => "receipt" in part && part.href === "/habits").map((part) => "receipt" in part ? part.receipt : ""), ["Created habit 'Walk'"]);
+    await editHabit(c, habit.id, { trackMode: "many", goalCount: 3 }, undefined, db);
+    const tracking = userMessage("I did Walk");
+    const track = { habitId: habit.id, action: "did" };
+    await turn(c, thread, tracking, failingAfterWrite("trackHabit", track));
+    await editHabit(c, habit.id, { name: "Walk outdoors", goalCount: 1 }, undefined, db);
+    await turn(c, thread, tracking, scripted({ trackHabit: JSON.stringify(track), toolCallId: "changed_track_id" }, { text: "Recorded." }), "2026-10-10");
+    assert.equal((await listHabits(c, "2026-10-09", [], db))[0]!.count, 1);
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 2);
+    const reloaded = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
+    assert.ok(reloaded.some((part) => "receipt" in part && part.receipt === "Tracked 'Walk' for Fri, Oct 9" && part.href === "/habits"));
+    const undoMessage = userMessage("Undo Walk outdoors");
+    await turn(c, thread, undoMessage, failingAfterWrite("trackHabit", { ...track, action: "undo" }));
+    await deleteHabit(c, habit.id, db);
+    const replay = await turn(c, thread, undoMessage, scripted({ trackHabit: JSON.stringify({ ...track, action: "undo" }), toolCallId: "deleted_replay" }, { text: "Already undone." }));
+    assert.ok(!("refused" in replay));
+    assert.ok(shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts).some((part) => "receipt" in part && part.receipt === "Undid 'Walk outdoors' for Fri, Oct 9" && part.href === "/habits"));
+    assert.deepEqual(await listHabits(c, "2026-10-09", [], db), []);
+  });
+
+  test("a fourth habit create or track is refused while earlier mixed writes remain", async () => {
+    for (const fourth of ["createHabit", "trackHabit"] as const) {
+      const c = await account();
+      const thread = await coachThread(c, db);
+      const habit = await createHabit(c, "Existing", db);
+      if (fourth === "createHabit") await createNotebook(c, "Book", db);
+      const model = fourth === "trackHabit" ? scripted(
+        { createTask: JSON.stringify({ name: "Task" }) },
+        { createHabit: JSON.stringify({ name: "New" }) },
+        { appendJournal: JSON.stringify({ text: "Reflection" }) },
+        { trackHabit: JSON.stringify({ habitId: habit.id, action: "did" }) },
+        { text: "I made three writes; the fourth was not done." },
+      ) : scripted(
+        { trackHabit: JSON.stringify({ habitId: habit.id, action: "did" }) },
+        { createNote: JSON.stringify({ notebook: "Book", title: "Note", body: "Text" }) },
+        { setMood: JSON.stringify({ mood: "Good" }) },
+        { createHabit: JSON.stringify({ name: "Fourth" }) },
+        { text: "I made three writes; the fourth was not done." },
+      );
+      await turn(c, thread, userMessage("Create and track these habits and save the requested Task, Note, reflection and Mood"), model);
+      const rows = await listHabits(c, "2026-10-09", [], db);
+      const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
+      assert.ok(parts.some((part) => "receipt" in part && part.receipt === (fourth === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit") && !part.href));
+      assert.match(JSON.stringify(model.doStreamCalls.at(-1)!.prompt), /only 3 .*Habit writes/);
+      assert.equal(rows.find((row) => row.id === habit.id)!.count, fourth === "createHabit" ? 1 : 0);
+      assert.equal(rows.length, fourth === "createHabit" ? 1 : 2);
+      assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 1);
+      if (fourth === "trackHabit") {
+        assert.deepEqual((await openTasks(c, db)).map((row) => row.name), ["Task"]);
+        assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Reflection");
+      } else {
+        assert.equal((await db.select().from(notes).where(eq(notes.userId, c))).length, 1);
+        assert.equal(await getMood(c, "2026-10-09", db), "Good");
+      }
+    }
+  });
+
+  test("Quit smoking and count my cigarettes create Bad habits through inferred inputs without another question", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    for (const [ask, input] of [
+      ["Create a habit: Quit smoking", { name: "Smoking", bad: true }],
+      ["Count my cigarettes", { name: "Cigarettes", bad: true, trackMode: "many" }],
+    ] as const) {
+      await turn(c, thread, userMessage(ask), scripted({ createHabit: JSON.stringify(input) }, { text: `Created ${input.name} and marked it Bad to record lapses.` }));
+    }
+    const rows = await listHabits(c, "2026-10-09", [], db);
+    assert.deepEqual(rows.map(({ name, period, trackMode, goalCount, bad }) => ({ name, period, trackMode, goalCount, bad })), [
+      { name: "Cigarettes", period: "day", trackMode: "many", goalCount: null, bad: true },
+      { name: "Smoking", period: "day", trackMode: "once", goalCount: null, bad: true },
+    ]);
+    assert.ok(textOf(await threadMessages(c, thread, db))!.at(-1)![1]!.includes("marked it Bad"));
+  });
+
+  test("habit refusals never get a success receipt and ambiguous names wait for an id", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    await createHabit(c, "Water", db);
+    await createHabit(c, "Water", db);
+    await turn(c, thread, userMessage("I did Water"), scripted({ listHabits: "{}" }, { text: "Which Water habit do you mean?" }));
+    assert.deepEqual(await db.select().from(habitOperations).where(eq(habitOperations.userId, c)), []);
+    for (const input of [{ name: "Pages", goalCount: 200 }, { name: "Pages", period: "day", goalCount: 100 }, { name: "Pages", period: "week", goalCount: 1000 }, { name: "Water", trackMode: "many" }]) {
+      await turn(c, thread, userMessage("Create this habit"), scripted({ createHabit: JSON.stringify(input) }, { text: "Please clarify the goal or period." }));
+      const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
+      assert.ok(parts.some((part) => "receipt" in part && part.receipt === "Couldn't create that habit" && !part.href));
+    }
+    const habit = (await listHabits(c, "2026-10-09", [], db))[0]!;
+    await turn(c, thread, userMessage("Track Water tomorrow"), scripted({ trackHabit: JSON.stringify({ habitId: habit.id, action: "did", day: "2026-10-10" }) }, { text: "That period is not open yet." }));
+    assert.ok(shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts).some((part) => "receipt" in part && part.receipt === "Couldn't track that habit" && !part.href));
+    assert.deepEqual(await db.select().from(habitOperations).where(eq(habitOperations.userId, c)), []);
+    assert.equal((await listHabits(c, "2026-10-09", [], db)).length, 2);
+  });
+
+  test("searchKnowledge quotes the section and its limits, proposes one habit, then waits for yes", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const article = await searchKnowledge("21 days");
+    assert.ok(article.match);
+    if (!article.match) return;
+    const proposal = `${article.section}\nI propose Water: daily once, not Bad. Shall I create it?`;
     const model = scripted(
       { searchKnowledge: JSON.stringify({ query: "21 days" }) },
-      { text: "There is no fixed number." },
+      { text: proposal },
     );
     await turn(c, thread, userMessage("how long does a habit take?"), model);
     const names = model.doStreamCalls[0]!.tools?.map((tool) => tool.name) ?? [];
     assert.ok(names.includes("searchKnowledge"));
-    assert.equal(names.includes("createHabit"), false);
+    assert.equal(names.includes("createHabit"), true);
     assert.ok(promptText(model).includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
     assert.equal(promptText(model).includes("median of 66 days"), false);
-    assert.ok(promptText(model).includes("Bearing has daily Habits on the Habits page"));
+    assert.ok(promptText(model).includes("Bearing has daily and weekly Habits on the Habits page"));
     const saved = (await threadMessages(c, thread, db))!.flatMap((m) => m.parts);
     const looked = saved.find((p) => p.type === "tool-searchKnowledge" && "output" in p) as { output?: { match?: boolean; heading?: string; section?: string; title?: string } } | undefined;
     assert.equal(looked?.output?.match, true);
@@ -428,6 +716,17 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       "Read your list (0 open)",
       "Looked up 'How long does a habit take? Not 21 days' in Habits",
     ]);
+    assert.ok(JSON.stringify(model.doStreamCalls[1]!.prompt).includes("What this does not mean"));
+    assert.equal(textOf(await threadMessages(c, thread, db))!.at(-1)![1], proposal);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, c)), []);
+    assert.deepEqual(await db.select().from(habitOperations).where(eq(habitOperations.userId, c)), []);
+    assert.deepEqual(await openTasks(c, db), []);
+    assert.ok(promptText(model).includes("Wait for the person to say yes"));
+    assert.ok(names.includes("readSkill"));
+    await access(new URL("../../../packages/coach/skills/habit-design.md", import.meta.url));
+    await turn(c, thread, userMessage("Yes"), scripted({ createHabit: JSON.stringify({ name: "Water" }) }, { text: "Created." }));
+    assert.equal((await listHabits(c, "2026-10-09", [], db)).length, 1);
+    assert.deepEqual(await openTasks(c, db), []);
   });
 
   test("Daily close normalizes mood labels before executing a single successful call", async () => {
@@ -533,6 +832,31 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     }
   });
 
+  test("a normal turn reads today's owned habits and saves a linked read receipt", async () => {
+    const c = await account();
+    const other = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    const many = await createHabit(c, { name: "Water", trackMode: "many", goalCount: 3 }, db);
+    const once = await createHabit(c, "Walk", db);
+    await createHabit(other, "Someone else's habit", db);
+    await changeHabitDayCount(c, many.id, day, 1, day, db);
+    await setHabitDay(c, once.id, day, true, day, db);
+    const model = scripted({ listHabits: JSON.stringify({ userId: other, today: "2026-10-09" }) }, { text: "Water is at one of three." });
+    await turn(c, thread, userMessage("How are my habits?"), model, day);
+    assert.ok(model.doStreamCalls[0]!.tools?.some((tool) => tool.name === "listHabits"));
+    const parts = (await threadMessages(c, thread, db))!.flatMap((message) => message.parts);
+    const read = parts.find((part) => part.type === "tool-listHabits" && "output" in part);
+    assert.ok(read && "output" in read);
+    const rows = (read.output as { habits: { id: string; count: number; done: boolean; streak: number | null }[] }).habits;
+    assert.equal(rows.length, 2);
+    assert.equal(rows.find((row) => row.id === many.id)?.count, 1);
+    assert.equal(rows.find((row) => row.id === many.id)?.done, false);
+    assert.equal(rows.find((row) => row.id === once.id)?.done, true);
+    assert.equal(rows.find((row) => row.id === once.id)?.streak, 1);
+    assert.ok(shownParts([read]).some((part) => "receipt" in part && part.receipt === "Read your habits (2)" && part.href === "/habits"));
+  });
+
   test("finishing Daily close hides the banner mode and restores normal tools on the next turn", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
@@ -588,9 +912,79 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(await getJournalDay(c, "2026-10-09", db), null);
     assert.equal(await getMood(c, "2026-10-09", db), null);
     assert.deepEqual(model.doStreamCalls[0]!.tools?.map((tool) => tool.name).sort(), [
-      "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
+      "appendJournal", "fileDraft", "finishDailyClose", "getJournalTemplate", "listHabits", "listInboxDrafts", "listNotebooks", "readJournalDay", "readJournalingArticle", "setMood",
     ]);
     assert.equal(readIn(await threadMessages(c, thread, db)), undefined);
+  });
+
+  test("Daily close has no handler for emitted habit writes", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const habit = await createHabit(c, "Walk", db);
+    const before = await db.select().from(habits).where(eq(habits.userId, c));
+    for (const emitted of [
+      { createHabit: JSON.stringify({ name: "Unwanted" }) },
+      { trackHabit: JSON.stringify({ habitId: habit.id, day: "2026-10-09", count: 1 }) },
+    ]) {
+      const model = scripted(emitted, { text: "You can mark habits on the Habits page." });
+      await turn(c, thread, userMessage("Daily close"), model);
+      const names = model.doStreamCalls[0]!.tools?.map((tool) => tool.name);
+      assert.ok(!names?.includes("createHabit"));
+      assert.ok(!names?.includes("trackHabit"));
+      // The SDK reports an absent handler, rather than executing a hidden write.
+      assert.match(JSON.stringify(model.doStreamCalls[1]!.prompt), /(?:not available|NoSuchToolError)/i);
+      assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, c)), before);
+      assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), []);
+    }
+  });
+
+  test("Daily close orders mood, habits, then drafts; skipping habits writes nothing and filing and finish still work", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const day = "2026-10-08";
+    const habit = await createHabit(c, "Walk", db);
+    await captureDraft(c, "A quiet evening", db);
+    const [draft] = await inboxDrafts(c, db);
+    await turn(c, thread, userMessage("Daily close"), replying("What went well?"), "2026-10-09", undefined, day);
+    await turn(c, thread, userMessage("skip"), replying("What mood would you choose?"));
+    const review = scripted(
+      { setMood: JSON.stringify({ day, mood: "Good" }) },
+      { listHabits: "{}" },
+      { text: "Walk is still due. You can mark it in [Habits](/habits), or skip." },
+    );
+    await turn(c, thread, userMessage("Good"), review);
+    assert.match(promptText(review), /reflection questions, mood, habits, Inbox drafts, then finishDailyClose/);
+    const reviewed = (await threadMessages(c, thread, db))!.at(-1)!;
+    assert.deepEqual(reviewed.parts.filter((part) => part.type.startsWith("tool-")).map((part) => part.type), ["tool-setMood", "tool-listHabits"]);
+    assert.ok(shownParts(reviewed.parts, day).some((part) => "receipt" in part && part.receipt === "Read your habits for today (1)" && part.href === "/habits"));
+    const habitBefore = await db.select().from(habits).where(eq(habits.userId, c));
+    const skip = scripted(
+      { appendJournal: JSON.stringify({ day, text: "skip" }) },
+      { setMood: JSON.stringify({ day, mood: "Okay" }) },
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day } }) },
+      { listInboxDrafts: "{}" },
+      { text: `File "A quiet evening" in the Journal for ${day}?` },
+    );
+    await turn(c, thread, userMessage("skip"), skip);
+    assert.equal(await getJournalDay(c, day, db), null);
+    assert.equal(await getMood(c, day, db), "Good");
+    assert.equal((await inboxDrafts(c, db)).length, 1);
+    assert.deepEqual(await db.select().from(habits).where(eq(habits.userId, c)), habitBefore);
+    assert.deepEqual(await db.select().from(habitMarks).where(eq(habitMarks.habitId, habit.id)), []);
+    const complete = scripted(
+      { fileDraft: JSON.stringify({ draftId: draft!.id, destination: { kind: "journal", day } }) },
+      { finishDailyClose: "{}" },
+      { text: "Mood Good was saved, and your draft was filed." },
+    );
+    await turn(c, thread, userMessage("Yes"), complete);
+    assert.equal((await inboxDrafts(c, db)).length, 0);
+    assert.equal((await getJournalDay(c, day, db))!.body, "A quiet evening");
+    assert.equal(await coachCloseDay(c, thread, db), null);
+    const progress = promptText(complete).split("Close progress (data)")[1]!.split("Template data")[0]!;
+    assert.doesNotMatch(progress, /Walk/);
+    const reloaded = (await threadMessages(c, thread, db))!;
+    const successful = reloaded.flatMap((message) => message.parts).filter((part) => "state" in part && part.state === "output-available").map((part) => part.type);
+    assert.deepEqual(successful, ["tool-setMood", "tool-listHabits", "tool-listInboxDrafts", "tool-fileDraft", "tool-finishDailyClose"]);
   });
 
   test("Daily close start, skip and cancel reject writes; answers and explicit mood stay on the selected day", async () => {
@@ -1423,7 +1817,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"));
   });
 
-  test("a resend that changes the reflection by one character leaves the body and has no success receipt", async () => {
+  test("different reflection content on resend has its own identity", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const message = userMessage("Append: Long walk, felt calmer.");
@@ -1433,8 +1827,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       { appendJournal: JSON.stringify({ text: "Long walk, felt calmer" }), toolCallId: "changed_one_character" },
       { text: "Saved." },
     ));
-    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.");
-    assert.equal(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"), false);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.\n\nLong walk, felt calmer");
+    assert.equal(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"), true);
   });
 
   test("two different appendJournal calls in one turn both save", async () => {
@@ -2220,7 +2614,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     writeToolsOffered(model.doStreamCalls[0]!);
   });
 
-  test("a failed turn logs one coach.turn.error line with the provider's message and status, and nothing private", async () => {
+  test("a failed turn logs one coach.turn.error line with safe metadata and status, and nothing private", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const model = new MockLanguageModelV4({
@@ -2251,12 +2645,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
           threadId: thread,
           model: "mock-model-id",
           error: "AI_APICallError",
-          message: `${"x".repeat(350)}: Expected thinking`.slice(0, 300),
           status: 400,
         },
       ],
     );
-    assert.equal(JSON.parse(lines[0]!).message.length, 300);
+    assert.equal(JSON.parse(lines[0]!).message, undefined);
+    assert.ok(!lines[0]!.includes("Expected thinking"));
     for (const secret of [c, "What's on my list?"]) {
       assert.ok(!lines[0]!.includes(secret), secret);
     }
@@ -3069,4 +3463,49 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       assert.ok(!lines.join("\n").includes(secret), secret);
     }
   });
+});
+
+test("appliedWritesBlock ignores readSkill parts", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-readSkill", toolCallId: "a", state: "output-available", input: { name: "habit-design" }, output: "# habit-design\n\nbody" },
+    { type: "tool-readSkill", toolCallId: "b", state: "output-available", input: { name: "x" }, output: "unknown skill" },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+});
+
+test("fake CoachData undo refusals return a neutral receipt and release their write slot; an applied undo uses one", async () => {
+  const habitId = randomUUID();
+  const context = { userId: randomUUID(), messageId: randomUUID(), today: "2026-10-09" };
+  const refusals = [
+    { reason: "changedSince" as const, count: 6, question: "'Water' has changed since my last update (now 6). What should the total be?", line: "'Water' has changed since (now 6)" },
+    { reason: "nothingToUndo" as const, count: 0, question: "I have no update of mine to undo for 'Water' for today. What should the total be?", line: "Nothing to undo for 'Water' for today" },
+  ];
+  let calls = 0;
+  const tools = coachTools({
+    ...unusedWrites,
+    listOpenTasks: async () => [],
+    trackHabit: async (_userId, input) => {
+      const refusal = refusals[calls++];
+      if (refusal) return { refused: true, reason: refusal.reason, id: habitId, name: "Water", period: "day", day: input.day, action: "undo", count: refusal.count, question: refusal.question };
+      return { id: habitId, name: "Water", period: "day", trackMode: "many", goalCount: 5, bad: false,
+        day: input.day, action: input.action, count: 3, changed: true, previousCount: 8, undoes: randomUUID(), done: false, due: true, streak: null, record: null };
+    },
+  });
+  const execute = async () => tools.trackHabit.execute!({ habitId, action: "undo" }, { context, toolCallId: randomUUID(), messages: [] });
+  for (const refusal of refusals) {
+    const output = await execute() as { refused?: boolean; question?: string };
+    assert.equal(output.refused, true);
+    assert.equal(output.question, refusal.question);
+    const part = { type: "tool-trackHabit", toolCallId: randomUUID(), state: "output-available", output };
+    assert.equal(receipt(part, context.today), refusal.line);
+    const message = { id: "m", role: "assistant", parts: [part] } as unknown as UIMessage;
+    assert.equal(appliedWritesBlock([message]), "");
+    assert.match(checkedResultsBlock([message]), /Checked results in this thread \(nothing written\)/);
+  }
+  for (let i = 0; i < 3; i++) {
+    const output = await execute();
+    assert.equal(receipt({ type: "tool-trackHabit", state: "output-available", output }, context.today), "Undid 'Water' for today");
+  }
+  await assert.rejects(execute(), /only 3 .* writes per reply/);
+  assert.equal(calls, 5);
 });

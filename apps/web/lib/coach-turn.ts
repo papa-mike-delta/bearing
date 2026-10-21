@@ -1,6 +1,8 @@
 import {
   type CoachData,
   CloseRefusal,
+  receipt,
+  coachReadToolTypes,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -125,7 +127,7 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: prepared.system,
+    system: prepared.system + appliedWritesBlock(prepared.prior) + checkedResultsBlock(prepared.prior),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: prepared.toolsContext,
@@ -188,12 +190,58 @@ export async function coachTurn({
 // step markers and blank text. A reply left with nothing is dropped, and
 // back-to-back messages from one side are joined (a message whose reply
 // failed, then the next one), so the thread alternates as providers expect.
+
+// The successful write receipts of one stored message, with absolute dates
+// (no today passed). Reads and failed, refused or unchanged writes go.
+function appliedReceipts(message: UIMessage): string[] {
+  return message.parts.flatMap((part) => {
+    if (!part.type.startsWith("tool-") || coachReadToolTypes.has(part.type)) return [];
+    const tool = part as { type: string; state?: string; output?: unknown };
+    if (tool.state !== "output-available") return [];
+    const output = tool.output as Record<string, unknown> | null | undefined;
+    if (output && typeof output === "object" && (output.refused || output.notFound || output.invalidId || output.changed === false)) return [];
+    const line = receipt(tool);
+    return line ? [line] : [];
+  });
+}
+
+// Saved receipts from the reloaded thread, for the system prompt: the model
+// trusts the system prompt over a line written in its own voice.
+export function appliedWritesBlock(messages: UIMessage[], max = 10): string {
+  const lines = messages.filter((m) => m.role === "assistant").flatMap(appliedReceipts).slice(-max);
+  return lines.length ? `\n\nApplied writes in this thread (saved receipts; these happened):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
+}
+
+// Refused and No-change results from the reloaded thread: checks that wrote
+// nothing. They are true too, so the next turn never calls them guesses.
+function checkedReceipts(message: UIMessage): string[] {
+  return message.parts.flatMap((part) => {
+    if (!part.type.startsWith("tool-") || coachReadToolTypes.has(part.type)) return [];
+    const tool = part as { type: string; state?: string; output?: unknown };
+    if (tool.state !== "output-available") return [];
+    const output = tool.output as Record<string, unknown> | null | undefined;
+    if (!output || typeof output !== "object" || !(output.refused === true || output.changed === false)) return [];
+    const line = receipt(tool);
+    return line ? [line] : [];
+  });
+}
+
+export function checkedResultsBlock(messages: UIMessage[], max = 10): string {
+  const lines = messages.filter((m) => m.role === "assistant").flatMap(checkedReceipts).slice(-max);
+  return lines.length ? `\n\nChecked results in this thread (nothing written):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
+}
+
 function textOnly(messages: UIMessage[]) {
   const said: UIMessage[] = [];
   for (const message of messages) {
-    const parts = message.parts.filter(
+    const parts: UIMessage["parts"] = message.parts.filter(
       (part) => part.type === "text" && part.text.trim(),
     );
+    // Earlier applied writes stay visible as one line, with absolute dates.
+    if (message.role === "assistant") {
+      const lines = appliedReceipts(message);
+      if (lines.length) parts.push({ type: "text", text: `[Receipts: ${lines.join("; ")}]` });
+    }
     if (!parts.length) continue;
     const last = said.at(-1);
     if (last?.role === message.role) last.parts.push(...parts);
@@ -292,25 +340,17 @@ function logTurn(
   );
 }
 
-// One line when a turn fails, for the runtime logs: the error's name, its
-// message and HTTP status (a provider or Gateway refusal carries both). No
-// user id, no request body, nothing the person wrote.
+// Provider messages can contain private prompt text. Log metadata only.
 function logTurnError(threadId: string, model: LanguageModel, error: unknown, event = "coach.turn.error") {
-  const { name, message, statusCode } =
-    error instanceof Error
-      ? (error as Error & { statusCode?: number })
-      : { name: "Error", message: String(error), statusCode: undefined };
-  console.error(
-    JSON.stringify({
-      event,
-      threadId,
-      model: typeof model === "string" ? model : model.modelId,
-      error: name,
-      // Providers sometimes echo a fragment of the prompt; keep the line short.
-      message: message.slice(0, 300),
-      status: statusCode,
-    }),
-  );
+  const metadata = error instanceof Error ? error as Error & { statusCode?: number; code?: string } : undefined;
+  console.error(JSON.stringify({
+    event,
+    threadId,
+    model: typeof model === "string" ? model : model.modelId,
+    error: metadata?.name ?? "Error",
+    code: metadata?.code,
+    status: metadata?.statusCode,
+  }));
 }
 
 async function readToEnd(stream: ReadableStream) {

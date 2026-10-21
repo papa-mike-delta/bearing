@@ -30,12 +30,13 @@ export type ShownTurn = {
 export function shownThread(
   messages: readonly ThreadMessage[],
   stoppedUserMessageIds: readonly string[],
+  today?: string | null,
 ): ShownTurn[] {
   const stopped = new Set(stoppedUserMessageIds);
   const turns: ShownTurn[] = [];
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!;
-    const parts = shownParts(message.parts);
+    const parts = shownParts(message.parts, today);
     const stoppedReply = isStoppedReply(messages, i, stopped);
     if (parts.length || stoppedReply) {
       turns.push({

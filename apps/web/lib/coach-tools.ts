@@ -4,6 +4,7 @@ import { getMood, setMood as setMoodRow } from "./mood.ts";
 import { appendJournal as appendJournalRow, getJournalDay, getJournalTemplate } from "./journal.ts";
 import { listInboxDrafts as inboxRows } from "./drafts.ts";
 import { fileDraft as fileDraftRow } from "./draft-filing/index.ts";
+import { createCoachHabit, trackCoachHabit, listHabits as habitRows } from "./habits.ts";
 import type { Db } from "./db.ts";
 import { addTask, completeTask as completeTaskRow, listForCoach, scheduleOn, updateOpenTask } from "./tasks.ts";
 import { createNote as createNoteRow, listNotebooks as notebookRows } from "./notes.ts";
@@ -14,6 +15,16 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    async listHabits(userId, browserToday) {
+      // Habits page order: Daily by position, then Weekly by position.
+      // Use the requested day
+      // (browser Today or close day) for daily counts and the containing week.
+      const rows = await habitRows(userId, browserToday, [browserToday], db);
+      return rows.map(({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }) =>
+        ({ id, name, period, trackMode, goalCount, bad, count, done, streak, record }));
+    },
+    createHabit(userId, input) { return createCoachHabit(userId, input, db); },
+    trackHabit(userId, input) { return trackCoachHabit(userId, input, db); },
     getMood(userId, day) { return getMood(userId, day, db); },
     async readJournalDay(userId, day) {
       const entry = await getJournalDay(userId, day, db);

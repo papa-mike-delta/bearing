@@ -10,6 +10,7 @@ import { requireUser, signIn, signOut } from "../auth";
 import {
   defaultAccountTheme,
   readPreset,
+  isLegacyPreset,
   takeImport,
 } from "../lib/account-theme";
 import {
@@ -76,18 +77,8 @@ export async function importAccountTheme(formData: FormData) {
   const user = await requireUser();
   const input = String(formData.get("preset") ?? "");
   const code = readPreset(input);
-  if (!code) redirect("/account?error=theme");
-  let blocks: { light: string; dark: string } | null = null;
-  try {
-    blocks = await expandPreset(code);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "account.theme.error",
-        error: error instanceof Error ? error.name : typeof error,
-      }),
-    );
-  }
+  if (!code) redirect(isLegacyPreset(input) ? "/account?error=theme-legacy" : "/account?error=theme");
+  const blocks = expandPreset(code);
   const result = takeImport(defaultAccountTheme, input, blocks);
   if (result.error || result.account.choice !== "imported") {
     redirect("/account?error=theme-failed");

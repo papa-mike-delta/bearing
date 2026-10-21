@@ -1,10 +1,16 @@
 import {
   appendJournal,
+  coachWriteKey,
+  readSkill,
+  habitDesignAllowedTools,
+  createHabit,
+  trackHabit,
   fileDraft,
   listInboxDrafts,
   completeTask,
   createNote,
   listNotebooks,
+  listHabits,
   createTask,
   listArea,
   maxCreatesPerTurn,
@@ -27,6 +33,7 @@ import { z } from "zod";
 import { DraftError } from "./draft-filing/index.ts";
 import { JournalError } from "./journal.ts";
 import { MoodError } from "./mood.ts";
+import { HabitError } from "./habits.ts";
 import { NoteError } from "./notes.ts";
 import { isJournalDay } from "./journal-day.ts";
 
@@ -45,7 +52,7 @@ type Context = z.infer<typeof toolContext>;
 const caps = {
   write: {
     max: maxCreatesPerTurn,
-    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal or Mood writes per reply.`,
+    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal, Mood, filing or Habit writes per reply.`,
   },
   complete: { max: 1, message: "You can complete only one Task per reply." },
   schedule: { max: 3, message: "You can schedule only 3 Tasks per reply." },
@@ -54,17 +61,25 @@ const caps = {
 type Cap = keyof typeof caps;
 
 // One instance belongs to one reply. Reservations are synchronous: parallel
-// tool calls share attempts, and even invalid days consume their position.
+// tool calls share attempts. Failed and unchanged writes release their slot.
 function turnAttempts() {
   const counts = { write: 0, complete: 0, schedule: 0, update: 0 };
-  let journalAppends = 0;
+  const occurrences = new Map<string, number>();
   return {
-    reserve(cap: Cap | undefined, append: boolean) {
+    reserve(cap: Cap | undefined, append: boolean, habit: boolean, key: string) {
       if (cap) {
         if (counts[cap] >= caps[cap].max) throw new Error(caps[cap].message);
         counts[cap] += 1;
       }
-      return append ? { appendOrdinal: ++journalAppends } : {};
+      const occurrence = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, occurrence);
+      return {
+        settle(applied: boolean) {
+          if (cap && !applied) counts[cap] -= 1;
+        },
+        ...(append && { appendOrdinal: occurrence }),
+        ...(habit && { habitOrdinal: occurrence }),
+      };
     },
   };
 }
@@ -80,7 +95,7 @@ function checkDay(day: string | undefined, today: string | undefined) {
     throw new Error("This day is not open yet.");
 }
 
-function logToolError(toolName: string, toolCallId: string, error: unknown) {
+export function logToolError(toolName: string, toolCallId: string, error: unknown) {
   console.error(
     JSON.stringify({
       event: "coach.tool.error",
@@ -98,6 +113,7 @@ function logToolError(toolName: string, toolCallId: string, error: unknown) {
 type Policy<Input> = {
   cap?: Cap;
   appendOrdinal?: boolean;
+  habitOrdinal?: boolean;
   validateDay?: (input: Input, context: Context) => void;
   failure: string | null;
   safeErrors?: readonly (new (...args: never[]) => Error)[];
@@ -105,24 +121,24 @@ type Policy<Input> = {
 };
 
 // The descriptor keeps the core schema/output inference through SDK binding.
-// appendJournal is the only core tool requiring the reserved append ordinal.
-function executionTool<Name extends string, Input, Output extends object>(
+// Journal and Habit writes count occurrences of the same normalized content.
+function executionTool<Name extends string, Input, Output>(
   name: Name,
   core: {
     description: string;
     inputSchema: z.ZodType<Input>;
     run: (
       input: Input,
-      context: ToolRunContext & { appendOrdinal: number },
+      context: ToolRunContext & { appendOrdinal: number; habitOrdinal: number },
     ) => Promise<Output>;
   },
   policy: Policy<Input>,
 ) {
   async function run(
     input: Input,
-    context: ToolRunContext & { appendOrdinal?: number },
+    context: ToolRunContext & { appendOrdinal?: number; habitOrdinal?: number },
   ) {
-    const runContext = context as ToolRunContext & { appendOrdinal: number };
+    const runContext = context as ToolRunContext & { appendOrdinal: number; habitOrdinal: number };
     // Static knowledge has always been uncapped and unwrapped.
     if (policy.failure === null) return core.run(input, runContext);
     try {
@@ -140,18 +156,48 @@ function executionTool<Name extends string, Input, Output extends object>(
   }
   return {
     name,
-    bind(data: CoachData, attempts: Attempts) {
+    bind(data: CoachData, attempts: Attempts, skillState: SkillState) {
       const execute = async (
         input: Input,
-        { context, toolCallId }: { context: Context; toolCallId: string },
+        { context, toolCallId, messages }: { context: Context; toolCallId: string; messages?: object },
       ) => {
+        const outside = name !== "readSkill" && !habitDesignAllowedTools.some((allowed) => allowed === name);
+        if (skillState.habitDesign && outside) {
+          throw new Error("habit-design refused: tool outside its allow-list");
+        }
+        // The proposal reply creates nothing: the yes comes in a later message.
+        if (skillState.habitDesign && name === "createHabit") {
+          throw new Error("habit-design refused: create only after the person's explicit yes in a later message");
+        }
+        // The SDK passes one messages array to every call of a step, so it
+        // keys the step. A call already started cannot be held back, so a
+        // habit-design load after an outside tool in the same step is refused
+        // (and still restricts the rest of the reply).
+        if (outside && messages) skillState.outsideSteps.add(messages);
+        if (name === "readSkill" && (input as { name?: string }).name === "habit-design") {
+          // Activate before awaiting so later calls in the same batch are restricted.
+          skillState.habitDesign = true;
+          if (messages && skillState.outsideSteps.has(messages)) {
+            throw new Error("habit-design refused: load it before any tool outside its allow-list in the same step");
+          }
+        }
         const reservation = attempts.reserve(
           policy.cap,
           policy.appendOrdinal ?? false,
+          policy.habitOrdinal ?? false,
+          name + ":" + coachWriteKey(name, input as Record<string, unknown>, context.today),
         );
-        // Calendar validation stays outside masking and after reservation.
-        policy.validateDay?.(input, context);
-        return run(input, { ...context, toolCallId, data, ...reservation });
+        const { settle, ...ordinals } = reservation;
+        let applied = false;
+        try {
+          policy.validateDay?.(input, context);
+          const result = await run(input, { ...context, toolCallId, data, ...ordinals });
+          const flags = result as { refused?: boolean; notFound?: boolean; invalidId?: boolean; changed?: boolean };
+          applied = !(flags.refused || flags.notFound || flags.invalidId || flags.changed === false);
+          return result;
+        } finally {
+          settle(applied);
+        }
       };
       // The SDK's conditional output type cannot resolve a generic Output;
       // the core schema and run function retain each concrete input/output.
@@ -199,6 +245,25 @@ const vocabulary = [
     safeErrors: [MoodError],
     validateDay: (input, context) => checkDay(input.day, context.today),
   }),
+  executionTool("createHabit", createHabit, {
+    cap: "write",
+    habitOrdinal: true,
+    failure: "Couldn't create that habit.",
+    safeErrors: [HabitError],
+    validateDay: (_input, context) => checkDay(undefined, context.today),
+  }),
+  executionTool("trackHabit", trackHabit, {
+    cap: "write",
+    habitOrdinal: true,
+    failure: "Couldn't track that habit.",
+    safeErrors: [HabitError],
+    validateDay: (_input, context) => checkDay(undefined, context.today),
+  }),
+  executionTool("listHabits", listHabits, {
+    failure: "Couldn't read your habits.",
+    validateDay: (_input, context) => checkDay(undefined, context.today),
+  }),
+  executionTool("readSkill", readSkill, { failure: null }),
   executionTool("listNotebooks", listNotebooks, {
     failure: "Couldn't read your notebooks.",
   }),
@@ -237,6 +302,8 @@ const vocabulary = [
   }),
 ] as const;
 
+type SkillState = { habitDesign: boolean; outsideSteps: WeakSet<object> };
+
 type CoachTools = {
   [Descriptor in (typeof vocabulary)[number] as Descriptor["name"]]: ReturnType<
     Descriptor["bind"]
@@ -246,10 +313,11 @@ type CoachToolName = keyof CoachTools;
 
 export function coachTools(data: CoachData): CoachTools {
   const attempts = turnAttempts();
+  const skillState: SkillState = { habitDesign: false, outsideSteps: new WeakSet() };
   return Object.fromEntries(
     vocabulary.map((descriptor) => [
       descriptor.name,
-      descriptor.bind(data, attempts),
+      descriptor.bind(data, attempts, skillState),
     ]),
   ) as CoachTools;
 }

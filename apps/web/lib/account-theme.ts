@@ -62,6 +62,7 @@ export const maxPresetInputLength = 512;
 
 const errors: Record<string, string> = {
   theme: "That isn't a theme link or a preset code.",
+  "theme-legacy": "This is an older theme code. Open shadcn/create and copy a new preset link or code.",
   "theme-failed": "The theme couldn't be imported. Nothing was changed.",
 };
 
@@ -112,6 +113,8 @@ export function themeCss(account: AccountTheme) {
   return `:root{${light}}.dark{${dark}}`;
 }
 
+export const importedThemeName = "My theme";
+
 export function themeChoices(account: AccountTheme) {
   const choices: { id: string; name: string; selected: boolean }[] =
     builtInThemes.map((theme) => ({
@@ -119,12 +122,10 @@ export function themeChoices(account: AccountTheme) {
       name: theme.name,
       selected: account.choice === theme.id,
     }));
-  if (account.code) {
-    choices.push({
-      id: "imported",
-      name: "Imported",
-      selected: account.choice === "imported",
-    });
+  // A stored import stays pickable as one chip. Rows keep no import name,
+  // so it is "My theme".
+  if (account.code && sanitizeBlock(account.light) && sanitizeBlock(account.dark)) {
+    choices.push({ id: "imported", name: importedThemeName, selected: account.choice === "imported" });
   }
   return choices;
 }
@@ -172,4 +173,16 @@ export function readPreset(input: string) {
   }
   if (text.includes("/") || /\s/.test(text)) return null;
   return acceptedPreset(text);
+}
+
+// Give old bare codes and create links a useful rejection message.
+export function isLegacyPreset(input: string) {
+  if (input.length > maxPresetInputLength) return false;
+  let code = input.trim();
+  try {
+    const url = new URL(code);
+    if (url.protocol !== "https:" || url.hostname !== "ui.shadcn.com" || url.pathname !== "/create") return false;
+    code = url.searchParams.get("preset") ?? "";
+  } catch { /* A bare code. */ }
+  return /^a[0-9A-Za-z]+$/.test(code);
 }

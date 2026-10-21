@@ -2,6 +2,115 @@ import { isCalendarDay } from "./areas.ts";
 
 export const maxHabitNameLength = 200;
 
+export type HabitPeriod = "day" | "week";
+export type HabitTrackMode = "once" | "many";
+export type HabitTracking = {
+  period: HabitPeriod;
+  trackMode: HabitTrackMode;
+  goalCount: number | null;
+  bad: boolean;
+};
+
+export function habitCountCap(period: HabitPeriod): number {
+  return period === "day" ? 99 : 999;
+}
+
+export type HabitCountTotal = { ok: true; value: number } | { ok: false; kind: "empty" | "not-whole" | "negative" } | { ok: false; kind: "over-cap"; cap: number };
+
+export function parseHabitCountTotal(text: string, cap: number): HabitCountTotal {
+  const value = text.trim();
+  if (!value) return { ok: false, kind: "empty" };
+  if (/^-\d+$/.test(value) && Number(value) < 0) return { ok: false, kind: "negative" };
+  if (!/^\d+$/.test(value)) return { ok: false, kind: "not-whole" };
+  const count = Number(value);
+  if (count > cap) return { ok: false, kind: "over-cap", cap };
+  return { ok: true, value: count };
+}
+
+export function validHabitGoal(habit: HabitTracking): boolean {
+  if (habit.trackMode === "once") return habit.goalCount === null;
+  if (habit.goalCount === null) return habit.bad;
+  return Number.isInteger(habit.goalCount) && habit.goalCount >= 1 && habit.goalCount <= habitCountCap(habit.period);
+}
+
+export type HabitEdit = Partial<HabitTracking & { name: string }>;
+
+// Validate the whole proposed edit before a caller writes anything. Checks are
+// already counts of 1, so both allowed conversions preserve every stored mark.
+export function editHabitRules(
+  current: HabitTracking & { name: string },
+  marks: readonly { count: number }[],
+  changes: HabitEdit,
+): { habit: HabitTracking & { name: string } } | { error: string } {
+  const next = { ...current, ...changes };
+  if (typeof next.name !== "string" || !next.name.trim()) return { error: "Enter a habit name." };
+  const name = habitName(next.name);
+  if (!name) return { error: `Habit names can be at most ${maxHabitNameLength} characters; this one has ${next.name.trim().length}.` };
+  if (next.period !== "day" && next.period !== "week") return { error: "Choose Daily or Weekly for this habit." };
+  if (next.trackMode !== "once" && next.trackMode !== "many") return { error: "Choose once or many-times for this habit." };
+  if (typeof next.bad !== "boolean") return { error: "Choose whether this habit is Bad." };
+  if (next.period !== current.period && marks.length) return { error: "Daily and Weekly can only be switched when this habit has no marks or counts." };
+  if (current.trackMode === "many" && next.trackMode === "once") {
+    if (marks.some((mark) => mark.count > 1)) return { error: "Cannot switch to once: a period has a count above 1." };
+    // Dropping the goal is part of switching to once, unless a new goal was supplied.
+    if (changes.goalCount === undefined) next.goalCount = null;
+  }
+  if (!validHabitGoal(next)) {
+    if (next.trackMode === "once") return { error: "Once-habits cannot have a goal." };
+    const cap = habitCountCap(next.period);
+    return { error: next.bad
+      ? `Enter a whole-number limit between 1 and ${cap}, or leave it empty.`
+      : `Enter a whole-number ${next.period === "week" ? "weekly" : "daily"} goal between 1 and ${cap}.` };
+  }
+  return { habit: { name, period: next.period, trackMode: next.trackMode, bad: next.bad, goalCount: next.goalCount } };
+}
+
+// Plus stops at the period's cap; minus also repairs stored counts above it. Never clip.
+export function changeHabitCount(count: number, delta: 1 | -1, period: HabitPeriod): number | null {
+  const cap = habitCountCap(period);
+  if (!Number.isInteger(count) || count < 0 || count > 999 || (delta !== 1 && delta !== -1)) return null;
+  const next = count + delta;
+  return next >= 0 && (delta === -1 || next <= cap) ? next : null;
+}
+
+export function habitPeriodDay(period: HabitPeriod, day: string): string | null {
+  if (!isCalendarDay(day)) return null;
+  return period === "week" ? mondayOf(day) : day;
+}
+
+export function manyTimesProgress(
+  habit: HabitTracking,
+  marks: readonly { day: string; count: number }[],
+  day: string,
+): { count: number; done: boolean } | null {
+  const periodDay = habitPeriodDay(habit.period, day);
+  if (!periodDay || habit.trackMode !== "many" || !validHabitGoal(habit)) return null;
+  const count = marks.find((mark) => mark.day === periodDay)?.count ?? 0;
+  if (!Number.isInteger(count) || count < 0 || count > 999) return null;
+  return { count, done: !habit.bad && habit.goalCount !== null && count >= habit.goalCount };
+}
+
+export function habitIsDue(habit: Pick<HabitTracking, "bad">, done: boolean): boolean {
+  return !habit.bad && !done;
+}
+
+export function habitOverGoal(habit: HabitTracking, count: number): boolean {
+  return habit.trackMode === "many" && habit.goalCount !== null && count > habit.goalCount;
+}
+
+export function habitProgress(habit: HabitTracking, marks: readonly { day: string; count: number }[], day: string) {
+  const periodDay = habitPeriodDay(habit.period, day);
+  if (!periodDay || !validHabitGoal(habit)) return null;
+  const count = marks.find((mark) => mark.day === periodDay)?.count ?? 0;
+  if (habit.trackMode === "many") {
+    const progress = manyTimesProgress(habit, marks, day);
+    return progress && { ...progress, streak: null, record: null };
+  }
+  if (habit.bad) return { count, done: false, streak: null, record: null };
+  if (habit.period === "day") return { count, ...dailyOnceProgress(marks, day)! };
+  return { count, ...weeklyOnceProgress(marks, day)! };
+}
+
 export function habitName(value: string): string | null {
   const name = value.trim();
   if (!name || name.length > maxHabitNameLength) return null;
@@ -66,26 +175,47 @@ export function dailyOnceProgress(
   };
 }
 
-function longestRun(days: readonly string[]): number {
+// Weekly once-habits share the daily rules, with Monday as the period date.
+export function weeklyOnceProgress(marks: readonly DayMark[], today: string) {
+  const monday = mondayOf(today);
+  if (!monday) return null;
+  const weeks = [...new Set(marks.map((mark) => mondayOf(mark.day))
+    .filter((week): week is string => week !== null && week <= monday))].sort();
+  return { done: weeks.includes(monday), streak: currentStreak(weeks, monday, 7), record: longestRun(weeks, 7) };
+}
+
+function longestRun(days: readonly string[], step = 1): number {
   let best = 0;
   let run = 0;
   let previous = "";
   for (const day of days) {
-    run = previous && addCalendarDays(previous, 1) === day ? run + 1 : 1;
+    run = previous && addCalendarDays(previous, step) === day ? run + 1 : 1;
     previous = day;
     if (run > best) best = run;
   }
   return best;
 }
 
-function currentStreak(days: readonly string[], today: string): number {
+function currentStreak(days: readonly string[], today: string, step = 1): number {
   const done = new Set(days);
-  let cursor = done.has(today) ? today : addCalendarDays(today, -1);
+  let cursor = done.has(today) ? today : addCalendarDays(today, -step);
   if (!cursor || !done.has(cursor)) return 0;
   let streak = 0;
   while (cursor && done.has(cursor)) {
     streak += 1;
-    cursor = addCalendarDays(cursor, -1);
+    cursor = addCalendarDays(cursor, -step);
   }
   return streak;
+}
+
+export type HabitUndoPlan =
+  | { kind: "restore"; count: number }
+  | { kind: "delete" }
+  | { kind: "changedSince" }
+  | { kind: "nothingToUndo" };
+
+export function habitUndoPlan(currentCount: number, target: { count: number; previousCount?: number } | null | undefined): HabitUndoPlan {
+  if (!target || target.previousCount === undefined) return { kind: "nothingToUndo" };
+  if (currentCount !== target.count) return { kind: "changedSince" };
+  return target.previousCount === 0 ? { kind: "delete" } : { kind: "restore", count: target.previousCount };
 }

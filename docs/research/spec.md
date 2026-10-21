@@ -146,18 +146,24 @@ Calendar connect (premium): Google, Outlook, Proton, iCloud, Fastmail, Hey, Face
 
 ### 4.3 Habits
 
-Source: [habits](https://lunatask.app/docs/features/habits).
+Source: [habits](https://lunatask.app/docs/features/habits). Each bullet gives Lunatask's behaviour, then what Bearing ships (epic #25).
 
-- Daily vs weekly. Weekly is premium. A Sunday-only habit is still daily, because tracking is per day.
-- Once vs many-times. Many-times has a goal count ("3 times a day").
-- Bad habits: no widget, no calendar block, no streak, no incomplete count. Can be many-times (cigarettes).
-- Custom recurrence on daily habits (Tue/Fri). Weaker than task recurrence.
-- Streaks: current (end of the consecutive block) and record. Hidden on many-times (that number is the count) and on bad habits.
-- Track: double-click a day, or complete icon on a calendar block. Alt/Option or long-press decrements. Hold Space/Shift for single-click entry mode.
-- Auto time block: "at 8:30", optional duration, default 15 min. Many-times can have multiple reminders.
-- Widget at the bottom of the task calendar, habit order, shows the next one needing attention.
-- Routines (habit groups): basic, desktop only.
-- Free plan: 7 habits. Premium: unlimited + weekly.
+- Daily vs weekly. Lunatask: a Sunday-only habit is still daily, because tracking is per day. Bearing: Daily and Weekly sections, and weekly is not premium in v1 (decided, Paul, 2026-10-21). A weekly habit covers the Monday–Sunday week in the browser's local dates, and its mark is stored on the Monday.
+- Once vs many-times. Many-times has a goal count ("3 times a day"). Bearing: a daily goal is a whole number from 1 to 99, a weekly goal from 1 to 999. The count may pass the goal up to the same cap, and an over-goal count shows one muted mark.
+- Bad habits: no widget, no calendar block, no streak, no incomplete count. Can be many-times (cigarettes). Bearing: the row says Bad, shows no streak or record and is never due. A Bad many-times habit may have no goal, or a goal that acts as a limit.
+- Custom recurrence on daily habits (Tue/Fri). Weaker than task recurrence. Bearing: not built. Every daily habit is due every day.
+- Streaks: current (end of the consecutive block) and record. Hidden on many-times (that number is the count) and on bad habits. Bearing: the same rules, computed from stored marks and never stored themselves, in days or weeks. An empty current day or week does not break a streak.
+- Track. Lunatask: double-click a day, or the complete icon on a calendar block; Alt/Option or long-press decrements; hold Space/Shift for single-click entry. Bearing:
+  - A once-habit is a single-click checkbox for each day, or each week.
+  - A many-times habit has **−** and **+**, and the count between them can be tapped to type a total (#134). Typing sets the total; it never adds.
+  - Today and past periods can be tracked; future periods are refused. Every change saves immediately.
+  - The Coach tracks through `trackHabit` (§8.2).
+  - There is no double-click, no modifier-key decrement, and no calendar block.
+- Auto time block: "at 8:30", optional duration, default 15 min. Many-times can have multiple reminders. Bearing: not built.
+- Widget at the bottom of the task calendar, habit order, shows the next one needing attention. Bearing: not built.
+- Routines (habit groups): basic, desktop only. Bearing: not built.
+- Habit order. Bearing: up and down buttons within the Daily or Weekly section, with no drag (#93).
+- Free plan: 7 habits. Bearing v1: weekly habits are not premium (Paul, 2026-10-21). v1 has no habit limit and no premium flag.
 
 ### 4.4 Journal, mood, notes
 
@@ -303,14 +309,21 @@ Read tools:
 
 - `today` — just-came-up, Now / In progress, habits due, reconnects due, today's mood if set
 - `search` — tasks, notes, journal, people, drafts. Full-text once it exists; names until then
-- `getTask`, `listArea`, `habitStats`, `journalRange`, `getPerson`
+- `getTask`, `listArea`, `listHabits`, `journalRange`, `getPerson`
+- `listHabits(day?)`: this account's habits in Habits-page order, with the period's count, goal, done, and streak or none. Without `day` it shows only the open period (the browser's Today and the week containing it). With an optional past `day` (YYYY-MM-DD, today or earlier) it returns the period containing that day: that day for daily habits, its Monday–Sunday week for weekly ones. A future `day` is refused. A habit is due when it is not done for its period and is not Bad; daily habits are due until done that day, and weekly habits are due until done that week. (`day` ships in #141.)
 
 Write tools, same mutations the UI uses:
 
 - `createTask`, `updateTask`, `completeTask`, `scheduleTask`
 - `fileDraft` — inbox text into task, note, journal, or person note
 - `appendJournal`, `setMood`
-- `trackHabit`
+- `createHabit`, `trackHabit`
+- `trackHabit` actions:
+  - `did`: check a once-habit, or add one to a many-times habit.
+  - `didnt`: Bad habits only. Clears the period only if it was already logged.
+  - `markDone`: a habit that is not Bad goes up to its goal and is never lowered. On a Bad once-habit it records the lapse (count 1), like `did`. On a Bad many-times habit it is refused and the Coach asks how many times there were in total instead.
+  - `setCount`: sets an explicit total the person stated (§4.3).
+  - `undo`: restores the count from before the Coach's last write to that habit and period, including after a `setCount` total. If that write created the mark, undo deletes it. Undo is never a blind −1. If nothing can be restored, the Coach asks for the total rather than guessing. (Paul, Oct 21, 2026.) A refused undo (nothing of the Coach's to undo, or the count changed since) is a checked result, not a failure: it returns refused with the question, writes no mark and no ledger row, uses no write slot, and shows a neutral receipt ("Nothing to undo for 'Water' for today" or "'Water' has changed since (now 6)"). Later turns get refusals and No change results in a "Checked results in this thread (nothing written)" system-prompt block, capped at 10 like Applied writes, and never call them guesses or retract them.
 - `logPerson` — timeline note, optional last-connected = today
 - `createNote`
 
@@ -327,12 +340,12 @@ A skill is a markdown file with a name, a description, and the tools it is allow
 | Skill | Does |
 | --- | --- |
 | Weekly review | read the week, list completed vs stuck, propose moves to Later or Now. Does not apply until the user says so |
-| Habit design | turn "I want to run" into a cue, a tiny version, a recurrence. Writes a habit only if asked |
+| Habit design | turn "I want to run" into a cue (if-then plan) and a period. Writes a habit only if asked. The tiny version (small starting version) was decided out (Paul, 2026-10-21; [habit-tiny-version.md](habit-tiny-version.md)) |
 | Reconnect | who is due, draft a one-line reach-out, log it if the user sent it |
 | Daily close | prompt the journal template, set mood, file stray inbox drafts |
 | Empty Now | if Now is over the WIP limit, propose what goes back to Later |
 
-Skills are prompts plus an allow-list. They are not code plugins. New skills are files in `packages/coach/skills`.
+Skills are prompts plus an allow-list. They are not code plugins. In v1 only Habit design loads through `readSkill`; Weekly review waits for its ticket (its file names tools that do not exist yet). Habit design's allow-list (listHabits, searchKnowledge, createHabit; readSkill stays available) holds for the rest of the reply and for calls earlier in the same step: loading it after an outside tool ran in that step is refused. createHabit is refused in the reply that loaded Habit design, so the proposal writes nothing and the yes in a later message creates the habit. A `readSkill` receipt is a read, never an applied write. New skills are files in `packages/coach/skills`.
 
 ### 8.4 Knowledge base
 
@@ -357,8 +370,14 @@ Context the panel can attach: the open task, note, or person id, passed into the
 
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
-- Coach-created rows set `source = coach` and `source_id` to the tool-call id, so they idempotent-match like any other integration.
+- Replay identity is content-keyed, never the provider tool-call id (#140), so a resent message cannot apply a write twice. Coach-created Tasks and Notes set `source = coach` and `source_id` = the message id plus a content hash: for a Task, the first 16 hex of SHA-256 of the trimmed, lowercased name; for a Note, SHA-256 of the notebook id and the trimmed, lowercased title. Habit and Journal writes are keyed in `habit_operations` and `journal_operations` as `<message id>:<tool>:<hash>:<occurrence>`, where the hash covers the normalized arguments (resolved day; Journal text trimmed, lowercased and whitespace collapsed; habit id, action and count; for `createHabit`, name trimmed, lowercased and whitespace collapsed, and resolved defaults) and the occurrence counts the same content earlier in that reply. Old trim-only Habit/Journal hashes are not migrated; a resend whose normalization changes the hash does not match the old row and can apply again. A Daily close reply appends to the Journal at most once: the whole answer goes in as one entry with occurrence 1 (`daily-close/tools.ts`).
+- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit` and `trackHabit`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
+- Applied writes and never-retract (#141): normal turns and Daily close put an "Applied writes in this thread (saved receipts; these happened)" block in the system prompt, built from the reloaded thread's successful write receipts (the last 10, absolute dates). An earlier receipt is a real write; the Coach never retracts it, and only a later write receipt changes it. `listHabits` without `day` shows only the open period, so the Coach reads past periods with `day`.
 - Knowledge base is not user data and is not mixed into export.
+
+### 8.7 Keeping the Coach current
+
+Every feature that changes what the person can see or do also updates the Coach in the same ticket: the read tools that expose it, the system prompt line that describes it (including what the Coach still cannot do), and its receipts. The Coach never describes a screen that no longer matches the product. Daily close's reads follow the same rule. Tickets state this as acceptance criteria; it is not deferred to a later "Coach" ticket.
 
 ## 9. Visual direction
 
@@ -535,7 +554,7 @@ Docs were enough for the model. These were thin or failed to fetch:
 - notebook PIN vs app PIN vs journal PIN (one PIN or three)
 - habit routine data model
 - whether goals are ordered and whether a task can be in two goals (assume no)
-- free vs premium beyond habits (7), weekly habits, energy/stress, calendar connect, Must/Should/Want, Eisenhower
+- free vs premium beyond habits (7), energy/stress, calendar connect, Must/Should/Want, Eisenhower
 
 ## 13. Sources
 

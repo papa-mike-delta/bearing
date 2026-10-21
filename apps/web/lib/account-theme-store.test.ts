@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { createDb, users } from "@repo/db";
 import { eq, inArray } from "drizzle-orm";
-import { defaultAccountTheme } from "./account-theme.ts";
+import { defaultAccountTheme, themeChoices, themeDeclarations } from "./account-theme.ts";
 import {
   loadAccountTheme,
   saveAccountTheme,
@@ -154,9 +154,14 @@ describe(
       assert.equal(whileGold.code, saved.code);
       assert.equal(whileGold.light, saved.light);
       assert.equal(whileGold.dark, saved.dark);
+      assert.deepEqual(themeChoices(whileGold).filter((choice) => choice.id === "imported"), [{ id: "imported", name: "My theme", selected: false }]);
+      // Selecting the My theme chip submits "imported" and re-applies the import.
       const back = await switchAccountTheme(db, a, "imported");
       assert.equal(back.error, null);
-      assert.deepEqual(await loadAccountTheme(db, a), saved);
+      const restored = await loadAccountTheme(db, a);
+      assert.deepEqual(restored, saved);
+      assert.equal(themeDeclarations(restored, "light"), saved.light);
+      assert.equal(themeChoices(restored).find((choice) => choice.id === "imported")?.selected, true);
     });
 
     test("switching after another tab saved a different import keeps that import", async () => {
