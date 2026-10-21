@@ -114,7 +114,9 @@ test("knowledge titles are listed and the article bodies are not", () => {
   assert.ok(prompt.includes("Knowledge article titles: Habits. Journaling: evidence and limits."));
   assert.ok(prompt.includes("call searchKnowledge and quote the section it returns"));
   assert.ok(prompt.includes("Bearing has daily and weekly Habits on the Habits page, once or many-times, including Bad habits in either period."));
-  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, create with createHabit and track with trackHabit"));
+  assert.ok(prompt.includes("You can read them with listHabits using the browser's Today, or a past day with its day input, create with createHabit and track with trackHabit"));
+  assert.ok(prompt.includes("listHabits without day shows only the open period"));
+  assert.ok(prompt.includes("Resolve dates silently and say one day word"));
   assert.equal(prompt.includes("median of 66 days"), false);
   assert.equal(prompt.includes("Pennebaker"), false);
   assert.equal(prompt.includes("You can create a habit"), false);
