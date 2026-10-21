@@ -272,6 +272,7 @@ export async function trackCoachHabit(userId: string, input: { habitId: string; 
     const previousCount = mark?.count ?? 0;
     let count: number;
     if (input.action === "setCount") {
+      if (habit.trackMode !== "many") throw new HabitError("Once-habits have no count.");
       const result = await setHabitCount(userId, habit.id, input.day, input.count!, input.today, tx);
       return { ...await habitWriteState(userId, habit.id, input.day, tx), day, action: input.action, changed: result.changed };
     } else if (input.action === "didnt") {
