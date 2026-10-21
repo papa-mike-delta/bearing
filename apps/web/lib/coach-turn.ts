@@ -1,6 +1,7 @@
 import {
   type CoachData,
   CloseRefusal,
+  receipt,
   maxCoachMessageLength,
   maxCoachSteps,
 } from "@repo/coach";
@@ -188,12 +189,28 @@ export async function coachTurn({
 // step markers and blank text. A reply left with nothing is dropped, and
 // back-to-back messages from one side are joined (a message whose reply
 // failed, then the next one), so the thread alternates as providers expect.
+const coachReadTools = new Set(["tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
+
 function textOnly(messages: UIMessage[]) {
   const said: UIMessage[] = [];
   for (const message of messages) {
-    const parts = message.parts.filter(
+    const parts: UIMessage["parts"] = message.parts.filter(
       (part) => part.type === "text" && part.text.trim(),
     );
+    // Earlier applied writes stay visible as one line, with absolute dates,
+    // so the next turn doesn't doubt or retract them. Reads and failures go.
+    if (message.role === "assistant") {
+      const lines = message.parts.flatMap((part) => {
+        if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
+        const tool = part as { type: string; state?: string; output?: unknown };
+        if (tool.state !== "output-available") return [];
+        const output = tool.output as Record<string, unknown> | null | undefined;
+        if (output && typeof output === "object" && (output.refused || output.notFound || output.invalidId || output.changed === false)) return [];
+        const line = receipt(tool);
+        return line ? [line] : [];
+      });
+      if (lines.length) parts.push({ type: "text", text: `[Receipts: ${lines.join("; ")}]` });
+    }
     if (!parts.length) continue;
     const last = said.at(-1);
     if (last?.role === message.role) last.parts.push(...parts);

@@ -487,6 +487,21 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     }
   });
 
+  test("an applied past-day setCount stays visible to the model on the next turn", async () => {
+    const c = await account();
+    const water = await createHabit(c, { name: "Water", period: "day", trackMode: "many", goalCount: 8 }, db);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("I drank 3 glasses of water yesterday"), scripted(
+      { trackHabit: JSON.stringify({ habitId: water.id, action: "setCount", count: 3, day: "2026-10-08" }) },
+      { text: "Recorded 3 for yesterday." },
+    ));
+    const next = scripted({ text: "Yes, 3 is recorded." });
+    await turn(c, thread, userMessage("Did that save?"), next);
+    const seen = promptText(next);
+    assert.match(seen, /Set 'Water' to 3 for/);
+    assert.ok(seen.includes("Earlier receipts in this thread are real writes"));
+  });
+
   test("content replay survives reordered Journal/habit writes, inserted reads and a new write", async () => {
     const c = await account();
     const thread = await coachThread(c, db);

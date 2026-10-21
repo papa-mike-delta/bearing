@@ -201,6 +201,7 @@ test("habit creation and tracking follow explicit requests, questions and lapse 
     "clears the whole period only if already logged", "raises a many-times count to its goal and never lowers a higher count",
     "on every Bad many-times habit, with or without a limit, ask first", "Do not invent extra logs", "future periods refused",
     "On refusal or failure never claim a write succeeded",
+    "Earlier receipts in this thread are real writes; never retract them.",
   ]) assert.ok(prompt.includes(rule), rule);
 });
 
