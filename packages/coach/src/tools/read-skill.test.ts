@@ -7,12 +7,12 @@ import { coachSystemPrompt } from "../prompt.ts";
 import { receipt } from "../receipts.ts";
 
 test("readSkill returns known files verbatim and unknown skill for unavailable or unsafe names", async () => {
-  for (const name of ["habit-design", "weekly-review"]) {
+  for (const name of ["habit-design"]) {
     const output = await readSkill.run({ name });
     assert.equal(output, await readFile(new URL(`../../skills/${name}.md`, import.meta.url), "utf8"));
     assert.equal(receipt({ type: "tool-readSkill", state: "output-available", output }), `Opened the ${name} skill`);
   }
-  for (const name of ["unknown", "../knowledge/habits", "toString", "__proto__", "daily-close"]) assert.equal(await readSkill.run({ name }), "unknown skill");
+  for (const name of ["unknown", "../knowledge/habits", "toString", "__proto__", "daily-close", "weekly-review"]) assert.equal(await readSkill.run({ name }), "unknown skill");
   assert.equal(receipt({ type: "tool-readSkill", state: "output-available", output: "unknown skill" }), "Couldn't open that skill");
 });
 
