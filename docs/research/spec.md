@@ -310,7 +310,7 @@ Read tools:
 - `today` — just-came-up, Now / In progress, habits due, reconnects due, today's mood if set
 - `search` — tasks, notes, journal, people, drafts. Full-text once it exists; names until then
 - `getTask`, `listArea`, `listHabits`, `journalRange`, `getPerson`
-- `listHabits`: this account's habits in Habits-page order, with the open period's count, goal, done, and streak or none. A habit is due when it is not done for its open period and is not Bad.
+- `listHabits(day?)`: this account's habits in Habits-page order, with the period's count, goal, done, and streak or none. Without `day` it shows only the open period (the browser's Today and the week containing it). With an optional past `day` (YYYY-MM-DD, today or earlier) it returns the period containing that day: that day for daily habits, its Monday–Sunday week for weekly ones. A future `day` is refused. A habit is due when it is not done for its period and is not Bad; daily habits are due until done that day, and weekly habits are due until done that week. (`day` ships in #141.)
 
 Write tools, same mutations the UI uses:
 
@@ -321,7 +321,7 @@ Write tools, same mutations the UI uses:
 - `trackHabit` actions:
   - `did`: check a once-habit, or add one to a many-times habit.
   - `didnt`: Bad habits only. Clears the period only if it was already logged.
-  - `markDone`: a habit that is not Bad goes up to its goal and is never lowered. On a Bad many-times habit, the Coach asks how many times there were instead.
+  - `markDone`: a habit that is not Bad goes up to its goal and is never lowered. On a Bad once-habit it records the lapse (count 1), like `did`. On a Bad many-times habit it is refused and the Coach asks how many times there were in total instead.
   - `setCount`: sets an explicit total the person stated (§4.3).
   - `undo`: restores the count from before the Coach's last write to that habit and period, including after a `setCount` total. If that write created the mark, undo deletes it. Undo is never a blind −1. If nothing can be restored, the Coach asks for the total rather than guessing. (Paul, Oct 21, 2026.)
 - `logPerson` — timeline note, optional last-connected = today
@@ -370,7 +370,9 @@ Context the panel can attach: the open task, note, or person id, passed into the
 
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
-- Coach-created rows set `source = coach` and `source_id` to the tool-call id, so they idempotent-match like any other integration.
+- Replay identity is content-keyed, never the provider tool-call id (#140), so a resent message cannot apply a write twice. Coach-created Tasks and Notes set `source = coach` and `source_id` = the message id plus a content hash: for a Task, the first 16 hex of SHA-256 of the trimmed, lowercased name; for a Note, SHA-256 of the notebook id and the trimmed, lowercased title. Habit and Journal writes are keyed in `habit_operations` and `journal_operations` as `<message id>:<tool>:<hash>:<occurrence>`, where the hash covers the normalized arguments (resolved day; Journal text trimmed; habit id, action and count; for `createHabit`, name and resolved defaults) and the occurrence counts the same content earlier in that reply.
+- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit` and `trackHabit`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
+- Applied writes and never-retract (#141): normal turns and Daily close put an "Applied writes in this thread (saved receipts; these happened)" block in the system prompt, built from the reloaded thread's successful write receipts (the last 10, absolute dates). An earlier receipt is a real write; the Coach never retracts it, and only a later write receipt changes it. `listHabits` without `day` shows only the open period, so the Coach reads past periods with `day`.
 - Knowledge base is not user data and is not mixed into export.
 
 ### 8.7 Keeping the Coach current
