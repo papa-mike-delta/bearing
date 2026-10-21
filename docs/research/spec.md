@@ -148,7 +148,7 @@ Calendar connect (premium): Google, Outlook, Proton, iCloud, Fastmail, Hey, Face
 
 Source: [habits](https://lunatask.app/docs/features/habits). Each bullet gives Lunatask's behaviour, then what Bearing ships (epic #25).
 
-- Daily vs weekly. Lunatask: weekly is premium; a Sunday-only habit is still daily, because tracking is per day. Bearing: Daily and Weekly sections, with no premium gate on weekly (a #25 decision; see the note under Free plan). A weekly habit covers the Monday–Sunday week in the browser's local dates, and its mark is stored on the Monday.
+- Daily vs weekly. Lunatask: a Sunday-only habit is still daily, because tracking is per day. Bearing: Daily and Weekly sections, and weekly is not premium in v1 (decided, Paul, 2026-10-21). A weekly habit covers the Monday–Sunday week in the browser's local dates, and its mark is stored on the Monday.
 - Once vs many-times. Many-times has a goal count ("3 times a day"). Bearing: a daily goal is a whole number from 1 to 99, a weekly goal from 1 to 999. The count may pass the goal up to the same cap, and an over-goal count shows one muted mark.
 - Bad habits: no widget, no calendar block, no streak, no incomplete count. Can be many-times (cigarettes). Bearing: the row says Bad, shows no streak or record and is never due. A Bad many-times habit may have no goal, or a goal that acts as a limit.
 - Custom recurrence on daily habits (Tue/Fri). Weaker than task recurrence. Bearing: not built. Every daily habit is due every day.
@@ -163,7 +163,7 @@ Source: [habits](https://lunatask.app/docs/features/habits). Each bullet gives L
 - Widget at the bottom of the task calendar, habit order, shows the next one needing attention. Bearing: not built.
 - Routines (habit groups): basic, desktop only. Bearing: not built.
 - Habit order. Bearing: up and down buttons within the Daily or Weekly section, with no drag (#93).
-- Free plan: 7 habits. Premium: unlimited + weekly. Bearing v1 ships neither the 7-habit limit nor the weekly gate. There is no premium flag in the code. Whether to add them later is Paul's call (see §12, free vs premium).
+- Free plan: 7 habits. Bearing v1: weekly habits are not premium (Paul, 2026-10-21). v1 has no habit limit and no premium flag.
 
 ### 4.4 Journal, mood, notes
 
@@ -552,7 +552,7 @@ Docs were enough for the model. These were thin or failed to fetch:
 - notebook PIN vs app PIN vs journal PIN (one PIN or three)
 - habit routine data model
 - whether goals are ordered and whether a task can be in two goals (assume no)
-- free vs premium beyond habits (7), weekly habits, energy/stress, calendar connect, Must/Should/Want, Eisenhower
+- free vs premium beyond habits (7), energy/stress, calendar connect, Must/Should/Want, Eisenhower
 
 ## 13. Sources
 
