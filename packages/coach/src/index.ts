@@ -19,15 +19,8 @@ export { updateTask } from "./tools/update-task.ts";
 // an input's maxLength counts). Every saved message goes into later prompts.
 export const maxCoachMessageLength = 4_000;
 
-export const skills = [
-  "weekly-review",
-  "habit-design",
-  "reconnect",
-  "daily-close",
-  "empty-now",
-] as const;
-
-export type Skill = (typeof skills)[number];
+export { skills, type Skill } from "./skills.ts";
+export { readSkill, habitDesignAllowedTools } from "./tools/read-skill.ts";
 
 export { appendJournal, coachJournalOperationId } from "./tools/append-journal.ts";
 export { setMood } from "./tools/set-mood.ts";

@@ -1,6 +1,8 @@
 import {
   appendJournal,
   coachWriteKey,
+  readSkill,
+  habitDesignAllowedTools,
   createHabit,
   trackHabit,
   fileDraft,
@@ -120,7 +122,7 @@ type Policy<Input> = {
 
 // The descriptor keeps the core schema/output inference through SDK binding.
 // Journal and Habit writes count occurrences of the same normalized content.
-function executionTool<Name extends string, Input, Output extends object>(
+function executionTool<Name extends string, Input, Output>(
   name: Name,
   core: {
     description: string;
@@ -154,11 +156,16 @@ function executionTool<Name extends string, Input, Output extends object>(
   }
   return {
     name,
-    bind(data: CoachData, attempts: Attempts) {
+    bind(data: CoachData, attempts: Attempts, skillState: { habitDesign: boolean }) {
       const execute = async (
         input: Input,
         { context, toolCallId }: { context: Context; toolCallId: string },
       ) => {
+        if (skillState.habitDesign && name !== "readSkill" && !habitDesignAllowedTools.some((allowed) => allowed === name)) {
+          throw new Error("habit-design refused: tool outside its allow-list");
+        }
+        // Activate before awaiting so later calls in the same batch are restricted.
+        if (name === "readSkill" && (input as { name?: string }).name === "habit-design") skillState.habitDesign = true;
         const reservation = attempts.reserve(
           policy.cap,
           policy.appendOrdinal ?? false,
@@ -241,6 +248,7 @@ const vocabulary = [
     failure: "Couldn't read your habits.",
     validateDay: (_input, context) => checkDay(undefined, context.today),
   }),
+  executionTool("readSkill", readSkill, { failure: null }),
   executionTool("listNotebooks", listNotebooks, {
     failure: "Couldn't read your notebooks.",
   }),
@@ -288,10 +296,11 @@ type CoachToolName = keyof CoachTools;
 
 export function coachTools(data: CoachData): CoachTools {
   const attempts = turnAttempts();
+  const skillState = { habitDesign: false };
   return Object.fromEntries(
     vocabulary.map((descriptor) => [
       descriptor.name,
-      descriptor.bind(data, attempts),
+      descriptor.bind(data, attempts, skillState),
     ]),
   ) as CoachTools;
 }

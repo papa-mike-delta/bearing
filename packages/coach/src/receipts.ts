@@ -51,6 +51,14 @@ function taskReceipt(line: string, output: unknown): Line {
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart, today?: string | null): Line | null {
   if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
+  if (part.type === "tool-readSkill") {
+    if (pending(part.state)) return { line: "Opening skill…" };
+    if (part.state === "output-available" && typeof part.output === "string") {
+      if (part.output.startsWith("# habit-design\n")) return { line: "Opened the habit-design skill" };
+      if (part.output.startsWith("# Weekly review\n")) return { line: "Opened the weekly-review skill" };
+    }
+    return { line: "Couldn't open that skill" };
+  }
   if (part.type === "tool-readJournalingArticle") {
     if (pending(part.state)) return { line: "Reading journaling knowledge…" };
     return part.state === "output-available" ? { line: "Journaling: evidence and limits", href: "/coach/knowledge/journaling" } : { line: "Couldn't read journaling knowledge" };
@@ -225,7 +233,7 @@ export type ShownPart =
   | { key: string; receipt: string; calls: number; href?: string; read?: true };
 
 // Reads show muted and plain; only writes look like actions.
-const readTools = new Set(["tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
+const readTools = new Set(["tool-readSkill", "tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
 // What a message shows: its text and its receipts, in order. A finished
 // listArea read with the same result as the receipt just before it (nothing

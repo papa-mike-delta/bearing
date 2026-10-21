@@ -15,6 +15,7 @@ export const normalTurnToolNames = [
   "trackHabit",
   "listNotebooks",
   "searchKnowledge",
+  "readSkill",
   "createNote",
   "appendJournal",
   "setMood",

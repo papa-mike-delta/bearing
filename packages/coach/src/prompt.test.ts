@@ -228,9 +228,9 @@ test("each new I-did-it message adds one without asking about repeats; mark it d
   ]) assert.ok(prompt.includes(rule), rule);
 });
 
-test("habit-building questions look up evidence, propose one habit and wait without offering a skill", () => {
+test("habit-building questions look up evidence and load habit-design for a wish to start", () => {
   const prompt = coachSystemPrompt();
-  for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "habit-design skill is not available; do not offer it"]) assert.ok(prompt.includes(rule), rule);
+  for (const rule of ["When asked about building a habit", "call searchKnowledge and quote the matching section with its source", "including what the research does not support", "Then propose one habit", "once or many-times with a goal, Bad if cutting down", "Wait for the person to say yes", "Propose a habit, not a Task", "load habit-design via readSkill"]) assert.ok(prompt.includes(rule), rule);
 });
 
 test("a many-times total can be typed or recorded by Paul", () => {
@@ -246,6 +246,9 @@ test("Coach knowledge and README teach ask-first, total versus addition, and app
   const readme = await readFile(new URL("../../../README.md", import.meta.url), "utf8");
   for (const text of ["setCount", "unreported lapses", "That reply makes no tool call", "N more", "None", "Only applied writes count", "No change to"]) assert.ok(readme.includes(text), text);
   assert.ok(readme.includes("Non-Bad many-times without a goal needs a question."));
+  assert.ok(readme.includes("habit-design skill loads through readSkill"));
+  assert.ok(readme.includes("one cue (if-then plan) and one period"));
+  assert.ok(!readme.includes("The habit-design skill has no file and is not offered."));
   assert.ok(!readme.includes("Non-Every"));
   assert.equal(readme.split("That reply makes no tool call").length - 1, 1);
   assert.ok(!readme.includes("1-based ordinal of appendJournal calls"));
