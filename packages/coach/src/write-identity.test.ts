@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { coachWriteKey } from "./write-identity.ts";
+import { coachJournalOperationId } from "./tools/append-journal.ts";
 
 const today = "2026-10-09";
 test("write keys normalize trimmed names, text, defaults, day aliases and property order", () => {
@@ -19,4 +20,10 @@ test("each normalized argument contributes to the bounded content key", () => {
   for (const input of [{ name: "Run" }, { name: "Walk", period: "week" }, { name: "Walk", bad: true }, { name: "Walk", goalCount: 3 }]) {
     assert.notEqual(coachWriteKey("createHabit", input, today), coachWriteKey("createHabit", { name: "Walk" }, today));
   }
+});
+
+test("journal operation ids no longer match pre-#140 position-keyed ledger rows", () => {
+  const day = "2026-10-08";
+  const legacy = `msg-1:appendJournal:${day}:1`;
+  assert.notEqual(coachJournalOperationId("msg-1", day, 1, coachWriteKey("appendJournal", { day, text: "hello" }, day)), legacy);
 });

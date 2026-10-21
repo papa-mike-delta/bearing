@@ -245,6 +245,7 @@ test("Coach knowledge and README teach ask-first, total versus addition, and app
   assert.ok(readme.includes("Non-Bad many-times without a goal needs a question."));
   assert.ok(!readme.includes("Non-Every"));
   assert.equal(readme.split("That reply makes no tool call").length - 1, 1);
+  assert.ok(!readme.includes("1-based ordinal of appendJournal calls"));
 });
 
 test("replies use day words while tool inputs keep ISO calendar days", () => {
