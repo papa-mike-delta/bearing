@@ -1381,3 +1381,7 @@ form.flex-row {
 @media (max-width: 480px) {
   main:has(.habits-intro) { padding-bottom: 7rem; scroll-padding-bottom: 7rem; }
 }
+
+/* Account choices have a 40px minimum target. */
+.theme-chip { min-width: 40px; min-height: 40px; }
+main form p.hint a { color: var(--foreground); text-decoration: underline; }

@@ -321,25 +321,17 @@ function logTurn(
   );
 }
 
-// One line when a turn fails, for the runtime logs: the error's name, its
-// message and HTTP status (a provider or Gateway refusal carries both). No
-// user id, no request body, nothing the person wrote.
+// Provider messages can contain private prompt text. Log metadata only.
 function logTurnError(threadId: string, model: LanguageModel, error: unknown, event = "coach.turn.error") {
-  const { name, message, statusCode } =
-    error instanceof Error
-      ? (error as Error & { statusCode?: number })
-      : { name: "Error", message: String(error), statusCode: undefined };
-  console.error(
-    JSON.stringify({
-      event,
-      threadId,
-      model: typeof model === "string" ? model : model.modelId,
-      error: name,
-      // Providers sometimes echo a fragment of the prompt; keep the line short.
-      message: message.slice(0, 300),
-      status: statusCode,
-    }),
-  );
+  const metadata = error instanceof Error ? error as Error & { statusCode?: number; code?: string } : undefined;
+  console.error(JSON.stringify({
+    event,
+    threadId,
+    model: typeof model === "string" ? model : model.modelId,
+    error: metadata?.name ?? "Error",
+    code: metadata?.code,
+    status: metadata?.statusCode,
+  }));
 }
 
 async function readToEnd(stream: ReadableStream) {
