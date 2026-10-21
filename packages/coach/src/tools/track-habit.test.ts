@@ -73,3 +73,9 @@ test("tracking resolves today before identity and includes action, habit, day, c
   assert.equal(ids[0], ids[2]);
   assert.equal(new Set(ids).size, ids.length - 2);
 });
+
+test("undo teaches restoration and fewer means a setCount total", () => {
+  assert.ok(trackHabit.description.includes("undo restores the habit to before your last update to it; it never subtracts one. If it refuses, ask the total."));
+  for (const phrase of ["N fewer", "one less", "setCount"]) assert.ok(trackHabit.description.includes(phrase));
+  assert.doesNotMatch(trackHabit.description, /removes? one/);
+});
