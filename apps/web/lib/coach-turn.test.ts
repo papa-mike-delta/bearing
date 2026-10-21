@@ -699,8 +699,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.deepEqual(await db.select().from(habitOperations).where(eq(habitOperations.userId, c)), []);
     assert.deepEqual(await openTasks(c, db), []);
     assert.ok(promptText(model).includes("Wait for the person to say yes"));
-    assert.ok(!names.includes("readSkill"));
-    await assert.rejects(access(new URL("../../../packages/coach/skills/habit-design.md", import.meta.url)));
+    assert.ok(names.includes("readSkill"));
+    await access(new URL("../../../packages/coach/skills/habit-design.md", import.meta.url));
     await turn(c, thread, userMessage("Yes"), scripted({ createHabit: JSON.stringify({ name: "Water" }) }, { text: "Created." }));
     assert.equal((await listHabits(c, "2026-10-09", [], db)).length, 1);
     assert.deepEqual(await openTasks(c, db), []);

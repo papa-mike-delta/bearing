@@ -77,6 +77,7 @@ test("registration and context retain their distinct original key orders", () =>
     "createHabit",
     "trackHabit",
     "listHabits",
+    "readSkill",
     "listNotebooks",
     "searchKnowledge",
     "createNote",
@@ -766,4 +767,83 @@ test("two identical did calls apply twice and replay twice despite a reordered o
   assert.equal(count, 2);
   assert.equal(ledger.size, 2);
   assert.equal(replays, 2);
+});
+
+test("habit-design restricts every later tool in the reply, including after another readSkill", async () => {
+  const write = mock.fn<CoachData["createTask"]>(async () => null);
+  const tools = coachTools(data({ createTask: write }));
+  await tools.readSkill.execute!({ name: "habit-design" }, call());
+  await tools.readSkill.execute!({ name: "weekly-review" }, call());
+  await tools.readSkill.execute!({ name: "unknown" }, call());
+  for (const name of normalTurnToolNames.filter((name) => !["readSkill", "listHabits", "searchKnowledge", "createHabit"].includes(name))) {
+    await assert.rejects(() => (tools[name].execute as unknown as (input: object, context: ReturnType<typeof call>) => Promise<unknown>)({}, call()), /outside its allow-list/);
+  }
+  assert.equal(write.mock.callCount(), 0);
+  await coachTools(data({ createTask: write })).createTask.execute!({ name: "Allowed next reply" }, call());
+  assert.equal(write.mock.callCount(), 1);
+});
+
+test("scripted habit design proposes cue and period without writing; yes creates once across resend", async () => {
+  const ledger = new Map<string, { id: string; name: string; period: "day"; trackMode: "once"; bad: boolean; goalCount: null; count: number; done: boolean; due: boolean; streak: number; record: number }>();
+  let applied = 0;
+  const forbiddenWrite = mock.fn<CoachData["createTask"]>(async () => null);
+  const adapter = data({
+    createTask: forbiddenWrite,
+    createHabit: async (_user, input) => {
+      if (!ledger.has(input.operationId)) {
+        applied++;
+        ledger.set(input.operationId, { id: entityId, name: input.name, period: "day", trackMode: "once", bad: false, goalCount: null, count: 0, done: false, due: true, streak: 0, record: 0 });
+      }
+      return ledger.get(input.operationId)!;
+    },
+  });
+  const { searchKnowledge } = await import("@repo/coach/knowledge");
+  const evidence = await searchKnowledge("If-then plans");
+  assert.ok(evidence.match);
+  const proposal = `${evidence.section}\nCue: After my morning coffee, I will run. Period: Daily habit, once. Shall I create Run?`;
+  async function reply(prompt: string, steps: ({ name: string; input: object } | string)[]) {
+    let index = 0;
+    const providerReplyId = randomUUID();
+    const model = new MockLanguageModelV4({ doStream: async () => {
+      const step = steps[index++]!;
+      return { stream: simulateReadableStream<import("@ai-sdk/provider").LanguageModelV4StreamPart>({ chunks: typeof step === "string" ? [
+        { type: "text-start", id: "text" }, { type: "text-delta", id: "text", delta: step }, { type: "text-end", id: "text" },
+        { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage },
+      ] : [
+        { type: "tool-call", toolCallId: `${providerReplyId}-${index}`, toolName: step.name, input: JSON.stringify(step.input) },
+        { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+      ] }) };
+    } });
+    const { stepCountIs } = await import("ai");
+    const result = streamText({ model, prompt, tools: coachTools(adapter), toolsContext: coachToolsContext(userId, messageId, today), stopWhen: stepCountIs(8) });
+    const parts = [];
+    for await (const part of result.stream) parts.push(part);
+    return { text: await result.text, parts };
+  }
+  const first = await reply("I want to run", [
+    { name: "readSkill", input: { name: "habit-design" } },
+    { name: "searchKnowledge", input: { query: "If-then plans" } },
+    { name: "createTask", input: { name: "Run" } },
+    proposal,
+  ]);
+  assert.equal(first.text, proposal);
+  assert.doesNotMatch(first.text, /tiny|starting version|minutes|floor|start small/i);
+  assert.equal(applied, 0);
+  assert.equal(forbiddenWrite.mock.callCount(), 0);
+  const refusal = first.parts.find((part) => part.type === "tool-error" && part.toolName === "createTask");
+  assert.ok(refusal && refusal.type === "tool-error");
+  assert.match(String(refusal.error), /outside its allow-list/);
+  assert.ok(!first.parts.some((part) => part.type === "tool-result" && ["createTask", "createHabit"].includes(part.toolName)));
+  const knowledge = first.parts.find((part) => part.type === "tool-result" && part.toolName === "searchKnowledge");
+  assert.ok(knowledge && knowledge.type === "tool-result");
+  assert.deepEqual(knowledge.output, evidence);
+  assert.match(first.text, /Source: Gollwitzer/);
+  const create = [{ name: "createHabit", input: { name: "Run", period: "day", trackMode: "once" } }, "Created Run."];
+  const yes = await reply(`${proposal}\nUser: yes`, create);
+  assert.equal(applied, 1);
+  const writes = yes.parts.filter((part) => part.type === "tool-result" && part.toolName === "createHabit");
+  assert.equal(writes.length, 1);
+  assert.equal(receipt({ type: "tool-createHabit", state: "output-available", output: "output" in writes[0]! ? writes[0].output : undefined }), "Created habit 'Run'");
+  await reply(`${proposal}\nUser: yes`, create);
+  assert.equal(applied, 1);
 });
