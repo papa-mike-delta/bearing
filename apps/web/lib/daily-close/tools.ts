@@ -1,4 +1,4 @@
-import { CloseRefusal, listHabits, type CoachData } from "@repo/coach";
+import { coachWriteKey, coachJournalOperationId, CloseRefusal, listHabits, type CoachData } from "@repo/coach";
 import { journalingArticle } from "@repo/coach/knowledge";
 import { tool, type UIMessage } from "ai";
 import { z } from "zod";
@@ -89,7 +89,7 @@ function namesMood(text: string, mood: string) {
 // These adapters still use the existing shared mutations and replay ids.
 export function closeData(data: CoachData, day: string, text: string, prior: UIMessage[], messageId: string, openingClose: boolean): CoachData {
   let filing: ReturnType<NonNullable<CoachData["fileDraft"]>> | undefined;
-  let journalReplayId: string | undefined;
+
   const noAnswer = openingClose || cancelsClose(text) || skipsClose(text);
   const permit = (targetDay?: string) => {
     if (noAnswer) throw new CloseRefusal("starting, skipping or cancelling writes nothing");
@@ -102,12 +102,10 @@ export function closeData(data: CoachData, day: string, text: string, prior: UIM
       const answer = text.trim();
       if (!answer) throw new CloseRefusal("no answer to append");
       if (!data.appendJournal) throw new Error("Journal append is unavailable.");
-      // Ignore the model's substring. The payload is the whole trimmed person
-      // message. Replay identity is the first appendJournal ordinal this turn
-      // (`messageId:day:n`); later calls write that same answer and reuse it.
-      if (!input.operationId.startsWith(`${messageId}:`)) throw new Error("Journal append is unavailable.");
-      journalReplayId ??= input.operationId;
-      return data.appendJournal(userId, { ...input, text: answer, operationId: journalReplayId });
+      // The normalized payload is the person's whole answer, regardless of
+      // model-selected substrings or the position of the first append call.
+      const operationId = coachJournalOperationId(messageId, day, 1, coachWriteKey("appendJournal", { day, text: answer }, day));
+      return data.appendJournal(userId, { ...input, text: answer, operationId });
     },
     async setMood(userId, input) {
       permit(input.day);

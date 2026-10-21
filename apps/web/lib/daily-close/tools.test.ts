@@ -62,3 +62,9 @@ test("Daily close shares reservations: refusals release slots, applied replays k
   await assert.rejects(Promise.resolve(tools.createTask.execute!({ name: "Also capped" }, options)), /only 3/);
   assert.equal("trackHabit" in close, false);
 });
+
+
+test("Daily close replies use day words while tool inputs keep ISO days", async () => {
+  const { dailyClosePrompt } = await import("./prompt.ts");
+  assert.match(dailyClosePrompt("2026-10-09", "2026-10-08", ""), /Never show ISO YYYY-MM-DD dates in replies; tool inputs still use YYYY-MM-DD/);
+});

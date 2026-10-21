@@ -1,5 +1,7 @@
 "use client";
 
+import { optimisticHabitCount, settleHabitCount } from "../../lib/habit-count-state";
+
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -78,6 +80,7 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
     setRows(habits);
   }
   const [error, setError] = useState("");
+  const [countInteraction, setCountInteraction] = useState<Record<string, number>>({});
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -116,13 +119,20 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
     });
   }
 
+  function interact(habitId: string) {
+    setCountInteraction(current => ({ ...current, [habitId]: (current[habitId] ?? 0) + 1 }));
+  }
+
   function changeCount(habit: HabitRow, day: string, delta: 1 | -1, total?: number): Promise<void> {
     setError("");
     setPendingKey(`${habit.id}:${day}`);
+    const change = optimisticHabitCount(habit.counts[day] ?? 0, delta, habitCountCap(habit.period));
+    const updateCount = (count: number) => setRows(current => current.map(row => row.id === habit.id ? { ...row, counts: { ...row.counts, [day]: count } } : row));
+    if (total === undefined) updateCount(change.count);
     return new Promise((resolve) => start(async () => {
       try {
         const result = total === undefined ? await countHabitDay(habit.id, day, delta, today) : await setHabitDayCount(habit.id, day, total, today);
-        if ("error" in result) setError(result.error);
+        if ("error" in result) { updateCount(settleHabitCount(change, result).count); setError(result.error); }
         else {
           setRows((current) => current.map((row) => row.id === habit.id ? {
             ...row, counts: { ...row.counts, [day]: result.count },
@@ -130,7 +140,7 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
           } : row));
           saved();
         }
-      } catch { setError("Could not save. Please try again."); }
+      } catch { updateCount(change.prior); setError("Could not save. Please try again."); }
       finally { setPendingKey(null); resolve(); }
     }));
   }
@@ -208,8 +218,8 @@ function HabitGrid({ today, week, habits, weekly = false, restoreFocus }: { toda
               const met = !habit.bad && habit.goalCount !== null && count >= habit.goalCount;
               const over = habitOverGoal(habit, count);
               if (habit.trackMode === "many") return <td key={day} className="day">
-                <div className="habit-counter" role="group" aria-label={`${habit.name} ${label(day)}`}>
-                  <HabitCount count={count} cap={habitCountCap(habit.period)} disabled={closed || pendingKey !== null} onSave={(total) => changeCount(habit, day, 1, total)} label={`${habit.name} count ${weekly ? day === mondayOf(today) ? "this week" : `week of ${formatJournalDay(day)}` : day === today ? "today" : formatJournalDay(day)}`} className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")}>{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</HabitCount>
+                <div className="habit-counter" onPointerDownCapture={() => interact(habit.id)} onClickCapture={() => interact(habit.id)} onKeyDownCapture={(event) => { if (!(event.target instanceof HTMLInputElement && event.key === "Enter")) interact(habit.id); }} role="group" aria-label={`${habit.name} ${label(day)}`}>
+                  <HabitCount interaction={countInteraction[habit.id] ?? 0} count={count} cap={habitCountCap(habit.period)} disabled={closed || pendingKey !== null} onSave={(total) => changeCount(habit, day, 1, total)} label={`${habit.name} count ${weekly ? day === mondayOf(today) ? "this week" : `week of ${formatJournalDay(day)}` : day === today ? "today" : formatJournalDay(day)}`} className={[met ? "habit-met-goal" : "", over ? "habit-over-goal" : ""].join(" ")}>{count}{habit.goalCount !== null && <><span className="habit-of-goal" aria-hidden="true">/{habit.goalCount}</span><span className="sr-only">{habit.bad ? " of limit " : " of "}{habit.goalCount}{met ? ", done" : ""}</span></>}</HabitCount>
                   <Button type="button" variant="outline" className="habit-step" disabled={closed || pendingKey !== null} aria-label={`Add one to ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, 1)}>+</Button>
                   <Button type="button" variant="outline" className="habit-step" disabled={closed || count === 0 || pendingKey !== null} aria-label={`Remove one from ${habit.name} ${label(day)}`} onClick={() => changeCount(habit, day, -1)}>{"\u2212"}</Button>
                 </div>

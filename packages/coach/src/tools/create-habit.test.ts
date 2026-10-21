@@ -1,3 +1,4 @@
+import { coachWriteKey } from "../write-identity.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
@@ -15,7 +16,7 @@ function fake() {
 test("an explicit name alone creates daily once, not Bad, with message/call provenance and listHabits state", async () => {
   const { calls, context } = fake();
   assert.deepEqual(await createHabit.run({ name: " Walk " }, context), { ...state, href: "/habits" });
-  assert.deepEqual(calls, [{ userId: "owner", input: { name: "Walk", period: "day", trackMode: "once", goalCount: null, bad: false, today, source: "coach", operationId: "message:createHabit:1" } }]);
+  assert.deepEqual(calls, [{ userId: "owner", input: { name: "Walk", period: "day", trackMode: "once", goalCount: null, bad: false, today, source: "coach", operationId: `message:createHabit:${coachWriteKey("createHabit", { name: "Walk" }, today)}:1` } }]);
 });
 
 test("Quit smoking's inferred Bad inputs create Smoking once; counting cigarettes allows no goal", async () => {
@@ -71,4 +72,15 @@ test("invalid names, goals and browser Today never reach the adapter", async () 
   for (const input of [{ name: "" }, { name: "a".repeat(201) }, { name: "Water", goalCount: 0 }, { name: "Water", goalCount: 1.2 }]) await assert.rejects(createHabit.run(input, context));
   for (const today of [undefined, "2026-02-31"]) await assert.rejects(createHabit.run({ name: "Walk" }, { ...context, today }), /browser's Today/);
   assert.equal(calls.length, 0);
+});
+
+test("equivalent creation defaults share identity; changed content and occurrences do not", async () => {
+  const { calls, context } = fake();
+  await createHabit.run({ name: " Walk " }, context);
+  await createHabit.run({ name: "Walk", period: "day", trackMode: "once", goalCount: null, bad: false }, context);
+  await createHabit.run({ name: "Run" }, context);
+  await createHabit.run({ name: "Walk" }, { ...context, habitOrdinal: 2 });
+  const ids = calls.map(call => call.input.operationId);
+  assert.equal(ids[0], ids[1]);
+  assert.equal(new Set(ids).size, 3);
 });

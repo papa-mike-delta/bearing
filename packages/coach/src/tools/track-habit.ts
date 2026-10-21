@@ -1,5 +1,6 @@
 import { isCalendarDay } from "@repo/domain";
 import { z } from "zod";
+import { coachWriteKey } from "../write-identity.ts";
 import type { ToolRunContext } from "../data.ts";
 import { journalDaySchema } from "./append-journal.ts";
 import { coachHabitOperationId, habitWriteStateSchema } from "./create-habit.ts";
@@ -27,7 +28,7 @@ export const trackHabit = {
     if (!data.trackHabit) throw new Error("Habits are unavailable.");
     // Persistence resolves the period and replay before reading today's habit
     // definition: edits and deletion must not invalidate an earlier success.
-    const result = await data.trackHabit(userId, { habitId: parsed.habitId, action: parsed.action, day, ...(parsed.action === "setCount" ? { count: parsed.count } : {}), today, source: "coach", operationId: coachHabitOperationId(messageId, "trackHabit", habitOrdinal) });
+    const result = await data.trackHabit(userId, { habitId: parsed.habitId, action: parsed.action, day, ...(parsed.action === "setCount" ? { count: parsed.count } : {}), today, source: "coach", operationId: coachHabitOperationId(messageId, "trackHabit", habitOrdinal, coachWriteKey("trackHabit", parsed, today)) });
     return { ...resultSchema.parse(result), href: "/habits" };
   },
 };

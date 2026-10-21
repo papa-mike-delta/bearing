@@ -1,5 +1,6 @@
 import {
   appendJournal,
+  coachWriteKey,
   createHabit,
   trackHabit,
   fileDraft,
@@ -61,20 +62,21 @@ type Cap = keyof typeof caps;
 // tool calls share attempts. Failed and unchanged writes release their slot.
 function turnAttempts() {
   const counts = { write: 0, complete: 0, schedule: 0, update: 0 };
-  let journalAppends = 0;
-  let habitCalls = 0;
+  const occurrences = new Map<string, number>();
   return {
-    reserve(cap: Cap | undefined, append: boolean, habit: boolean) {
+    reserve(cap: Cap | undefined, append: boolean, habit: boolean, key: string) {
       if (cap) {
         if (counts[cap] >= caps[cap].max) throw new Error(caps[cap].message);
         counts[cap] += 1;
       }
+      const occurrence = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, occurrence);
       return {
         settle(applied: boolean) {
           if (cap && !applied) counts[cap] -= 1;
         },
-        ...(append && { appendOrdinal: ++journalAppends }),
-        ...(habit && { habitOrdinal: ++habitCalls }),
+        ...(append && { appendOrdinal: occurrence }),
+        ...(habit && { habitOrdinal: occurrence }),
       };
     },
   };
@@ -117,7 +119,7 @@ type Policy<Input> = {
 };
 
 // The descriptor keeps the core schema/output inference through SDK binding.
-// Journal and Habit writes use reserved call ordinals for replay identity.
+// Journal and Habit writes count occurrences of the same normalized content.
 function executionTool<Name extends string, Input, Output extends object>(
   name: Name,
   core: {
@@ -161,6 +163,7 @@ function executionTool<Name extends string, Input, Output extends object>(
           policy.cap,
           policy.appendOrdinal ?? false,
           policy.habitOrdinal ?? false,
+          name + ":" + coachWriteKey(name, input as Record<string, unknown>, context.today),
         );
         const { settle, ...ordinals } = reservation;
         let applied = false;

@@ -246,3 +246,9 @@ test("Coach knowledge and README teach ask-first, total versus addition, and app
   assert.ok(!readme.includes("Non-Every"));
   assert.equal(readme.split("That reply makes no tool call").length - 1, 1);
 });
+
+test("replies use day words while tool inputs keep ISO calendar days", () => {
+  assert.match(coachSystemPrompt(), /today, yesterday, a weekday name like Monday/);
+  assert.match(coachSystemPrompt(), /last Monday.*Oct 12/);
+  assert.match(coachSystemPrompt(), /Never show ISO YYYY-MM-DD dates in replies; tool inputs still use YYYY-MM-DD/);
+});
