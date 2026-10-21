@@ -1,5 +1,6 @@
 import { habitCountCap, isCalendarDay, maxHabitNameLength } from "@repo/domain";
 import { z } from "zod";
+import { coachWriteKey } from "../write-identity.ts";
 import type { ToolRunContext } from "../data.ts";
 
 const inputSchema = z.object({
@@ -18,10 +19,9 @@ export const habitWriteStateSchema = z.object({
   streak: z.number().int().nonnegative().nullable(), record: z.number().int().nonnegative().nullable(),
 });
 
-// Like Journal appends, use the call's reserved position, never a provider id
-// which may change on resend. The message id fixes the person's request.
-export function coachHabitOperationId(messageId: string, tool: "createHabit" | "trackHabit", ordinal: number) {
-  return `${messageId}:${tool}:${ordinal}`;
+// A normalized content key and its occurrence survive reordered resends.
+export function coachHabitOperationId(messageId: string, tool: "createHabit" | "trackHabit", ordinal: number, key?: string) {
+  return `${messageId}:${tool}:${key ? key + ":" : ""}${ordinal}`;
 }
 
 export const createHabit = {
@@ -44,7 +44,7 @@ export const createHabit = {
     }
     if (trackMode === "once" && goalCount !== null) return { refused: true as const, clarification: "Once-habits cannot have a goal. Should this be many-times?" };
     if (!data.createHabit) throw new Error("Habits are unavailable.");
-    const result = await data.createHabit(userId, { name, period, trackMode, goalCount, bad, today, source: "coach", operationId: coachHabitOperationId(messageId, "createHabit", habitOrdinal) });
+    const result = await data.createHabit(userId, { name, period, trackMode, goalCount, bad, today, source: "coach", operationId: coachHabitOperationId(messageId, "createHabit", habitOrdinal, coachWriteKey("createHabit", parsed, today)) });
     return { ...habitWriteStateSchema.parse(result), href: "/habits" };
   },
 };

@@ -1,3 +1,4 @@
+import { coachWriteKey, coachJournalOperationId } from "@repo/coach";
 // The interface is the test surface: turn preparation, executable tools and
 // reload against isolated Postgres, without a model or Gateway.
 import assert from "node:assert/strict";
@@ -294,7 +295,7 @@ describe("Daily close interface", { skip: !url && "TEST_POSTGRES_URL not set" },
     assert.equal(entry.body, incoming.text.trim());
     const operations = await db.select().from(journalOperations).where(eq(journalOperations.userId, owner.userId));
     assert.equal(operations.length, 1);
-    assert.equal(operations[0]!.operationId, `${incoming.id}:${day}:1`);
+    assert.equal(operations[0]!.operationId, coachJournalOperationId(incoming.id, day, 1, coachWriteKey("appendJournal", { day, text: incoming.text }, day)));
     const [stored] = await db.select().from(coachMessages).where(eq(coachMessages.id, incoming.id));
     assert.equal(stored!.browserToday, today);
     assert.equal(stored!.closeDay, day);

@@ -1,3 +1,4 @@
+import { coachWriteKey } from "../write-identity.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
@@ -12,10 +13,10 @@ function fake() {
   return { calls, context: { userId: "owner", messageId: "message", toolCallId: "provider-call", today: state.day, habitOrdinal: 2, data: data as CoachData } };
 }
 
-test("tracking uses the listed habit id, browser Today and reserved call position", async () => {
+test("tracking uses the listed habit id, browser Today and normalized content and occurrence", async () => {
   const { calls, context } = fake();
   assert.deepEqual(await trackHabit.run({ habitId: id, action: "did" }, context), { ...state, href: "/habits" });
-  assert.deepEqual(calls, [["owner", { habitId: id, action: "did", day: state.day, today: state.day, source: "coach", operationId: "message:trackHabit:2" }]]);
+  assert.deepEqual(calls, [["owner", { habitId: id, action: "did", day: state.day, today: state.day, source: "coach", operationId: `message:trackHabit:${coachWriteKey("trackHabit", { habitId: id, action: "did" }, state.day)}:2` }]]);
 });
 
 test("two habits named Water cannot be guessed by name: the tool requires an id", async () => {
@@ -33,7 +34,7 @@ test("past dates and all four explicit tracking actions reach the adapter withou
   for (const action of ["did", "undo", "didnt", "markDone"] as const) {
     await trackHabit.run({ habitId: id, action, day: "2026-10-01" }, context);
   }
-  assert.deepEqual(calls, ["did", "undo", "didnt", "markDone"].map((action) => ["owner", { habitId: id, action, day: "2026-10-01", today: state.day, source: "coach", operationId: "message:trackHabit:2" }]));
+  assert.deepEqual(calls, ["did", "undo", "didnt", "markDone"].map((action) => ["owner", { habitId: id, action, day: "2026-10-01", today: state.day, source: "coach", operationId: `message:trackHabit:${coachWriteKey("trackHabit", { habitId: id, action, day: "2026-10-01" }, state.day)}:2` }]));
 });
 
 test("a missing Today or invalid day refuses before tracking", async () => {
@@ -54,4 +55,21 @@ test("setCount validates whole totals 0 through 999 before the adapter and forwa
     assert.equal((calls.at(-1) as [string, {count: number}])[1].count, count);
   }
   for (const words of ["setCount", "never once", "no tool call in that reply", "N more", "None", "Daily cap 99", "weekly cap 999", "unreported lapses"]) assert.ok(trackHabit.description.includes(words), words);
+});
+
+test("tracking resolves today before identity and includes action, habit, day, count and occurrence", async () => {
+  const { calls, context } = fake();
+  for (const day of [undefined, "today", state.day]) await trackHabit.run({ habitId: id, action: "did", day }, context);
+  for (const input of [
+    { habitId: randomUUID(), action: "did" as const },
+    { habitId: id, action: "undo" as const },
+    { habitId: id, action: "did" as const, day: "2026-10-01" },
+    { habitId: id, action: "setCount" as const, count: 2 },
+    { habitId: id, action: "setCount" as const, count: 3 },
+  ]) await trackHabit.run(input, context);
+  await trackHabit.run({ habitId: id, action: "did" }, { ...context, habitOrdinal: 3 });
+  const ids = calls.map(call => (call as [string, { operationId: string }])[1].operationId);
+  assert.equal(ids[0], ids[1]);
+  assert.equal(ids[0], ids[2]);
+  assert.equal(new Set(ids).size, ids.length - 2);
 });

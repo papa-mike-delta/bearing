@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, mock, test } from "node:test";
 import {
   appendJournal,
+  coachWriteKey,
   CloseRefusal,
   receipt,
   type CoachData,
@@ -29,6 +30,8 @@ const userId = randomUUID();
 const messageId = randomUUID();
 const entityId = randomUUID();
 const today = "2026-10-09";
+const journalId = (text: string, n = 1) => `${messageId}:appendJournal:${coachWriteKey("appendJournal", { text }, today)}:${n}`;
+const habitId = (tool: string, input: Record<string, unknown>, n = 1) => `${messageId}:${tool}:${coachWriteKey(tool, input, today)}:${n}`;
 const capMessage =
   "You can make only 3 Task, Note, Journal, Mood, filing or Habit writes per reply.";
 
@@ -127,7 +130,7 @@ test("successful execution binds context to the core and preserves Journal prove
           today,
           text: "Keep this reflection",
           source: "coach",
-          operationId: `${messageId}:${today}:1`,
+          operationId: journalId("Keep this reflection"),
         },
       ]),
     ),
@@ -225,7 +228,7 @@ for (const [name, attempt] of Object.entries(writeAttempts)) {
   });
 }
 
-test("day failures release attempts but consume append ordinals before validation, without logging", async () => {
+test("day failures release attempts without shifting other content occurrences or logging", async () => {
   const log = mock.method(console, "error", () => {});
   const append = mock.fn<NonNullable<CoachData["appendJournal"]>>(
     async (_user, input) => ({ id: entityId, day: input.day }),
@@ -257,7 +260,7 @@ test("day failures release attempts but consume append ordinals before validatio
   await tools.appendJournal.execute!({ text: "Saved" }, call());
   assert.equal(
     append.mock.calls[0]!.arguments[1].operationId,
-    `${messageId}:${today}:2`,
+    journalId("Saved"),
   );
   await assert.rejects(settled(tools.setMood.execute!({ mood: "Good" }, call("missing", ""))), /browser's Today/);
   await tools.appendJournal.execute!({ text: "Second saved" }, call());
@@ -266,7 +269,7 @@ test("day failures release attempts but consume append ordinals before validatio
   assert.equal(log.mock.callCount(), 0);
 });
 
-test("parallel Journal calls get distinct ordinals while the first append is still pending", async () => {
+test("parallel Journal calls get distinct content identities while the first append is pending", async () => {
   const gate = pendingData();
   const operations: string[] = [];
   const tools = coachTools(
@@ -284,8 +287,8 @@ test("parallel Journal calls get distinct ordinals while the first append is sti
   ];
   try {
     assert.deepEqual(operations, [
-      `${messageId}:${today}:1`,
-      `${messageId}:${today}:2`,
+      journalId("First"),
+      journalId("Second"),
     ]);
   } finally {
     gate.resolve();
@@ -601,11 +604,11 @@ test("habit writes reserve the shared cap alongside Note and Journal; a fourth w
     await writeAttempts.appendJournal(tools);
     for (const attempt of Object.values(writeAttempts)) await assert.rejects(settled(attempt(tools)), /only 3 .*Habit writes/);
     assert.deepEqual(committed, [first === "createHabit" ? "habit" : "track", "note", "journal"]);
-    assert.deepEqual(operations, [`${messageId}:${first}:1`]);
+    assert.deepEqual(operations, [habitId(first, first === "createHabit" ? { name: "Walk" } : { habitId: entityId, action: "did" })]);
   }
 });
 
-test("habit replay positions are stable when provider call ids change and distinct for multiple calls", async () => {
+test("habit content identities survive changed provider ids and distinguish repeated occurrences", async () => {
   const operations: string[] = [];
   const adapter = data({
     createHabit: async (_user, input) => { operations.push(input.operationId); return habitState; },
@@ -617,7 +620,7 @@ test("habit replay positions are stable when provider call ids change and distin
     await tools.trackHabit.execute!({ habitId: entityId, action: "did" }, call(`${providerId}_did`));
     await tools.trackHabit.execute!({ habitId: entityId, action: "did" }, call(`${providerId}_again`));
   }
-  assert.deepEqual(operations, Array(2).fill([`${messageId}:createHabit:1`, `${messageId}:trackHabit:2`, `${messageId}:trackHabit:3`]).flat());
+  assert.deepEqual(operations, Array(2).fill([habitId("createHabit", { name: "Walk" }), habitId("trackHabit", { habitId: entityId, action: "did" }), habitId("trackHabit", { habitId: entityId, action: "did" }, 2)]).flat());
 });
 
 for (const name of ["createHabit", "trackHabit"] as const) {
@@ -689,7 +692,7 @@ test("three in-flight reservations block a fourth; a settled refusal admits a la
   await assert.rejects(settled(tools.appendJournal.execute!({ text: "Fourth" }, call())), /only 3/);
 });
 
-test("resending three applied writes retains all slots; unchanged operation replays release theirs and ordinals still advance", async () => {
+test("resending three applied writes retains all slots; unchanged operation replays release theirs with stable content occurrences", async () => {
   const operations = new Map<string, object>();
   const seen: string[] = [];
   let applied = 0;
@@ -710,5 +713,57 @@ test("resending three applied writes retains all slots; unchanged operation repl
   }
   assert.equal(applied, 3);
   assert.equal(operations.size, 4);
-  assert.deepEqual(seen, Array(2).fill([1, 2, 3, 4].map((n) => `${messageId}:trackHabit:${n}`)).flat());
+  assert.deepEqual(seen, Array(2).fill([0, 4, 5, 6].map((count) => habitId("trackHabit", { habitId: entityId, action: "setCount", count }))).flat());
+});
+
+test("reordered Journal and habit writes replay across an inserted read and other write", async () => {
+  const operations = new Map<string, object>();
+  let applied = 0;
+  let replays = 0;
+  function persist(id: string, result: object) {
+    const prior = operations.get(id);
+    if (prior) { replays++; return prior; }
+    applied++;
+    operations.set(id, result);
+    return result;
+  }
+  const adapter = data({
+    createHabit: async (_user, input) => persist(input.operationId, habitState) as typeof habitState,
+    appendJournal: async (_user, input) => persist(input.operationId, { id: entityId, day: input.day }) as { id: string; day: string },
+  });
+  const original = coachTools(adapter);
+  await original.appendJournal.execute!({ text: " Reflection " }, call());
+  await original.createHabit.execute!({ name: "Walk" }, call());
+  const resent = coachTools(adapter);
+  await resent.listArea.execute!({}, call());
+  await resent.createHabit.execute!({ name: "Inserted" }, call());
+  await resent.createHabit.execute!({ name: " Walk ", period: "day", trackMode: "once", bad: false }, call());
+  await resent.appendJournal.execute!({ day: today, text: "Reflection" }, call());
+  assert.equal(applied, 3); // Only the newly inserted write applies.
+  assert.equal(replays, 2);
+});
+
+test("two identical did calls apply twice and replay twice despite a reordered other write", async () => {
+  const ledger = new Map<string, object>();
+  let count = 0;
+  let replays = 0;
+  const adapter = data({
+    createHabit: async () => habitState,
+    trackHabit: async (_user, input) => {
+      const prior = ledger.get(input.operationId);
+      if (prior) { replays++; return prior as never; }
+      const result = { ...habitState, count: ++count, day: input.day, action: input.action, changed: true };
+      ledger.set(input.operationId, result);
+      return result;
+    },
+  });
+  for (const resend of [false, true]) {
+    const tools = coachTools(adapter);
+    if (resend) await tools.createHabit.execute!({ name: "Walk" }, call());
+    for (let n = 0; n < 2; n++) await tools.trackHabit.execute!({ habitId: entityId, action: "did", ...(resend ? { day: today } : {}) }, call());
+    if (!resend) await tools.createHabit.execute!({ name: "Walk" }, call());
+  }
+  assert.equal(count, 2);
+  assert.equal(ledger.size, 2);
+  assert.equal(replays, 2);
 });

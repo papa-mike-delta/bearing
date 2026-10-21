@@ -389,6 +389,18 @@ function failingAfterWrite(toolName: string, input: unknown) {
   } });
 }
 
+function failingAfterWrites(...writes: { toolName: string; input: unknown }[]) {
+  let step = 0;
+  return new MockLanguageModelV4({ doStream: async () => {
+    const write = writes[step++];
+    if (!write) throw new Error("Gateway unavailable after writes");
+    return { stream: simulateReadableStream({ chunks: [
+      { type: "tool-call", toolCallId: `committed_${step}`, toolName: write.toolName, input: JSON.stringify(write.input) },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+    ] }) };
+  } });
+}
+
 const userMessage = (text: string, id: string = randomUUID()): UIMessage => ({
   id,
   role: "user",
@@ -473,6 +485,54 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       assert.equal(messages.flatMap((m) => m.parts).filter((p) => p.type === "tool-trackHabit").length, 1);
       assert.ok(messages.flatMap((m) => m.parts).some((p) => receipt(p, "2026-10-09") === `Set '${name}' to ${count} for ${period === "day" ? "today" : "this week"}`));
     }
+  });
+
+  test("content replay survives reordered Journal/habit writes, inserted reads and a new write", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const message = userMessage("Create Walk and save reflection");
+    await turn(c, thread, message, failingAfterWrites(
+      { toolName: "createHabit", input: { name: "Walk" } },
+      { toolName: "appendJournal", input: { text: "Reflection" } },
+    ));
+    const before = (await getJournalDay(c, "2026-10-09", db))!;
+    await turn(c, thread, message, scripted(
+      { listHabits: "{}" },
+      { createHabit: JSON.stringify({ name: "Inserted" }) },
+      { appendJournal: JSON.stringify({ day: "2026-10-09", text: "Reflection" }) },
+      { createHabit: JSON.stringify({ name: " Walk ", period: "day", trackMode: "once", bad: false }) },
+      { text: "Saved." },
+    ));
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.revision, before.revision);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))!.body, "Reflection");
+    assert.deepEqual((await listHabits(c, "2026-10-09", [], db)).map(h => h.name).sort(), ["Inserted", "Walk"]);
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 2);
+    const parts = (await threadMessages(c, thread, db))!.at(-1)!.parts;
+    assert.equal(parts.filter(p => p.type === "tool-appendJournal" || p.type === "tool-createHabit").length, 3);
+    assert.ok(!parts.some(p => "state" in p && p.state === "output-error"));
+  });
+
+  test("two identical did calls in a turn both apply and replay after another write moves before them", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const habit = await createHabit(c, "Water", db);
+    await editHabit(c, habit.id, { trackMode: "many", goalCount: 8 }, undefined, db);
+    const message = userMessage("I had water, and again. Create Walk.");
+    const did = { habitId: habit.id, action: "did" };
+    await turn(c, thread, message, failingAfterWrites(
+      { toolName: "trackHabit", input: did }, { toolName: "trackHabit", input: did },
+      { toolName: "createHabit", input: { name: "Walk" } },
+    ));
+    await turn(c, thread, message, scripted(
+      { listHabits: "{}" }, { createHabit: JSON.stringify({ name: "Walk" }) },
+      { trackHabit: JSON.stringify({ ...did, day: "2026-10-09" }) },
+      { trackHabit: JSON.stringify({ ...did, day: "today" }) }, { text: "Recorded twice." },
+    ));
+    assert.equal((await listHabits(c, "2026-10-09", [], db)).find(h => h.id === habit.id)!.count, 2);
+    assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 3);
+    const parts = (await threadMessages(c, thread, db))!.at(-1)!.parts;
+    const results = parts.filter(p => p.type === "tool-trackHabit") as { output: { count: number } }[];
+    assert.deepEqual(results.map(p => p.output.count), [1, 2]);
   });
 
   test("explicit habit creation and track receipts survive failed-turn resend, edits, deletion and reload", async () => {
@@ -1708,7 +1768,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"));
   });
 
-  test("a resend that changes the reflection by one character leaves the body and has no success receipt", async () => {
+  test("different reflection content on resend has its own identity", async () => {
     const c = await account();
     const thread = await coachThread(c, db);
     const message = userMessage("Append: Long walk, felt calmer.");
@@ -1718,8 +1778,8 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       { appendJournal: JSON.stringify({ text: "Long walk, felt calmer" }), toolCallId: "changed_one_character" },
       { text: "Saved." },
     ));
-    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.");
-    assert.equal(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"), false);
+    assert.equal((await getJournalDay(c, "2026-10-09", db))?.body, "Long walk, felt calmer.\n\nLong walk, felt calmer");
+    assert.equal(receiptsOf(await threadMessages(c, thread, db))!.includes("Appended to journal for 2026-10-09"), true);
   });
 
   test("two different appendJournal calls in one turn both save", async () => {
