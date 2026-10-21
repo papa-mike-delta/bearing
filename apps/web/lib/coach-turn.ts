@@ -126,7 +126,7 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: prepared.system,
+    system: prepared.system + appliedWritesBlock(prepared.prior),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: prepared.toolsContext,
@@ -191,24 +191,36 @@ export async function coachTurn({
 // failed, then the next one), so the thread alternates as providers expect.
 const coachReadTools = new Set(["tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
+// The successful write receipts of one stored message, with absolute dates
+// (no today passed). Reads and failed, refused or unchanged writes go.
+function appliedReceipts(message: UIMessage): string[] {
+  return message.parts.flatMap((part) => {
+    if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
+    const tool = part as { type: string; state?: string; output?: unknown };
+    if (tool.state !== "output-available") return [];
+    const output = tool.output as Record<string, unknown> | null | undefined;
+    if (output && typeof output === "object" && (output.refused || output.notFound || output.invalidId || output.changed === false)) return [];
+    const line = receipt(tool);
+    return line ? [line] : [];
+  });
+}
+
+// Saved receipts from the reloaded thread, for the system prompt: the model
+// trusts the system prompt over a line written in its own voice.
+export function appliedWritesBlock(messages: UIMessage[], max = 10): string {
+  const lines = messages.filter((m) => m.role === "assistant").flatMap(appliedReceipts).slice(-max);
+  return lines.length ? `\n\nApplied writes in this thread (saved receipts; these happened):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
+}
+
 function textOnly(messages: UIMessage[]) {
   const said: UIMessage[] = [];
   for (const message of messages) {
     const parts: UIMessage["parts"] = message.parts.filter(
       (part) => part.type === "text" && part.text.trim(),
     );
-    // Earlier applied writes stay visible as one line, with absolute dates,
-    // so the next turn doesn't doubt or retract them. Reads and failures go.
+    // Earlier applied writes stay visible as one line, with absolute dates.
     if (message.role === "assistant") {
-      const lines = message.parts.flatMap((part) => {
-        if (!part.type.startsWith("tool-") || coachReadTools.has(part.type)) return [];
-        const tool = part as { type: string; state?: string; output?: unknown };
-        if (tool.state !== "output-available") return [];
-        const output = tool.output as Record<string, unknown> | null | undefined;
-        if (output && typeof output === "object" && (output.refused || output.notFound || output.invalidId || output.changed === false)) return [];
-        const line = receipt(tool);
-        return line ? [line] : [];
-      });
+      const lines = appliedReceipts(message);
       if (lines.length) parts.push({ type: "text", text: `[Receipts: ${lines.join("; ")}]` });
     }
     if (!parts.length) continue;

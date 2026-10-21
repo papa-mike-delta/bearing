@@ -500,9 +500,12 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.equal(stored?.state, "output-available");
     assert.notEqual(stored?.output?.changed, false);
     const next = scripted({ listHabits: JSON.stringify({ day: "2026-10-08" }) }, { text: "Yes, 3 is recorded." });
-    await turn(c, thread, userMessage("Did that save?"), next);
+    await turn(c, thread, userMessage("thanks"), next);
     const seen = promptText(next);
     assert.match(seen, /Set 'Water' to 3 for/);
+    const system = next.doStreamCalls[0]!.prompt.find((m) => m.role === "system")!.content as string;
+    assert.ok(system.includes("Applied writes in this thread (saved receipts; these happened):\n- Set 'Water' to 3 for Thu, Oct 8"));
+    assert.ok(system.includes("never retract an earlier receipt; only a later write receipt changes it"));
     assert.ok(seen.includes("Earlier receipts in this thread are real writes"));
     const read = (await threadMessages(c, thread, db))!.at(-1)!.parts.find((p) => p.type === "tool-listHabits") as { output?: { day?: string; habits?: { name: string; count: number }[] } };
     assert.equal(read.output?.day, "2026-10-08");
