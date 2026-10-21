@@ -136,7 +136,7 @@ A future day, a day with no saved body, and a mood with no document cannot be li
 
 **Light or dark** on `/account` switches between Light, Dark and System (the default, following the device). The choice is saved in this browser by next-themes, which sets the `.dark` class that every built-in and imported palette styles, so it works with whichever palette is chosen. Palettes are saved per account; light or dark is per browser.
 
-Account theme import accepts a current shadcn/create link or preset code (up to 512 input characters). Regenerate the bundled theme table after updating shadcn with `npm run themes:generate -w web`.
+Once a theme is imported, the Themes group on `/account` shows one more chip, **My theme**, the same size and selected style as the built-ins; picking it re-applies the stored import (built-ins keep the import on the row). With no import there is no such chip. Account theme import accepts a current shadcn/create link or preset code (up to 512 input characters). Regenerate the bundled theme table after updating shadcn with `npm run themes:generate -w web`.
 
 ## Scripts
 

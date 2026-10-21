@@ -113,6 +113,8 @@ export function themeCss(account: AccountTheme) {
   return `:root{${light}}.dark{${dark}}`;
 }
 
+export const importedThemeName = "My theme";
+
 export function themeChoices(account: AccountTheme) {
   const choices: { id: string; name: string; selected: boolean }[] =
     builtInThemes.map((theme) => ({
@@ -120,6 +122,11 @@ export function themeChoices(account: AccountTheme) {
       name: theme.name,
       selected: account.choice === theme.id,
     }));
+  // A stored import stays pickable as one chip. Rows keep no import name,
+  // so it is "My theme".
+  if (account.code && sanitizeBlock(account.light) && sanitizeBlock(account.dark)) {
+    choices.push({ id: "imported", name: importedThemeName, selected: account.choice === "imported" });
+  }
   return choices;
 }
 
