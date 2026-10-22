@@ -183,7 +183,7 @@ Notes: no dedicated docs page in the sidebar. From marketing, shortcuts, API, an
 
 Source: [relationships](https://lunatask.app/docs/features/relationships).
 
-Shipped in #154: `/people` and `/people/[id]` require sign-in. Only people storage is added: account, name, group, rule, last connected, agreed day and timestamps. No Task rule column, occasion date or links.
+Shipped in #154: `/people` and `/people/[id]` require sign-in. #154 added only people storage (account, name, group, rule, last connected, agreed day and timestamps). The Task rule column came later in #163 and person links in #156 (below); there is still no occasion date.
 
 Related (#156): a Person is a Related endpoint like a Task, a Note or a saved Journal day, in either direction. This includes **person to person**: one person can be linked to a different person (Paul's decision, 2026-10-21: person-to-person Related links stay). A link from a person to that same person is refused. The person page shows Outgoing and Backlinks, newest edge first. Deleting a person deletes every edge that touches them and nothing else.
 
