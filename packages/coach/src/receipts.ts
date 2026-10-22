@@ -94,7 +94,7 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const output = part.output as { match?: unknown; title?: unknown; heading?: unknown; href?: unknown } | undefined;
     const title = output?.title;
     const heading = output?.heading;
-    const href = title === "People: reach-out rules" ? "/coach/knowledge/people" : title === "Habits"
+    const href = title === "People: reach-out rules" ? "/coach/knowledge/people" : title === "Notes: occasion dates" ? "/coach/knowledge/notes" : title === "Habits"
       ? "/coach/knowledge/habits"
       : title === "Journaling: evidence and limits"
         ? "/coach/knowledge/journaling"
@@ -202,6 +202,11 @@ function show(part: ToolPart, today?: string | null): Line | null {
     if (pending(part.state)) return { line: "Creating a Note…" };
     const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown; day?: unknown } | undefined;
     const name = nameOf(part.output);
+    if (part.state === "output-available" && flag(part.output, "refused") && name) {
+      const reason = (part.output as { reason?: unknown }).reason;
+      if (reason === "future-day") return { line: `No change: asked about the day for Note '${name}'` };
+      if (reason === "notebook") return { line: `No change: asked which Notebook for Note '${name}'` };
+    }
     const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && receiptId.test(output.notebookId)) ? output.notebookId : undefined;
     if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && receiptId.test(output.id) && notebookId !== undefined) {
       const href = noteHref(notebookId, output.id);

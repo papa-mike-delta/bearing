@@ -571,6 +571,41 @@
     border: 1px solid var(--border);
   }
 
+  /* Note editor buttons (Save Note, Preview, Clear, Delete) share the
+     Related buttons' outlined 40px style; the action row starts at the
+     form's left edge. */
+  [data-note-editor] button[data-slot="button"],
+  [data-note-editor] .note-actions button {
+    min-height: 40px;
+    border: 1px solid var(--border);
+  }
+
+  @media (max-width: 480px) {
+    [data-note-editor] button[data-slot="button"],
+    [data-note-editor] .note-actions button {
+      min-height: 44px;
+    }
+  }
+
+  .note-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .note-occasion-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .note-field-error {
+    color: var(--destructive);
+    font-size: 14px;
+    margin: 0;
+  }
+
   /* Equal space above and below Add link and its picker. */
   .related-add-row {
     display: flex;

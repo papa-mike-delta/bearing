@@ -26,7 +26,7 @@ test("Coach occasion day is stored and replayed once; future refusal creates not
     assert.deepEqual(await createNote.run({ ...input, body: "Changed retry", day: "2026-10-20" }, { ...context, toolCallId: "resend" }), result);
     const refused = await createNote.run({ ...input, title: "Future", day: "2026-10-22" }, context);
     assert.equal(refused.refused, true);
-    assert.equal(receipt({ type: "tool-createNote", state: "output-available", output: refused }), "Couldn't create that Note");
+    assert.equal(receipt({ type: "tool-createNote", state: "output-available", output: refused }), "No change: asked about the day for Note 'Future'");
     assert.equal((await listNotes(userId, book.id, db)).length, 1);
   } finally {
     await db.delete(users).where(eq(users.id, userId));

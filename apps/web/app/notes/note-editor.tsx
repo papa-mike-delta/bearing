@@ -34,6 +34,7 @@ export function NoteEditor({ note }: { note: Note }) {
   const [deleting, start] = useTransition();
   const pending = session.pending || deleting;
   const router = useRouter();
+  const futureDay = !!occasionDate && !!today && occasionDate > today;
   return <form data-note-editor onSubmit={(event) => {
     event.preventDefault();
     session.save();
@@ -42,15 +43,21 @@ export function NoteEditor({ note }: { note: Note }) {
       <Input id="note-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={pending} />
     </Field></FieldGroup>
     <Field><FieldLabel htmlFor="note-occasion">Occasion date (optional)</FieldLabel>
-      <Input id="note-occasion" type="date" className="min-h-10 text-base" value={occasionDate ?? ""} max={today ?? undefined}
-        onChange={(event) => session.edit({ ...value, occasionDate: event.target.value || null })} disabled={pending} />
+      <div className="note-occasion-row">
+        <Input id="note-occasion" type="date" className="min-h-10 text-base" value={occasionDate ?? ""} max={today ?? undefined}
+          aria-invalid={futureDay || undefined} aria-describedby={futureDay ? "note-occasion-error" : undefined}
+          onChange={(event) => session.edit({ ...value, occasionDate: event.target.value || null })} disabled={pending} />
+        <Button type="button" variant="outline" aria-label="Clear occasion date" disabled={pending || !occasionDate}
+          onClick={() => session.edit({ ...value, occasionDate: null })}>Clear</Button>
+      </div>
+      {futureDay && <p id="note-occasion-error" className="note-field-error">The occasion date must be today or a past day.</p>}
     </Field>
     <MarkdownEditor value={body} onChange={setBody} disabled={pending} />
     <label className="flex items-center gap-2"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} disabled={pending} />Pin this Note</label>
     {body.length > 100_000 && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
     {error && <p role="alert">{error}</p>}
-    <div className="flex flex-wrap items-center gap-3">
-      <span role="status">{pending ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</span>
+    <span role="status" className="block">{pending ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</span>
+    <div className="note-actions">
       <Button type="submit" disabled={pending || !dirty || !today || body.length > 100_000}>Save Note</Button>
       <Button type="button" variant="destructive" className="ml-auto" disabled={pending} onClick={() => {
         if (!window.confirm("Delete this Note permanently? Any unsaved changes will also be lost.")) return;
