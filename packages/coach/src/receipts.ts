@@ -71,6 +71,11 @@ function show(part: ToolPart, today?: string | null): Line | null {
           : `Agreed to see '${output.name}' on ${date}`, href };
       }
     }
+    // A refusal asked which person (or for a rule first); nothing failed.
+    if (part.state === "output-available" && flag(part.output, "refused")) {
+      const name = (part.output as { name?: unknown }).name;
+      return { line: typeof name === "string" && name ? `No change: asked about '${name}'` : "No change: asked which person" };
+    }
     return { line: part.type === "tool-readPerson" ? "Couldn't read that person" : "Couldn't update that person" };
   }
   if (part.type === "tool-readSkill") {

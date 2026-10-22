@@ -3551,3 +3551,15 @@ test("fake CoachData undo refusals return a neutral receipt and release their wr
   await assert.rejects(execute(), /only 3 .* writes per reply/);
   assert.equal(calls, 5);
 });
+
+test("a person-write refusal is a checked result, not an applied write or a failure", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-setPersonLastConnected", toolCallId: "a", state: "output-available", input: { name: "Ada" }, output: { refused: true, name: "Ada", question: "No person matches 'Ada'." } },
+    { type: "tool-setPersonAgreedDay", toolCallId: "b", state: "output-available", input: { name: "Bo", day: "2026-11-01" }, output: { refused: true, name: "Bo", question: "An agreed day requires a rule." } },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+  const block = checkedResultsBlock([message]);
+  assert.match(block, /- No change: asked about 'Ada'/);
+  assert.match(block, /- No change: asked about 'Bo'/);
+  assert.doesNotMatch(block, /Couldn't/);
+});

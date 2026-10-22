@@ -60,6 +60,7 @@ async function resolve(name: string, context: ToolRunContext) {
     ? matches[0]!
     : {
         refused: true as const,
+        name: name.trim(),
         question: matches.length
           ? `Which '${name}' do you mean? More than one person has that name.`
           : `No person matches '${name}'. Which person do you mean?`,
@@ -104,6 +105,7 @@ async function write(
   if (field === "agreedDay" && day !== null && !person.rule)
     return {
       refused: true as const,
+      name: person.name,
       question:
         "An agreed day requires a rule. Set the rule on the person page first.",
     };

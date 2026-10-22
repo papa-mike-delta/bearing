@@ -552,3 +552,14 @@ test('people reads are reads and exact linked day receipts survive reload; refus
   assert.deepEqual(shown.map(p => 'href' in p ? [p.href,p.read] : []), [['/people',true],[`/people/${id}`,true],[`/people/${id}`,undefined]]);
   for (const tool of ['readPerson','setPersonLastConnected','setPersonAgreedDay']) assert.doesNotMatch(receipt(part(tool,{refused:true,id,name:'Ada',day:null})) ?? '', /^(Read '|Connected|Agreed|Cleared)/);
 });
+
+test("person refusals are neutral, not failures", () => {
+  for (const type of ["tool-readPerson", "tool-setPersonLastConnected", "tool-setPersonAgreedDay"]) {
+    const line = receipt({ type, state: "output-available", output: { refused: true, name: "Ada", question: "Which 'Ada' do you mean?" } } as never, "2026-10-21");
+    assert.equal(line, "No change: asked about 'Ada'");
+    assert.doesNotMatch(line ?? "", /Couldn't/);
+  }
+  assert.equal(receipt({ type: "tool-setPersonAgreedDay", state: "output-available", output: { refused: true, question: "?" } } as never, "2026-10-21"), "No change: asked which person");
+  assert.equal(receipt({ type: "tool-setPersonLastConnected", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't update that person");
+  assert.equal(receipt({ type: "tool-readPerson", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't read that person");
+});

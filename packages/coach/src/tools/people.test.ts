@@ -65,7 +65,10 @@ test("people list is in page order with phrases, dates, next reach-out and due",
 test("one name matches ignoring case; missing and ambiguous matches ask and write nothing", async () => {
   const { ctx, writes } = context();
   assert.equal(value(await readPerson.run({ name: " aDA " }, ctx)).name, "Ada");
-  assert.ok("refused" in (await readPerson.run({ name: "Nobody" }, ctx)));
+  assert.deepEqual(
+    { ...(await readPerson.run({ name: "Nobody" }, ctx)), question: "" },
+    { refused: true, name: "Nobody", question: "" },
+  );
   assert.ok(
     "refused" in (await setPersonLastConnected.run({ name: "Nobody" }, ctx)),
   );
@@ -76,6 +79,7 @@ test("one name matches ignoring case; missing and ambiguous matches ask and writ
   const result = await readPerson.run({ name: "Ada" }, ambiguous.ctx);
   assert.ok("refused" in result);
   assert.match(result.question, /which/i);
+  assert.equal((result as { name?: string }).name, "Ada");
   assert.ok(
     "refused" in
       (await setPersonAgreedDay.run(
@@ -116,13 +120,12 @@ test("sets connected day, sets and clears agreement; validates dates and rule be
     await assert.rejects(run);
   assert.equal(writes.length, 4);
   const noRule = context([{ ...ada, rule: null }]);
-  assert.ok(
-    "refused" in
-      (await setPersonAgreedDay.run(
-        { name: "Ada", day: "2026-11-03" },
-        noRule.ctx,
-      )),
+  const noRuleResult = await setPersonAgreedDay.run(
+    { name: "Ada", day: "2026-11-03" },
+    noRule.ctx,
   );
+  assert.ok("refused" in noRuleResult);
+  assert.equal((noRuleResult as { name?: string }).name, "Ada");
   assert.deepEqual(noRule.writes, []);
 });
 test("people write identity matches normalized names and resolved today and distinguishes clear/day/tool", () => {
