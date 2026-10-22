@@ -226,10 +226,16 @@ test(
     await relatedSection
       .getByRole("button", { name: "Add link", exact: true })
       .click();
+    await relatedSection.getByRole("combobox").fill("New person");
+    await relatedSection.getByText("No matches", { exact: true }).waitFor();
     await relatedSection.getByRole("combobox").fill("Ada");
     await relatedSection
       .getByRole("button", { name: "Person: Ada", exact: true })
       .waitFor();
+    assert.equal(
+      await relatedSection.getByText("No matches", { exact: true }).count(),
+      0,
+    );
     await relatedSection
       .getByRole("button", { name: "Cancel", exact: true })
       .click();
@@ -262,6 +268,19 @@ test(
       (await related(owner, { kind: "person", id }, db!)).outgoing.length,
       1,
     );
+    // At 393 Add link and Remove link share one outlined style, both >= 40px.
+    const wide = page.viewportSize();
+    await page.setViewportSize({ width: 393, height: 852 });
+    for (const name of ["Add link", "Remove link"]) {
+      const button = relatedSection.getByRole("button", { name, exact: true });
+      const box = await button.boundingBox();
+      assert.ok(box && box.height >= 40, `${name} is ${box?.height}px tall`);
+      const border = await button.evaluate(
+        (el) => getComputedStyle(el).borderTopWidth,
+      );
+      assert.notEqual(border, "0px", `${name} has a visible border`);
+    }
+    if (wide) await page.setViewportSize(wide);
     await relatedSection
       .getByRole("link", { name: "Ada", exact: true })
       .click();

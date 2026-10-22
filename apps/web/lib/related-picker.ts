@@ -19,7 +19,20 @@ export type RelatedPickerState = {
   readonly active: number;
   readonly loading: boolean;
   readonly error: unknown;
+  /** True once a search for the current query and source has answered. */
+  readonly searched: boolean;
 };
+
+/** Show "No matches" only after a finished search came back empty. */
+export function showNoMatches(state: RelatedPickerState): boolean {
+  return (
+    state.open &&
+    state.searched &&
+    !state.loading &&
+    !state.error &&
+    state.hits.length === 0
+  );
+}
 
 export type RelatedPickerIntent =
   | { type: "open" | "cancel" | "reset" | "more" }
@@ -46,6 +59,7 @@ export function createRelatedPicker({
     active: 0,
     loading: false,
     error: null,
+    searched: false,
   };
   const listeners = new Set<() => void>();
   let generation = 0;
@@ -95,9 +109,11 @@ export function createRelatedPicker({
         more: page.more,
         active: append ? state.active : 0,
         loading: false,
+        searched: true,
       });
     } catch (error) {
-      if (acceptResponse(generation, id)) publish({ loading: false, error });
+      if (acceptResponse(generation, id))
+        publish({ loading: false, error, searched: true });
     }
   }
 
@@ -111,6 +127,7 @@ export function createRelatedPicker({
       active: 0,
       loading: false,
       error: null,
+      searched: false,
     });
     // An empty query still searches: the server lists recent targets.
     if (state.open) {

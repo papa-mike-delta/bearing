@@ -565,6 +565,40 @@
     margin-left: auto;
   }
 
+  /* Add link and Remove link share one outlined 40px button. */
+  .related-button {
+    min-height: 40px;
+    border: 1px solid var(--border);
+  }
+
+  /* Equal space above and below Add link and its picker. */
+  .related-add-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-block: 1rem;
+  }
+
+  .related-picker {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    width: 100%;
+  }
+
+  .related-hits {
+    width: 100%;
+    margin: 0;
+  }
+
+  .related-empty {
+    color: var(--muted-foreground);
+    font-size: 14px;
+    margin: 0;
+  }
+
   .card-row form,
   li.card details,
   li.card details form,
@@ -800,7 +834,7 @@
 }
 
 @media (max-width: 480px) {
-  .related-remove {
+  .related-button {
     min-height: 44px;
   }
 }
