@@ -8,6 +8,7 @@ export * from "./draft.ts";
 export type { FileDraftInput, FiledDraft } from "./draft-filing.ts";
 export * from "./habit.ts";
 export * from "./link.ts";
+export * from "./next-date.ts";
 export * from "./note.ts";
 export * from "./priority-list.ts";
 export * from "./task.ts";
