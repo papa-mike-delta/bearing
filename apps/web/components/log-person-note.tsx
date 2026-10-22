@@ -6,14 +6,17 @@ import { Input } from "@repo/ui/components/input";
 import { Textarea } from "@repo/ui/components/textarea";
 import { useBrowserToday } from "../app/browser-today";
 import { addPersonNote } from "../app/people/actions";
+import { personNoteError } from "../lib/person-note-validation";
 import { logDraftOnPerson } from "../app/inbox/actions";
 
 export function LogPersonNote({
   personId,
   draftId,
+  people = [],
 }: {
   personId?: string;
   draftId?: string;
+  people?: string[];
 }) {
   const today = useBrowserToday();
   const router = useRouter();
@@ -28,9 +31,16 @@ export function LogPersonNote({
   const form = (
     <form
       className="person-note-form"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
+        setError("");
         if (!today) return;
+        const validationError = personNoteError({ day, today, text, draft: !!draftId, name });
+        if (validationError) {
+          setError(validationError);
+          return;
+        }
         identity.current ??= crypto.randomUUID();
         setError("");
         setSaved(null);
@@ -68,10 +78,17 @@ export function LogPersonNote({
           <Input
             id={`person-${prefix}`}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); setError(""); }}
             disabled={pending}
-            required
+            list={`people-${prefix}`}
+            autoComplete="off"
           />
+          {/* Existing people are offered as you type so a typo can't miss. */}
+          <datalist id={`people-${prefix}`}>
+            {people.map((person) => (
+              <option key={person} value={person} />
+            ))}
+          </datalist>
         </>
       ) : (
         <>
@@ -81,11 +98,11 @@ export function LogPersonNote({
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              setError("");
               identity.current = null;
             }}
             rows={4}
             disabled={pending}
-            required
           />
         </>
       )}
@@ -98,6 +115,7 @@ export function LogPersonNote({
         value={day}
         onChange={(e) => {
           setDay(e.target.value);
+          setError("");
           identity.current = null;
         }}
         disabled={pending}

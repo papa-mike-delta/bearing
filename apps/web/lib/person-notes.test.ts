@@ -6,10 +6,18 @@ import { coachData } from "./coach-tools.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { createDb, users, entityLinks } from "@repo/db";
+import {
+  createDb,
+  users,
+  entityLinks,
+  notes,
+  habitOperations,
+  draftFilings,
+} from "@repo/db";
 import { eq } from "drizzle-orm";
 import { createPerson, deletePerson } from "./people.ts";
-import { logNoteOnPerson } from "./person-notes.ts";
+import { logNoteOnPerson, personLinkedNotes } from "./person-notes.ts";
+import { peopleActions } from "./people-actions.ts";
 import { noteHref, getNote, listLooseNotes, deleteNote } from "./notes.ts";
 import { captureDraft, inboxDrafts } from "./drafts.ts";
 import { fileDraftOnPerson } from "./draft-filing/index.ts";
@@ -426,6 +434,185 @@ test(
       assert.equal((await listLooseNotes(user, db)).length, 2);
     } finally {
       await db.delete(users).where(eq(users.id, user));
+      await db.$client.end();
+    }
+  },
+);
+
+test(
+  "a second account is refused on every log-on-person path with nothing leaked or written",
+  { skip: !url },
+  async () => {
+    const db = createDb(url!);
+    const owner = randomUUID();
+    const intruder = randomUUID();
+    try {
+      for (const id of [owner, intruder])
+        await db
+          .insert(users)
+          .values({ id, email: `${id}@test.invalid`, passwordHash: "-" });
+      const ada = await createPerson(
+        owner,
+        { name: "Ada", group: "Family" },
+        db,
+      );
+      const secret = await logNoteOnPerson(
+        owner,
+        {
+          personId: ada.id,
+          text: "Secret\nPrivate words",
+          today: "2026-10-21",
+          operationId: "screen:shared-op",
+        },
+        db,
+      );
+      await captureDraft(owner, "Owner draft", db);
+      const [ownerDraft] = await inboxDrafts(owner, db);
+      const counts = async () => ({
+        notes: (await db.select().from(notes)).filter((n) =>
+          ([owner, intruder] as string[]).includes(n.userId),
+        ).length,
+        edges: (await db.select().from(entityLinks)).filter((e) =>
+          ([owner, intruder] as string[]).includes(e.userId),
+        ).length,
+        ops: (await db.select().from(habitOperations)).filter(
+          (o) =>
+            ([owner, intruder] as string[]).includes(o.userId) &&
+            o.source === "person-note",
+        ).length,
+        filings: (await db.select().from(draftFilings)).filter((f) =>
+          ([owner, intruder] as string[]).includes(f.userId),
+        ).length,
+      });
+      const before = await counts();
+
+      // 1. Person page Add note: the screen action with a foreign personId.
+      const actions = peopleActions({
+        requireUser: async () => ({ id: intruder }),
+        invalidate: () => {},
+        db,
+      });
+      const screen = await actions.logNote(
+        ada.id,
+        "Hi",
+        null,
+        "2026-10-21",
+        "x",
+      );
+      assert.ok("error" in screen);
+      assert.doesNotMatch(JSON.stringify(screen), /Ada|Secret/);
+      // Reusing the owner's operation id must not replay the owner's Note.
+      await assert.rejects(
+        logNoteOnPerson(
+          intruder,
+          {
+            personId: ada.id,
+            text: "Hi",
+            today: "2026-10-21",
+            operationId: "screen:shared-op",
+          },
+          db,
+        ),
+      );
+
+      // 2. Inbox 'Log on person': the name does not resolve for the intruder,
+      // and the owner's draft cannot be filed by the intruder.
+      await captureDraft(intruder, "Hi", db);
+      const [draft] = await inboxDrafts(intruder, db);
+      await assert.rejects(
+        fileDraftOnPerson(
+          intruder,
+          draft!.id,
+          { name: "Ada", today: "2026-10-21" },
+          db,
+        ),
+      );
+      assert.equal((await inboxDrafts(intruder, db)).length, 1);
+      const decoy = await createPerson(
+        intruder,
+        { name: "Ada", group: "Family" },
+        db,
+      );
+      const intruderAfter = await counts();
+      await assert.rejects(
+        fileDraftOnPerson(
+          intruder,
+          ownerDraft!.id,
+          { name: "Ada", today: "2026-10-21" },
+          db,
+        ),
+      );
+      assert.equal((await inboxDrafts(owner, db)).length, 1);
+      assert.deepEqual(await counts(), intruderAfter);
+      await deletePerson(intruder, decoy.id, db);
+
+      // 3. Coach logNoteOnPerson: the name does not resolve for the intruder.
+      const tools = coachTools(coachData(db));
+      const r = await tools.logNoteOnPerson.execute!(
+        { name: "Ada", text: "Hi" },
+        {
+          toolCallId: randomUUID(),
+          messages: [],
+          context: {
+            userId: intruder,
+            messageId: randomUUID(),
+            today: "2026-10-21",
+          },
+        },
+      );
+      assert.ok("refused" in r && r.refused);
+      assert.doesNotMatch(JSON.stringify(r), /Secret|Private/);
+
+      assert.deepEqual(await counts(), before);
+
+      // 4. Reads: the intruder sees none of the owner's linked Notes.
+      assert.deepEqual(await personLinkedNotes(intruder, ada.id, db), []);
+      const read = await readPerson.run(
+        { name: "Ada" },
+        {
+          userId: intruder,
+          messageId: randomUUID(),
+          toolCallId: "read",
+          today: "2026-10-21",
+          data: coachData(db),
+        },
+      );
+      assert.ok(!("notes" in read) || read.notes.length === 0);
+      assert.doesNotMatch(JSON.stringify(read), /Secret|Private/);
+      // An intruder's own person named Ada with a forged edge to the owner's
+      // Note still does not surface it.
+      const own = await createPerson(
+        intruder,
+        { name: "Ada", group: "Family" },
+        db,
+      );
+      await db.insert(entityLinks).values({
+        userId: intruder,
+        sourceType: "person",
+        sourceId: own.id,
+        targetType: "note",
+        targetId: secret.id,
+      });
+      assert.deepEqual(await personLinkedNotes(intruder, own.id, db), []);
+      const forged = await readPerson.run(
+        { name: "Ada" },
+        {
+          userId: intruder,
+          messageId: randomUUID(),
+          toolCallId: "read2",
+          today: "2026-10-21",
+          data: coachData(db),
+        },
+      );
+      assert.doesNotMatch(JSON.stringify(forged), /Secret|Private/);
+      // The owner still sees their Note.
+      assert.deepEqual(
+        (await personLinkedNotes(owner, ada.id, db)).map((n) => n.id),
+        [secret.id],
+      );
+    } finally {
+      await db.delete(users).where(eq(users.id, owner));
+      await db.delete(users).where(eq(users.id, intruder));
       await db.$client.end();
     }
   },

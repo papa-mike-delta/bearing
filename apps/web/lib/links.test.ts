@@ -666,7 +666,7 @@ describe(
       );
       const moved = await related(owner, { kind: "task", id: source.id }, db);
       assert.equal(moved.incoming[0]?.href, `/notes/_/${loose.id}`);
-      assert.equal(moved.incoming[0]?.detail, "No notebook");
+      assert.equal(moved.incoming[0]?.detail, "");
       const doomed = await createNotebook(owner, "Doomed links", db);
       const gone = await note(owner, "Gone note", doomed.id);
       await addLink(

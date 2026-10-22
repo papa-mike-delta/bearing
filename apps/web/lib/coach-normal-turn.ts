@@ -19,7 +19,7 @@ export const normalTurnToolNames = [
   "createNote",
   "appendJournal",
   "setMood",
-  "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
+  "logNoteOnPerson", "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
 ] as const;
 
 // A cancelled close returns to this prompt, carrying the day's committed progress.

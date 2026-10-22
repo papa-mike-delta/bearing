@@ -1,3 +1,4 @@
+import { personLinkedNotes } from "./person-notes.ts";
 import { createPerson, getPerson, savePerson } from "./people.ts";
 import { searchKnowledge } from "@repo/coach/knowledge";
 import { access } from "node:fs/promises";
@@ -249,6 +250,8 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // A model that runs one scripted step per call: a tool call with `input`,
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
+  | { readSkill: string; toolCallId?: string }
+  | { logNoteOnPerson: string; toolCallId?: string }
   | { listPeople: string; toolCallId?: string }
   | { readPerson: string; toolCallId?: string }
   | { setPersonLastConnected: string; toolCallId?: string }
@@ -277,6 +280,8 @@ function scripted(...steps: Step[]) {
     doStream: async () => {
       const step = steps[Math.min(calls++, steps.length - 1)]!;
       const tool =
+        "readSkill" in step ? {name:"readSkill" as const,input:step.readSkill,id:step.toolCallId} :
+        "logNoteOnPerson" in step ? {name:"logNoteOnPerson" as const,input:step.logNoteOnPerson,id:step.toolCallId} :
         "listPeople" in step ? {name:"listPeople" as const,input:step.listPeople,id:step.toolCallId} :
         "readPerson" in step ? {name:"readPerson" as const,input:step.readPerson,id:step.toolCallId} :
         "setPersonLastConnected" in step ? {name:"setPersonLastConnected" as const,input:step.setPersonLastConnected,id:step.toolCallId} :
@@ -444,6 +449,38 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
+
+  test("reconnect history preserves reads and permits sent confirmation writes on the next turn", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const person = await createPerson(c, { name: "Dee", group: "Close friends" }, db);
+    const line = "Hi Dee, would you like to catch up?";
+    await turn(c, thread, userMessage("Help me reach out to someone"), scripted(
+      { readSkill: JSON.stringify({ name: "reconnect" }) },
+      { listPeople: "{}" },
+      { text: `Dee is due. Draft: "${line}" Tell me "I sent it" once sent.` },
+    ), "2026-10-09");
+    const model = scripted(
+      { logNoteOnPerson: JSON.stringify({ name: "Dee", text: line }) },
+      { setPersonLastConnected: JSON.stringify({ name: "Dee", day: "2026-10-10" }) },
+      { text: "Recorded." },
+    );
+    await turn(c, thread, userMessage("I sent it"), model, "2026-10-10");
+    const prompt = promptText(model);
+    assert.match(prompt, /\[Checked: .*Opened the reconnect skill; Read your people \(1\)/);
+    assert.match(prompt, /reconnect skill was loaded earlier in this thread/);
+    assert.match(prompt, /restriction applied only to that reply/);
+    assert.ok(prompt.includes(line));
+    assert.ok(model.doStreamCalls[0]!.tools?.some((t) => t.name === "logNoteOnPerson"));
+    const savedMessages = await threadMessages(c, thread, db);
+    const receipts = savedMessages!.flatMap((m) => m.parts.map((p) => receipt(p, "2026-10-10")));
+    assert.ok(receipts.includes("Logged a note on 'Dee'"));
+    assert.ok(receipts.includes("Connected with 'Dee' today"));
+    const saved = await getPerson(c, person.id, db);
+    assert.equal(saved?.lastConnected, "2026-10-10");
+    const linked = await personLinkedNotes(c, person.id, db);
+    assert.equal(linked[0]?.title, line);
+  });
 
   test("People reads stay out of automatic context and applied writes; saved date receipts and content-matched resends survive newer edits", async () => {
     const c = await account();
@@ -2640,8 +2677,11 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         "user",
         "assistant",
         "user",
+        "assistant",
+        "user",
       ],
     );
+    assert.ok(JSON.stringify(history).includes("[Checked: Read your list (1 open); Read your list (1 open)]"));
     for (const m of history) {
       assert.ok(
         Array.isArray(m.content) && m.content.length,

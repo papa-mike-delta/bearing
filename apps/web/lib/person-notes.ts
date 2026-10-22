@@ -52,6 +52,9 @@ export async function logNoteOnPersonInTransaction(
     .onConflictDoNothing()
     .returning();
   if (!claim) {
+    // Resending Add note (or any caller) with the same operation id returns the
+    // first Note's stored result; no second Note or edge is written. Claims are
+    // scoped by userId, so another account's operation id never replays here.
     const [existing] = await tx
       .select()
       .from(habitOperations)

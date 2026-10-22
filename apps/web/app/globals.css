@@ -311,7 +311,9 @@
 
   ul.drafts > li {
     flex-wrap: wrap;
-    padding: 0.85rem 1rem;
+    /* Same inline padding as .panel so draft content and its disclosures
+       share the Capture field's left edge. */
+    padding: 0.85rem 1.25rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--card);
@@ -1492,6 +1494,7 @@ main form p.hint a { color: var(--foreground); text-decoration: underline; }
 .person-note-form { display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; padding-block: 1rem; width: 100%; }
 .person-note-form label { display: flex; flex-direction: column; gap: .4rem; width: 100%; }
 .person-note-form :is(input, textarea) { font-size: 16px; min-height: 40px; }
+.person-note-form textarea { min-height: 44px; }
 .person-note-form button { min-height: 40px; }
 @media (max-width: 480px) {
   .person-note-form :is(input, button) { min-height: 44px; }
