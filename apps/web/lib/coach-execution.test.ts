@@ -86,7 +86,7 @@ test("registration and context retain their distinct original key orders", () =>
     "completeTask",
     "scheduleTask",
     "updateTask",
-    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
+    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay", "logNoteOnPerson",
   ];
   assert.deepEqual(Object.keys(coachTools(data())), names);
   const contextNames = ["fileDraft", "listInboxDrafts", ...names.slice(2)];

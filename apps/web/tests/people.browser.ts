@@ -513,15 +513,35 @@ test('Add note writes immediately to Outgoing and No notebook, opens the existin
  await page.getByLabel('Occasion date (optional)',{exact:true}).fill('2026-10-09');
  for(const width of [900,393]) {
  await page.setViewportSize({width,height:852});
- const button=page.getByRole('button',{name:'Add note',exact:true});const box=await button.boundingBox();assert.ok(box && box.height >= (width<=480?44:40));
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
+ const button=page.getByRole('button',{name:'Add note',exact:true});const box=await button.boundingBox();assert.ok(box && box.height >= (width<=480?44:40),JSON.stringify({width,box,style:await button.evaluate(el=>({min:getComputedStyle(el).minHeight,innerWidth:window.innerWidth,media:matchMedia("(max-width: 480px)").matches,classes:el.className}))}));
  assert.equal(await page.getByLabel('Note text',{exact:true}).evaluate(el=>getComputedStyle(el).fontSize),'16px');
  }
  await page.getByRole('button',{name:'Add note',exact:true}).click();
  const region=page.getByRole('region',{name:'Related',exact:true});
  await region.getByRole('link',{name:'A memory',exact:true}).waitFor();
  await page.reload();await region.getByRole('link',{name:'A memory',exact:true}).click();
- await page.waitForURL(/\/notes\/loose\/[\w-]+$/);
+ await page.waitForURL(/\/notes\/_\/[\w-]+$/);
  await page.getByRole('heading',{name:'A memory',exact:true}).waitFor();
  await page.goto(`${base}/notes`);
  await page.getByRole('link',{name:'A memory',exact:true}).waitFor();
+});
+
+test('Inbox Log on person asks on unknown names and archives only after a successful case-insensitive match',async(t)=>{
+ if(!enabled) return t.skip('PEOPLE_TEST_BASE_URL and TEST_POSTGRES_URL');
+ await context.addCookies([{name:'authjs.session-token',value:token,url:base!,httpOnly:true}]);
+ const {captureDraft,inboxDrafts}=await import('../lib/drafts.ts');
+ await createPerson(owner,{name:'Inbox Ada',group:'Family'},db!);
+ await captureDraft(owner,'Inbox memory\nMeeting words',db!);
+ await page.goto(`${base}/inbox`);
+ const draft=page.locator('.drafts > li').filter({hasText:'Inbox memory'});
+ await draft.locator('summary').filter({hasText:'Log on person'}).click();
+ await draft.getByLabel('Person name',{exact:true}).fill('Unknown');
+ await draft.getByRole('button',{name:'Log on person',exact:true}).click();
+ await draft.getByRole('alert').waitFor();
+ assert.ok((await inboxDrafts(owner,db!)).some(d=>d.body.startsWith('Inbox memory')));
+ await draft.getByLabel('Person name',{exact:true}).fill('iNBOX aDA');
+ await draft.getByRole('button',{name:'Log on person',exact:true}).click();
+ await page.waitForURL(/\/notes\/_\/[\w-]+$/);
+ assert.equal((await inboxDrafts(owner,db!)).some(d=>d.body.startsWith('Inbox memory')),false);
 });

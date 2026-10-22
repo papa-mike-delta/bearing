@@ -1496,3 +1496,4 @@ main form p.hint a { color: var(--foreground); text-decoration: underline; }
 @media (max-width: 480px) {
   .person-note-form :is(input, button) { min-height: 44px; }
 }
+.person-note-form button { transition-property: color, background-color, border-color, box-shadow; }

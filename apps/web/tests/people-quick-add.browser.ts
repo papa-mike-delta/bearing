@@ -48,6 +48,7 @@ test("quick adds in a row keep every person, stay on /people, and clear the name
   assert.deepEqual((await listPeople(owner, db!)).map((p) => p.name).sort(), ["Amy", "Bo", "Cy"]);
   assert.deepEqual(await page.locator("main section li a span:first-child").allTextContents(), ["Amy", "Bo", "Cy"]);
   await page.reload();
+  await page.getByRole("button", { name: "Close friends (3)", exact: true }).click();
   assert.deepEqual(await page.locator("main section li a span:first-child").allTextContents(), ["Amy", "Bo", "Cy"]);
 });
 

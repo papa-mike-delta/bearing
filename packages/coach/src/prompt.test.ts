@@ -45,7 +45,7 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit, trackHabit, setPersonLastConnected and setPersonAgreedDay combined.`,
+      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit, trackHabit, logNoteOnPerson, setPersonLastConnected and setPersonAgreedDay combined.`,
     ),
   );
   assert.ok(
@@ -286,7 +286,7 @@ test("Coach knowledge and README teach repeating Task behavior and create-only r
 
 test('People tools and boundaries describe the shipped screen without automatic reads or unsupported writes', () => {
   const prompt = coachSystemPrompt();
-  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
+  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'logNoteOnPerson','create a link','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
   assert.match(prompt,/setPersonLastConnected and setPersonAgreedDay combined/);
 });
 
@@ -312,9 +312,9 @@ test("people can be linked by the user through Related, while Paul cannot create
   assert.ok(knowledge.includes("Paul cannot create links"));
 });
 
-test("Notes can have a stated occasion date, never inferred or attached to a person", () => {
+test("Notes can have a stated occasion date, never inferred or attached as an existing Note", () => {
   const prompt = coachSystemPrompt();
-  for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach a Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
+  for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach an existing Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
 });
 
 test('logging a new Note is the only Coach link; existing Notes, Tasks, Journal days and other people stay outside tools',async()=>{

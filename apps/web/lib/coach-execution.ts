@@ -222,7 +222,6 @@ function executionTool<Name extends string, Input, Output>(
 // The single vocabulary, in the existing tool-set key order. Each declaration
 // owns its core tool, attempt kind, calendar checks and safe failure policy.
 const vocabulary = [
-  executionTool('logNoteOnPerson',logNoteOnPerson,{cap:'write',personOrdinal:true,failure:"Couldn't log that note.",safeErrors:[NoteError]}),
   executionTool("listInboxDrafts", listInboxDrafts, {
     failure: "Couldn't read your Inbox drafts.",
   }),
@@ -310,6 +309,7 @@ const vocabulary = [
   executionTool("readPerson", readPerson, { failure: "Couldn't read that person." }),
   executionTool("setPersonLastConnected", setPersonLastConnected, { cap: "write", personOrdinal: true, failure: "Couldn't update that person.", safeErrors: [PersonError] }),
   executionTool("setPersonAgreedDay", setPersonAgreedDay, { cap: "write", personOrdinal: true, failure: "Couldn't update that person.", safeErrors: [PersonError] }),
+  executionTool('logNoteOnPerson',logNoteOnPerson,{cap:'write',personOrdinal:true,failure:"Couldn't log that note.",safeErrors:[NoteError]}),
 ] as const;
 
 type SkillState = { habitDesign: boolean; outsideSteps: WeakSet<object> };
