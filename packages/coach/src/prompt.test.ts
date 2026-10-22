@@ -45,7 +45,7 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit, trackHabit, setPersonLastConnected and setPersonAgreedDay combined.`,
+      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit, trackHabit, logNoteOnPerson, setPersonLastConnected and setPersonAgreedDay combined.`,
     ),
   );
   assert.ok(
@@ -135,7 +135,7 @@ test("Journal writes require exact requested text and an explicitly stated mood"
   assert.ok(prompt.includes("Append only the exact text they gave you"));
   assert.ok(prompt.includes("Never infer a mood from prose"));
   assert.ok(prompt.includes("Missing or invalid Today needs correction"));
-  assert.ok(prompt.includes("You cannot read the Journal"));
+  assert.ok(prompt.includes("Outside Daily close you cannot read the Journal"));
 });
 
 test("Inbox filing offers explicit choices and never mass-files a vague request", () => {
@@ -286,7 +286,7 @@ test("Coach knowledge and README teach repeating Task behavior and create-only r
 
 test('People tools and boundaries describe the shipped screen without automatic reads or unsupported writes', () => {
   const prompt = coachSystemPrompt();
-  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
+  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'logNoteOnPerson','create a link','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
   assert.match(prompt,/setPersonLastConnected and setPersonAgreedDay combined/);
 });
 
@@ -312,7 +312,38 @@ test("people can be linked by the user through Related, while Paul cannot create
   assert.ok(knowledge.includes("Paul cannot create links"));
 });
 
-test("Notes can have a stated occasion date, never inferred or attached to a person", () => {
+test("Notes can have a stated occasion date, never inferred or attached as an existing Note", () => {
   const prompt = coachSystemPrompt();
-  for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach a Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
+  for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach an existing Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
+});
+
+test('logging a new Note is the only Coach link; existing Notes, Tasks, Journal days and other people stay outside tools',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ for(const text of [coachSystemPrompt(),await readFile(new URL('../knowledge/people.md',import.meta.url),'utf8'),await readFile(new URL('../knowledge/notes.md',import.meta.url),'utf8'),await readFile(new URL('../../../README.md',import.meta.url),'utf8')]) {
+ for(const phrase of ['logNoteOnPerson','only link','existing Note','Task','Journal day','person-to-person','20','2000']) assert.ok(text.includes(phrase),phrase);
+ }
+});
+
+test("reconnect is for reaching out, keeps drafting read-only, and records a later sent line", () => {
+  const prompt = coachSystemPrompt();
+  for (const phrase of ["load reconnect via readSkill before any other tool", "not to file a dictated note", "up to 10 due people", "ONE line", "never send", "no research quotes", 'A later "I sent it"', "without reloading", "exact sent line", "browser's Today", "cannot email"]) assert.ok(prompt.includes(phrase), phrase);
+});
+
+for (const [entity, phrases] of Object.entries({
+  Tasks: ["first 50 open Tasks", "no Task deletion", "copies name, note, priority, Goal, Area and rule"],
+  Areas: ["An Area holds Tasks", "Priority List", "Now/Later", "Kanban", "cannot read workflow or WIP settings", "cannot create, rename, hide or delete Areas"],
+  Goals: ["A Goal belongs to one Area", "cannot list Goals", "cannot create, rename, reorder or delete Goals"],
+  Notes: ["Notes are markdown documents", "cannot search or read arbitrary Notes", "readPerson returns up to 20 linked Notes"],
+  Notebooks: ["Notebooks group Notes", "listNotebooks reads names and ids", "cannot create, rename, reorder or delete Notebooks"],
+  "Occasion dates": ["occasion date", "never infer it from prose", "cannot edit or clear an existing Note's occasion date"],
+  Inbox: ["Inbox holds captured drafts", "cannot create or edit Inbox drafts", "listInboxDrafts", "fileDraft"],
+  "Journal days": ["Journal days hold dated writing", "Outside Daily close you cannot read the Journal", "cannot edit or delete existing Journal text"],
+  Mood: ["Mood is a day's optional five-level value", "cannot read Mood in an ordinary reply", "Never infer a mood from prose"],
+  "Daily close": ["Daily close is an optional guided session", "readJournalDay", "getJournalTemplate", "cannot edit the template"],
+  Habits: ["undo restores the habit", "load habit-design via readSkill", "cannot rename, edit, reorder or delete"],
+  People: ["eight groups", "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay", "load reconnect via readSkill"],
+  "Related links": ["Related links are directed connections", "cannot list arbitrary Related links or remove links", "person-to-person links"],
+  "Account and themes": ["Account holds password and theme settings", "cannot read or change Account settings or themes", "/account"],
+})) test(`${entity} capability line describes available reads, writes and limits`, () => {
+  for (const phrase of phrases) assert.ok(coachSystemPrompt().includes(phrase), phrase);
 });

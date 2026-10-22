@@ -1,5 +1,7 @@
 import {
   groupPeople,
+  noteHref,
+  validNoteOccasionDate,
   isCalendarDay,
   nextDatePhrase,
   personIsDue,
@@ -68,10 +70,13 @@ async function resolve(name: string, context: ToolRunContext) {
 }
 export const readPerson = {
   description:
-    "Read one person by an exact name ignoring case. No match or several matches asks which person and writes nothing.",
+    "Read one person and up to twenty linked Notes in both directions, newest edge first, with title, occasion date or none, and body up to 2000 characters. Match an exact name ignoring case. No match or several matches asks which person and writes nothing.",
   inputSchema: named,
   async run(input: { name: string }, context: ToolRunContext) {
-    return resolve(named.parse(input).name, context);
+    const person = await resolve(named.parse(input).name, context);
+    if ('refused' in person) return person;
+    const notes = await context.data.personLinkedNotes?.(context.userId,person.id) ?? [];
+    return {...person, notes:notes.slice(0,20).map(n=>({...n,body:n.body.slice(0,2000)}))};
   },
 };
 const connectedSchema = named.extend({
@@ -152,4 +157,22 @@ export const setPersonAgreedDay = {
   ) {
     return write("setPersonAgreedDay", agreedSchema.parse(input), context);
   },
+};
+
+const logSchema = named.extend({text:z.string().max(100_202),day:z.string().optional()});
+export const logNoteOnPerson = {
+ description: 'On explicit request log exact text as a new loose Note on one uniquely named person. First nonblank line is the title, rest is body. Optional day is only a stated occasion date today or past. This is the only link you can create; cannot attach existing Notes or link Tasks, Journal days or people.',
+ inputSchema:logSchema,
+ async run(input:z.infer<typeof logSchema>,context:ToolRunContext & {personOrdinal:number}) {
+  const parsed=logSchema.parse(input);const today=todayOf(context);
+  const refuse=(question:string)=>({refused:true as const,name:parsed.name,question});
+  if(!parsed.text.trim()) return refuse('What text should I log on this person?');
+  if(parsed.day!==undefined && !validNoteOccasionDate(parsed.day,today)) return refuse('Which occasion day? It must be today or a past day.');
+  const person=await resolve(parsed.name,context);
+  if('refused' in person) return person;
+  if(!context.data.logNoteOnPerson) throw new Error('Person notes are unavailable.');
+  const result=await context.data.logNoteOnPerson(context.userId,{personId:person.id,text:parsed.text,occasionDate:parsed.day,today,operationId:`${context.messageId}:logNoteOnPerson:${coachWriteKey('logNoteOnPerson',parsed,today)}:${context.personOrdinal}`});
+  const row=z.object({id:z.uuid(),name:z.string().min(1),title:z.string().min(1),occasionDate:daySchema.nullable()}).parse(result);
+  return {...row,href:noteHref(null,row.id)};
+ }
 };

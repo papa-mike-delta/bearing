@@ -33,6 +33,8 @@ export type HabitTrackResult = HabitWriteState & { day: string; action: HabitAct
 export type HabitUndoRefusal = { refused: true; reason: "nothingToUndo" | "changedSince"; id: string; name: string; period: "day" | "week"; day: string; action: "undo"; count: number; question: string };
 
 export type CoachData = {
+  personLinkedNotes?(userId:string,personId:string): Promise<{id:string;title:string;occasionDate:string|null;body:string}[]>;
+  logNoteOnPerson?(userId:string,input:{personId:string;text:string;occasionDate?:string|null;today:string;operationId:string}):Promise<{id:string;name:string;title:string;occasionDate:string|null}>;
   listPeople?(userId: string): Promise<(import('@repo/domain').PersonFields & {id:string})[]>;
   setPersonDay?(userId: string, input: {personId:string;field:'lastConnected'|'agreedDay';day:string|null;today:string;operationId:string}): Promise<{id:string;name:string;day:string|null}>;
   createHabit?(userId: string, input: HabitTracking & { name: string } & HabitOperation): Promise<HabitWriteState>;

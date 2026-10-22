@@ -1,3 +1,5 @@
+import { listPeople } from '../people.ts';
+import { logNoteOnPersonInTransaction } from '../person-notes.ts';
 import { db as defaultDb, draftFilings, drafts, notebooks } from "@repo/db";
 import { draftNoteTitle, draftToTask } from "@repo/domain";
 import { fileDraftInputSchema, type FileDraftInput, type FiledDraft } from "@repo/domain/draft-filing";
@@ -161,4 +163,22 @@ export async function appendJournal(userId: string, input: AppendInput, db: Db =
     });
   }
   return db.transaction(async (tx) => (await appendJournalInTransaction(userId, input, tx)).receipt);
+}
+
+export async function fileDraftOnPerson(userId: string, draftId: string, input: {name:string;today:string;occasionDate?:string|null}, db: Db = defaultDb) {
+ if (!isUuid(draftId)) throw new NoteError(unavailable);
+ return withDraft(userId,draftId,db,async (draft,tx)=>{
+  if (!draft) throw new NoteError(unavailable);
+  const key = JSON.stringify(['person-note',input.name.trim().toLowerCase()]);
+  const [original] = await tx.select().from(draftFilings).where(and(eq(draftFilings.userId,userId),eq(draftFilings.draftId,draftId)));
+  if (original && original.destinationKey !== key) throw new NoteError(differentDestination);
+  if (!original && draft.workspace !== 'inbox') throw new NoteError(differentDestination);
+  if (original) return {id:original.entityId,title:original.name};
+  const matches=(await listPeople(userId,tx)).filter(p=>p.name.toLowerCase()===input.name.trim().toLowerCase());
+  if(matches.length!==1) throw new NoteError('Choose one existing, unambiguous person name.');
+  const result=await logNoteOnPersonInTransaction(userId,{personId:matches[0]!.id,text:draft.body,today:input.today,occasionDate:input.occasionDate,operationId:`draft:${draft.sourceId}`},tx);
+  await tx.insert(draftFilings).values({userId,draftId,destinationKey:key,kind:'note',entityId:result.id,name:result.title});
+  await archive(userId,draftId,tx);
+  return {id:result.id,title:result.title};
+ });
 }

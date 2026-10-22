@@ -20,7 +20,7 @@ export { updateTask } from "./tools/update-task.ts";
 export const maxCoachMessageLength = 4_000;
 
 export { skills, type Skill } from "./skills.ts";
-export { readSkill, habitDesignAllowedTools } from "./tools/read-skill.ts";
+export { readSkill, habitDesignAllowedTools, reconnectAllowedTools } from "./tools/read-skill.ts";
 
 export { appendJournal, coachJournalOperationId } from "./tools/append-journal.ts";
 export { setMood } from "./tools/set-mood.ts";
@@ -38,4 +38,4 @@ export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult, Ha
 
 export { coachWriteKey } from "./write-identity.ts";
 
-export { listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay } from "./tools/people.ts";
+export { logNoteOnPerson, listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay } from "./tools/people.ts";

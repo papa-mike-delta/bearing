@@ -86,7 +86,7 @@ test("registration and context retain their distinct original key orders", () =>
     "completeTask",
     "scheduleTask",
     "updateTask",
-    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
+    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay", "logNoteOnPerson",
   ];
   assert.deepEqual(Object.keys(coachTools(data())), names);
   const contextNames = ["fileDraft", "listInboxDrafts", ...names.slice(2)];
@@ -892,4 +892,62 @@ test('people tools are available on request, share the three-write cap and relea
   const replay = coachTools(adapter);
   await replay.setPersonLastConnected.execute!({name:' ADA ',day:today},call('new-provider-id'));
   assert.equal(operations[0],operations[2]);
+});
+
+test("reconnect permits only People reads for the reply and refuses late loading", async () => {
+  const tools = coachTools(data({ listPeople: async () => [] }));
+  assert.match(String(await tools.readSkill.execute!({ name: "reconnect" }, call())), /^# reconnect/);
+  await tools.listPeople.execute!({}, call());
+  await tools.readPerson.execute!({ name: "Ada" }, call());
+  for (const name of normalTurnToolNames.filter(name => !["listPeople", "readPerson"].includes(name))) {
+    const execute = tools[name].execute as unknown as (input: never, options: ReturnType<typeof call>) => Promise<unknown>;
+    await assert.rejects(async () => execute({} as never, call()), /reconnect refused/);
+  }
+  const late = coachTools(data());
+  const step = call();
+  await late.listArea.execute!({}, step);
+  await assert.rejects(async () => late.readSkill.execute!({ name: "reconnect" }, step), /before any tool outside its allow-list/);
+  await assert.rejects(async () => late.setPersonLastConnected.execute!({ name: "Ada" }, call()), /reconnect refused/);
+  const clean = coachTools(data({ listPeople: async () => [] }));
+  const allowedStep = call();
+  await clean.listPeople.execute!({}, allowedStep);
+  assert.match(String(await clean.readSkill.execute!({ name: "reconnect" }, allowedStep)), /^# reconnect/);
+});
+
+test("a later sent message can log the line and mark browser Today with existing receipts and cap", async () => {
+  const person = { id: entityId, name: "Ada", group: "Family", rule: null, lastConnected: null, agreedDay: null } as const;
+  const saved: string[] = [];
+  const adapter = data({
+    listPeople: async () => [person],
+    logNoteOnPerson: async (_user, input) => {
+      saved.push(input.text);
+      return { id: entityId, name: "Ada", title: input.text, occasionDate: null };
+    },
+    setPersonDay: async (_user, input) => {
+      assert.equal(input.day, today);
+      assert.equal(input.field, "lastConnected");
+      return { id: entityId, name: "Ada", day: input.day };
+    },
+    createTask: async () => ({ id: entityId, name: "One" }),
+  });
+  const draft = coachTools(adapter);
+  await draft.readSkill.execute!({ name: "reconnect" }, call());
+  await assert.rejects(async () => draft.logNoteOnPerson.execute!({ name: "Ada", text: "Coffee soon?" }, call()), /reconnect refused/);
+  assert.deepEqual(saved, []);
+  const sent = coachTools(adapter);
+  const note = await sent.logNoteOnPerson.execute!({ name: "Ada", text: "Coffee soon?" }, call());
+  const connected = await sent.setPersonLastConnected.execute!({ name: "Ada" }, call());
+  assert.deepEqual(saved, ["Coffee soon?"]);
+  const { shownParts } = await import("@repo/coach");
+  const parts = shownParts([
+    { type: "tool-logNoteOnPerson", state: "output-available", output: note },
+    { type: "tool-setPersonLastConnected", state: "output-available", output: connected },
+  ]);
+  assert.ok(parts[0] && "receipt" in parts[0]);
+  assert.ok(parts[1] && "receipt" in parts[1]);
+  assert.equal(parts[0].receipt, "Logged a note on 'Ada'");
+  assert.ok(parts[0].href?.includes(entityId));
+  assert.ok(parts[1].href?.includes(entityId));
+  await sent.createTask.execute!({ name: "One" }, call());
+  await assert.rejects(async () => sent.createTask.execute!({ name: "Too many" }, call()), /only 3/);
 });

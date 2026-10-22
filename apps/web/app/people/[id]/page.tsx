@@ -1,3 +1,4 @@
+import { LogPersonNote } from '../../../components/log-person-note';
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../auth";
@@ -23,6 +24,7 @@ export default async function PersonPage({
         <Link href="/people">People</Link>
         <h1>{person.name}</h1>
         <PersonEditor key={person.id} person={person} />
+        <LogPersonNote personId={person.id} />
         <Related source={source} initial={links} />
       </main>
     </>
