@@ -269,3 +269,17 @@ test("prompt and README describe true undo and convert fewer into a setCount tot
     assert.doesNotMatch(text, /removes? one/);
   }
 });
+
+test("recurring Tasks are create-only for Paul, require a mapped phrase, and inherit no links", () => {
+  const prompt = coachSystemPrompt();
+  for (const phrase of ["A Task may repeat", "next Task does not inherit links", "cannot change or clear the rule", "otherwise ask one question and write nothing", "does not take a create slot"]) assert.ok(prompt.includes(phrase), phrase);
+  assert.doesNotMatch(prompt, /\bpeople\b|\bPerson\b|occasion/);
+});
+
+test("Coach knowledge and README teach repeating Task behavior and create-only rules", async () => {
+  const { readFile } = await import("node:fs/promises");
+  for (const path of ["../knowledge/habits.md", "../../../README.md"]) {
+    const text = await readFile(new URL(path, import.meta.url), "utf8");
+    for (const phrase of ["A Task may repeat", "no streak", "write nothing", "cannot change or clear", "create slot", "Related", "Inbox"]) assert.ok(text.includes(phrase), `${path}: ${phrase}`);
+  }
+});

@@ -134,6 +134,13 @@
       "when": 1792338101217,
       "tag": "0018_habit_counts",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792632426191,
+      "tag": "0019_elite_champions",
+      "breakpoints": true
     }
   ]
 }

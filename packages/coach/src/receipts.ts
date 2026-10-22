@@ -24,7 +24,7 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
   return (output as Record<string, unknown>)[key] === true;
 }
 
-type Line = { line: string; href?: string };
+type Line = { line: string; href?: string; nextLink?: { text: string; href: string } };
 
 const utcDay = (day: string) => new Date(`${day}T00:00:00Z`);
 const weekdayMonthDay = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
@@ -198,7 +198,13 @@ function show(part: ToolPart, today?: string | null): Line | null {
     if (pending(part.state)) return { line: "Completing…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return taskReceipt(`Completed '${name}'`, part.output);
+      const base = taskReceipt(`Completed '${name}'`, part.output);
+      const spawned = (part.output as { spawned?: { id?: unknown; date?: unknown } }).spawned;
+      if (typeof spawned?.id === "string" && receiptId.test(spawned.id) && typeof spawned.date === "string" && isCalendarDay(spawned.date)) {
+        const text = weekdayMonthDay.format(utcDay(spawned.date));
+        return { ...base, line: `${base.line}. Next is ${text}`, nextLink: { text, href: taskHref(spawned.id) } };
+      }
+      return base;
     }
     if (part.state === "output-available" && flag(part.output, "invalidId")) {
       return { line: "That Task id isn't valid" };
@@ -235,7 +241,7 @@ type Part = ToolPart & { toolCallId?: string; text?: string };
 
 export type ShownPart =
   | { key: string; text: string }
-  | { key: string; receipt: string; calls: number; href?: string; read?: true };
+  | { key: string; receipt: string; calls: number; href?: string; nextLink?: { text: string; href: string }; read?: true };
 
 // Reads show muted and plain; only writes look like actions.
 // One list for every read tool part type, shared with the web app's Applied
@@ -279,6 +285,7 @@ export function shownParts(parts: readonly Part[], today?: string | null): Shown
         receipt: line.line,
         calls: 1,
         ...(line.href && { href: line.href }),
+        ...(line.nextLink && { nextLink: line.nextLink }),
         ...(coachReadToolTypes.has(part.type) && { read: true as const }),
       });
     }

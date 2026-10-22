@@ -8,6 +8,7 @@ import {
   priorityList,
   type ListTask,
 } from "./priority-list.ts";
+import { nextDatePhrase, type NextDateRule } from "./next-date.ts";
 import { maxTaskNameLength, newTask } from "./task.ts";
 import type { Workflow } from "./index.ts";
 
@@ -343,6 +344,7 @@ export type AreaRecord = {
 };
 
 export type TaskRecord = ListTask & {
+  rule?: NextDateRule | null;
   areaId: string;
   name: string;
   note: string;
@@ -383,6 +385,8 @@ export type AreaView = {
 };
 
 export type CoachEntry = {
+  rule?: NextDateRule;
+  repeat?: string;
   id: string;
   name: string;
   priority: number;
@@ -620,6 +624,7 @@ export function coachList(
       priority: task.priority,
       area: area.name,
       isNext: task.id === view.nextId,
+      ...(task.rule ? { rule: task.rule, repeat: nextDatePhrase(task.rule) } : {}),
     }));
   });
 }

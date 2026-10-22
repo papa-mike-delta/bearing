@@ -1,5 +1,12 @@
 import { db as defaultDb, tasks } from "@repo/db";
-import { coachList, newTask, newTaskFields, pickArea } from "@repo/domain";
+import {
+  parseNextDateRule,
+  type NextDateRule,
+  coachList,
+  newTask,
+  newTaskFields,
+  pickArea,
+} from "@repo/domain";
 import { and, eq } from "drizzle-orm";
 import { loadAccount } from "./areas.ts";
 import type { Db } from "./db.ts";
@@ -11,6 +18,7 @@ export {
   moveTask,
   scheduleOn,
   setTaskGoal,
+  setTaskRule,
   taskDetail,
   updateOpenTask,
   type OpenTaskPatch,
@@ -64,6 +72,7 @@ export async function addTask(
     from?: Provenance;
     area?: string;
     today: string;
+    rule?: NextDateRule;
   },
   db: Db = defaultDb,
 ): Promise<TaskRef | null> {
@@ -72,7 +81,9 @@ export async function addTask(
   const { from } = input;
   const badSourceId =
     from && (!from.sourceId.trim() || from.sourceId.length > maxSourceIdLength);
-  if (!task || !fields || badSourceId) return null;
+  const rule = input.rule === undefined ? null : parseNextDateRule(input.rule);
+  if (!task || !fields || badSourceId || (input.rule !== undefined && !rule))
+    return null;
   const loaded = await loadAccount(userId, db);
   const area = pickArea(loaded.areas, input.area);
   if (!area) return null;
@@ -80,6 +91,7 @@ export async function addTask(
   const [added] = await db
     .insert(tasks)
     .values({
+      rule,
       name: task.name,
       note: task.note,
       areaId: area.id,

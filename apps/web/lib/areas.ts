@@ -1,6 +1,7 @@
 import { areas, db as defaultDb, goals, tasks, users } from "@repo/db";
 import {
   areaName,
+  parseNextDateRule,
   areaNameTaken,
   areasInCreationOrder,
   defaultWipLimit,
@@ -77,6 +78,7 @@ export async function loadAccount(
           previousStatus: tasks.previousStatus,
           age: tasks.age,
           date: tasks.scheduledOn,
+          rule: tasks.rule,
           goalId: tasks.goalId,
           createdAt: tasks.createdAt,
           completedAt: tasks.completedAt,
@@ -103,6 +105,7 @@ export async function loadAccount(
     })),
     tasks: taskRows.map((task) => ({
       ...task,
+      rule: parseNextDateRule(task.rule),
       status: asStatus(task.status),
       previousStatus: task.previousStatus
         ? asStatus(task.previousStatus)

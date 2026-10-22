@@ -2,10 +2,12 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
-import type { FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
+import type { NextDateRule, FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
+  rule?: NextDateRule;
+  repeat?: string;
   id: string;
   name: string;
   priority: number;
@@ -72,14 +74,15 @@ export type CoachData = {
   // add is the same Task. With one Area, `area` is ignored.
   createTask(
     userId: string,
-    input: { name: string; note?: string; area?: string },
+    input: { name: string; note?: string; area?: string; rule?: NextDateRule },
     from: { source: "coach"; sourceId: string },
   ): Promise<{ id: string; name: string } | null>;
   // Null when that id is not an open Task of this user.
   completeTask(
     userId: string,
     taskId: string,
-  ): Promise<{ id: string; name: string } | null>;
+    identity?: { messageId: string; today?: string },
+  ): Promise<{ id: string; name: string; spawned?: { id: string; date: string } } | null>;
   // Null when the Task isn't an open Task of this user, or the date isn't
   // strictly after today. Same rule as the date field.
   scheduleTask(

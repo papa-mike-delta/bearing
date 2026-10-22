@@ -58,6 +58,7 @@ describe("Draft filing interface (Postgres)", { skip: !url && "TEST_POSTGRES_URL
         const [task] = await db.select().from(tasks).where(eq(tasks.id, original.id));
         assert.equal(task?.note, "Full **markdown**");
         assert.equal(task?.source, null);
+        assert.equal(task?.rule, null);
         await db.update(tasks).set({ name: "Edited task" }).where(eq(tasks.id, original.id));
       } else if (original.kind === "note") {
         assert.equal(original.name, "Original title");
