@@ -90,7 +90,10 @@ test("a bad anchor or rule gives no date", () => {
   assert.equal(nextDate({ every: 1, unit: "days", on: 3 } as unknown as NextDateRule, "2026-02-03"), null);
 });
 
-test("every is capped", () => {
+test("every is capped at 9999", () => {
+  assert.equal(maxNextDateEvery, 9999);
+  assert.deepEqual(parseNextDateRule({ every: 9999, unit: "months" }), { every: 9999, unit: "months" });
+  for (const unit of ["days", "weeks", "months"]) assert.equal(parseNextDateRule({ every: 10000, unit }), null, unit);
   assert.deepEqual(parseNextDateRule({ every: maxNextDateEvery, unit: "days" }), { every: maxNextDateEvery, unit: "days" });
   for (const every of [maxNextDateEvery + 1, 1e7, 1e9, Number.MAX_SAFE_INTEGER]) {
     for (const unit of ["days", "weeks", "months"]) {
@@ -105,7 +108,11 @@ test("nextDate never throws and only returns a calendar day", () => {
   assert.equal(nextDate({ every: 1, unit: "weeks", on: "monday" }, "9999-12-31"), null);
   assert.equal(nextDate({ every: 1, unit: "months", on: "last" }, "9999-12-31"), null);
   assert.equal(nextDate({ every: 1, unit: "days" }, "9999-12-30"), "9999-12-31");
-  assert.equal(nextDate({ every: maxNextDateEvery, unit: "months" }, "2026-10-21"), "2110-01-21");
+  assert.equal(nextDate({ every: maxNextDateEvery, unit: "months" }, "2026-10-21"), "2860-01-21");
+  assert.equal(nextDate({ every: 9999, unit: "weeks" }, "2026-10-21"), "2218-06-10");
+  assert.equal(nextDate({ every: 9999, unit: "days" }, "2026-10-21"), "2054-03-07");
+  assert.equal(nextDate({ every: 9999, unit: "months" }, "9500-01-01"), null);
+  assert.equal(nextDate({ every: 9999, unit: "weeks" }, "9900-01-01"), null);
   assert.doesNotThrow(() => nextDate({ every: 1e7, unit: "days" } as NextDateRule, "2026-10-21"));
   assert.doesNotThrow(() => nextDate({ every: 1e9, unit: "days" } as NextDateRule, "2026-10-21"));
 });
