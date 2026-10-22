@@ -6,6 +6,7 @@ import { Input } from "@repo/ui/components/input";
 import { Textarea } from "@repo/ui/components/textarea";
 import { useBrowserToday } from "../app/browser-today";
 import { addPersonNote } from "../app/people/actions";
+import { personNoteError } from "../lib/person-note-validation";
 import { logDraftOnPerson } from "../app/inbox/actions";
 
 export function LogPersonNote({
@@ -30,15 +31,14 @@ export function LogPersonNote({
   const form = (
     <form
       className="person-note-form"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
+        setError("");
         if (!today) return;
-        if (draftId ? !name.trim() : !text.trim()) {
-          setError(
-            draftId
-              ? "Choose a person to log this draft on."
-              : "Write a note before adding it.",
-          );
+        const validationError = personNoteError({ day, today, text, draft: !!draftId, name });
+        if (validationError) {
+          setError(validationError);
           return;
         }
         identity.current ??= crypto.randomUUID();
@@ -78,7 +78,7 @@ export function LogPersonNote({
           <Input
             id={`person-${prefix}`}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); setError(""); }}
             disabled={pending}
             list={`people-${prefix}`}
             autoComplete="off"
@@ -98,6 +98,7 @@ export function LogPersonNote({
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              setError("");
               identity.current = null;
             }}
             rows={4}
@@ -114,6 +115,7 @@ export function LogPersonNote({
         value={day}
         onChange={(e) => {
           setDay(e.target.value);
+          setError("");
           identity.current = null;
         }}
         disabled={pending}

@@ -347,3 +347,8 @@ for (const [entity, phrases] of Object.entries({
 })) test(`${entity} capability line describes available reads, writes and limits`, () => {
   for (const phrase of phrases) assert.ok(coachSystemPrompt().includes(phrase), phrase);
 });
+
+ test("reconnect always drafts when naming someone and ends with sent confirmation", async () => {
+  const text = coachSystemPrompt();
+  for (const phrase of ["SAME reply", "exactly one drafted message line", "top/chosen person", "clearly marked as a quote", "Never reply with only a question", 'Tell me "I sent it" once sent.']) assert.ok(text.includes(phrase), phrase);
+});

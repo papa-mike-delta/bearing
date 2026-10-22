@@ -56,3 +56,8 @@ test("reconnect receipt is classified as a read, never an applied write", async 
     { key: "part-0", receipt: "Opened the reconnect skill", calls: 1, read: true },
   ]);
 });
+
+ test("reconnect always drafts when naming someone and ends with sent confirmation", async () => {
+  const text = await readSkill.run({ name: "reconnect" });
+  for (const phrase of ["SAME reply", "exactly one drafted message line", "top/chosen person", "clearly marked as a quote", "Never reply with only a question", 'Tell me "I sent it" once sent.']) assert.ok(text.includes(phrase), phrase);
+});
