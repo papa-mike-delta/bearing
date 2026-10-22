@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { skillFiles } from "../skills.generated.ts";
 
-// Only habit-design loads until the weekly-review ticket: weekly-review.md
+// weekly-review waits for its ticket: weekly-review.md
 // names tools that do not exist yet.
-export const readableSkills = ["habit-design"] as const;
+export const readableSkills = ["habit-design", "reconnect"] as const;
+
+export const reconnectAllowedTools = ["listPeople", "readPerson"] as const;
 
 export const habitDesignAllowedTools = ["listHabits", "searchKnowledge", "createHabit"] as const;
 

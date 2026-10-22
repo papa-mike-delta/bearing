@@ -81,6 +81,7 @@ function show(part: ToolPart, today?: string | null): Line | null {
   if (part.type === "tool-readSkill") {
     if (pending(part.state)) return { line: "Opening skill…" };
     if (part.state === "output-available" && typeof part.output === "string") {
+      if (part.output.startsWith("# reconnect\n")) return { line: "Opened the reconnect skill" };
       if (part.output.startsWith("# habit-design\n")) return { line: "Opened the habit-design skill" };
     }
     return { line: "Couldn't open that skill" };

@@ -4,6 +4,7 @@ import {
   coachWriteKey,
   readSkill,
   habitDesignAllowedTools,
+  reconnectAllowedTools,
   createHabit,
   trackHabit,
   fileDraft,
@@ -165,6 +166,17 @@ function executionTool<Name extends string, Input, Output>(
         input: Input,
         { context, toolCallId, messages }: { context: Context; toolCallId: string; messages?: object },
       ) => {
+        const outsideReconnect = !reconnectAllowedTools.some((allowed) => allowed === name);
+        if (skillState.reconnect && outsideReconnect) {
+          throw new Error("reconnect refused: tool outside its allow-list; writes wait for a later message");
+        }
+        if (name !== "readSkill" && outsideReconnect && messages) skillState.reconnectOutsideSteps.add(messages);
+        if (name === "readSkill" && (input as { name?: string }).name === "reconnect") {
+          skillState.reconnect = true;
+          if (messages && skillState.reconnectOutsideSteps.has(messages)) {
+            throw new Error("reconnect refused: load it before any tool outside its allow-list in the same step");
+          }
+        }
         const outside = name !== "readSkill" && !habitDesignAllowedTools.some((allowed) => allowed === name);
         if (skillState.habitDesign && outside) {
           throw new Error("habit-design refused: tool outside its allow-list");
@@ -312,7 +324,7 @@ const vocabulary = [
   executionTool('logNoteOnPerson',logNoteOnPerson,{cap:'write',personOrdinal:true,failure:"Couldn't log that note.",safeErrors:[NoteError]}),
 ] as const;
 
-type SkillState = { habitDesign: boolean; outsideSteps: WeakSet<object> };
+type SkillState = { reconnect: boolean; reconnectOutsideSteps: WeakSet<object>; habitDesign: boolean; outsideSteps: WeakSet<object> };
 
 type CoachTools = {
   [Descriptor in (typeof vocabulary)[number] as Descriptor["name"]]: ReturnType<
@@ -323,7 +335,7 @@ type CoachToolName = keyof CoachTools;
 
 export function coachTools(data: CoachData): CoachTools {
   const attempts = turnAttempts();
-  const skillState: SkillState = { habitDesign: false, outsideSteps: new WeakSet() };
+  const skillState: SkillState = { reconnect: false, reconnectOutsideSteps: new WeakSet(), habitDesign: false, outsideSteps: new WeakSet() };
   return Object.fromEntries(
     vocabulary.map((descriptor) => [
       descriptor.name,
