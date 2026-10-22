@@ -2,6 +2,7 @@
 import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  dayWords,
   defaultNextDateRule,
   maxNextDateEvery,
   nextDatePhrase,
@@ -76,14 +77,14 @@ export function PersonEditor({ person }: { person: Person }) {
   return (
     <form
       data-explicit-save-editor
-      className="flex flex-col gap-5"
+      className="people-form flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();
         session.save();
       }}
     >
       <fieldset disabled={pending} className="flex flex-col gap-4">
-        <label>
+        <label className="field">
           Name
           <Input
             name="name"
@@ -93,12 +94,12 @@ export function PersonEditor({ person }: { person: Person }) {
             onChange={(e) => edit({ name: e.target.value })}
           />
         </label>
-        <label>
+        <label className="field">
           Group
           <select
             aria-label="Group"
             name="group"
-            className="border rounded p-2 block"
+           
             value={value.group}
             required
             onChange={(e) => edit({ group: e.target.value })}
@@ -108,7 +109,7 @@ export function PersonEditor({ person }: { person: Person }) {
             ))}
           </select>
         </label>
-        <label>
+        <label className="check-row">
           <input
             type="checkbox"
             checked={value.rule !== null}
@@ -117,12 +118,12 @@ export function PersonEditor({ person }: { person: Person }) {
                 rule: e.target.checked ? { ...defaultNextDateRule } : null,
               })
             }
-          />{" "}
+          />
           Reach-out rule
         </label>
         {value.rule !== null && (
-          <div className="flex flex-wrap items-end gap-3">
-            <label>
+          <div className="rule-row">
+            <label className="field">
               Every
               <Input
                 type="number"
@@ -138,12 +139,12 @@ export function PersonEditor({ person }: { person: Person }) {
                 }
               />
             </label>
-            <label>
+            <label className="field">
               Unit
               <select
                 aria-label="Unit"
                 name="unit"
-                className="border rounded p-2 block"
+               
                 value={value.rule.unit}
                 onChange={(e) =>
                   edit({
@@ -160,12 +161,12 @@ export function PersonEditor({ person }: { person: Person }) {
               </select>
             </label>
             {value.rule.unit !== "days" && (
-              <label>
+              <label className="field">
                 On day (optional)
                 <select
                   aria-label="On day (optional)"
                   name="on"
-                  className="border rounded p-2 block"
+                 
                   value={value.rule.on ?? ""}
                   onChange={(e) => {
                     const { every, unit } = value.rule!;
@@ -213,7 +214,7 @@ export function PersonEditor({ person }: { person: Person }) {
               ? nextDatePhrase(rule)
               : "Use a valid next-date rule."}
         </p>
-        <label>
+        <label className="field">
           Last connected
           <Input
             type="date"
@@ -221,8 +222,14 @@ export function PersonEditor({ person }: { person: Person }) {
             max={today ?? undefined}
             value={value.lastConnected ?? ""}
             onChange={(e) => edit({ lastConnected: e.target.value || null })}
+            aria-describedby="lastConnected-words"
           />
         </label>
+        {value.lastConnected && today && (
+          <span id="lastConnected-words" className="text-sm text-muted-foreground -mt-3">
+            {dayWords(value.lastConnected, today)}
+          </span>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -231,7 +238,7 @@ export function PersonEditor({ person }: { person: Person }) {
         >
           Connected today
         </Button>
-        <label>
+        <label className="field">
           Agreed day
           <Input
             type="date"
@@ -239,10 +246,22 @@ export function PersonEditor({ person }: { person: Person }) {
             min={today ?? undefined}
             value={value.agreedDay ?? ""}
             onChange={(e) => edit({ agreedDay: e.target.value || null })}
+            aria-describedby="agreedDay-words"
           />
         </label>
+        {value.agreedDay && today && (
+          <span id="agreedDay-words" className="text-sm text-muted-foreground -mt-3">
+            {dayWords(value.agreedDay, today)}
+          </span>
+        )}
         <p>
-          Next reach-out: <output>{reachOut ?? "No reach-out day"}</output>
+          Next reach-out: <output data-day={reachOut ?? undefined}>
+            {reachOut
+              ? today
+                ? dayWords(reachOut, today)
+                : reachOut
+              : "No reach-out day"}
+          </output>
         </p>
       </fieldset>
       {error && <p role="alert">{error}</p>}

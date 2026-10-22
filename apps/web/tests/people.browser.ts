@@ -210,6 +210,8 @@ test(
     await page.getByLabel("Name", { exact: true }).fill("  New person  ");
     await page.getByLabel("Group", { exact: true }).selectOption("Family");
     await page.getByRole("button", { name: "Add person", exact: true }).click();
+    // Quick add stays on /people; the new person opens from the board.
+    await page.getByRole("link", { name: /^New person/ }).click();
     await page.waitForURL(/\/people\/[\w-]+$/);
     const id = page.url().split("/").at(-1)!;
     await page
@@ -232,7 +234,7 @@ test(
     await page.getByText("every month", { exact: true }).waitFor();
     await page.getByLabel("Last connected", { exact: true }).fill("2026-01-31");
     await until(
-      async () => (await page.locator("output").textContent()) === "2026-02-28",
+      async () => (await page.locator("output").getAttribute("data-day")) === "2026-02-28",
       "derived next day",
     );
     await page.getByLabel("On day (optional)").selectOption("last");
@@ -245,7 +247,7 @@ test(
     await page.getByText("every 2 weeks on Friday", { exact: true }).waitFor();
     await page.getByLabel("Agreed day", { exact: true }).fill("2026-11-03");
     await until(
-      async () => (await page.locator("output").textContent()) === "2026-11-03",
+      async () => (await page.locator("output").getAttribute("data-day")) === "2026-11-03",
       "agreement overrides",
     );
     assert.equal((await getPerson(owner, id, db!))?.lastConnected, null);
