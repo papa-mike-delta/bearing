@@ -246,7 +246,7 @@ async function showEnds(
       id: row.id,
       label: row.title,
       href: noteHref(row.notebookId, row.id),
-      detail: row.occasionDate ? formatJournalDay(row.occasionDate) : row.notebookName ?? "No notebook",
+      detail: row.occasionDate ? formatJournalDay(row.occasionDate) : row.notebookName ?? "",
       completed: false,
     });
   }

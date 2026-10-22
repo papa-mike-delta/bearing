@@ -11,9 +11,11 @@ import { logDraftOnPerson } from "../app/inbox/actions";
 export function LogPersonNote({
   personId,
   draftId,
+  people = [],
 }: {
   personId?: string;
   draftId?: string;
+  people?: string[];
 }) {
   const today = useBrowserToday();
   const router = useRouter();
@@ -31,6 +33,14 @@ export function LogPersonNote({
       onSubmit={(event) => {
         event.preventDefault();
         if (!today) return;
+        if (draftId ? !name.trim() : !text.trim()) {
+          setError(
+            draftId
+              ? "Choose a person to log this draft on."
+              : "Write a note before adding it.",
+          );
+          return;
+        }
         identity.current ??= crypto.randomUUID();
         setError("");
         setSaved(null);
@@ -70,8 +80,15 @@ export function LogPersonNote({
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={pending}
-            required
+            list={`people-${prefix}`}
+            autoComplete="off"
           />
+          {/* Existing people are offered as you type so a typo can't miss. */}
+          <datalist id={`people-${prefix}`}>
+            {people.map((person) => (
+              <option key={person} value={person} />
+            ))}
+          </datalist>
         </>
       ) : (
         <>
@@ -85,7 +102,6 @@ export function LogPersonNote({
             }}
             rows={4}
             disabled={pending}
-            required
           />
         </>
       )}

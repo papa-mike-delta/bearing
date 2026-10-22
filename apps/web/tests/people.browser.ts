@@ -537,6 +537,7 @@ test('Inbox Log on person asks on unknown names and archives only after a succes
  await page.goto(`${base}/inbox`);
  const draft=page.locator('.drafts > li').filter({hasText:'Inbox memory'});
  await draft.locator('summary').filter({hasText:'Log on person'}).click();
+ assert.ok((await draft.getByLabel('Person name',{exact:true}).evaluate(el=>[...((el as HTMLInputElement).list?.options??[])].map(o=>o.value))).includes('Inbox Ada'));
  await draft.getByLabel('Person name',{exact:true}).fill('Unknown');
  await draft.getByRole('button',{name:'Log on person',exact:true}).click();
  await draft.getByRole('alert').waitFor();
