@@ -46,3 +46,14 @@ test('People knowledge ships its product rules, boundaries and searchable sectio
   assert.equal(result.match,true);
   if(result.match) {assert.equal(result.title,'People: reach-out rules');assert.equal(result.href,article.href);}
 });
+
+test("habits.md and its generated copy state the repeat rule interval as 1–9999, not 1–999", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { habitsMarkdown } = await import("./knowledge-articles.generated.ts");
+  const source = await readFile(new URL("../knowledge/habits.md", import.meta.url), "utf8");
+  for (const text of [source, habitsMarkdown]) {
+    assert.ok(text.includes("every 1–9999 days, weeks or months"));
+    assert.equal(text.includes("every 1–999 days"), false);
+  }
+  assert.equal(habitsMarkdown, source);
+});

@@ -294,3 +294,9 @@ test('A first-person connection or agreement writes directly, and no person is r
   const prompt = coachSystemPrompt();
   for (const text of ['A clear first-person statement of a past connection','"I saw Ada today"','call setPersonLastConnected straight away','never ask "Would you like me to set…?" first','calls setPersonAgreedDay straight away','Never treat a person as real','without a listPeople, readPerson or person write result from this turn','Never invent a person','say no person matched and ask which one']) assert.ok(prompt.includes(text),text);
 });
+
+test("the Coach states the repeat rule interval as 1–9999, not 1–999", () => {
+  const prompt = coachSystemPrompt("2026-10-21");
+  assert.ok(prompt.includes("a number (1–9999)"));
+  assert.equal(prompt.includes("(1–999)"), false);
+});

@@ -2,6 +2,7 @@
 import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  calendarDayWords,
   dayWords,
   parseNextDateRule,
   peopleGroups,
@@ -156,7 +157,7 @@ export function PersonEditor({ person }: { person: Person }) {
             {reachOut
               ? today
                 ? dayWords(reachOut, today)
-                : reachOut
+                : calendarDayWords(reachOut)
               : "No reach-out day"}
           </output>
         </p>
