@@ -75,6 +75,33 @@ describe(
       return createNote(userId, { notebookId, title, body }, from(), db);
     }
 
+    test("Note occasion detail matches Journal labels in both directions; edge order and unset detail stay unchanged", async () => {
+      const occasionDay = "2026-10-08";
+      const memory = await note(owner, "Occasion");
+      const plain = await note(owner, "Undated");
+      const t = await task(owner, "Occasion links");
+      await saveJournalDay(owner, occasionDay, "A day", 0, today, db);
+      await saveNote(owner, memory.id, { ...memory, occasionDate: occasionDay, today }, db);
+      const center = { kind: "task" as const, id: t.id };
+      for (const n of [memory, plain]) {
+        await addLink(owner, center, { kind: "note", id: n.id }, today, db);
+        await addLink(owner, { kind: "note", id: n.id }, center, today, db);
+      }
+      await addLink(owner, center, { kind: "journal", id: occasionDay }, today, db);
+      const rows = await related(owner, center, db);
+      assert.deepEqual(rows.outgoing.map(r => r.id), [occasionDay, plain.id, memory.id]);
+      assert.deepEqual(rows.incoming.map(r => r.id), [plain.id, memory.id]);
+      const label = rows.outgoing.find(r => r.kind === "journal")!.label;
+      assert.equal(label, "Thursday, Oct 8, 2026");
+      for (const direction of [rows.incoming, rows.outgoing]) {
+        assert.equal(direction.find(r => r.id === memory.id)!.detail, label);
+        assert.equal(direction.find(r => r.id === plain.id)!.detail, "Ideas");
+      }
+      await saveNote(owner, memory.id, { ...memory, revision: 2, occasionDate: null }, db);
+      assert.equal((await related(owner, center, db)).outgoing.at(-1)!.detail, "Ideas");
+      await db.delete(journalEntries).where(and(eq(journalEntries.userId, owner), eq(journalEntries.day, occasionDay)));
+    });
+
     test("people link in both directions, refuse duplicates, self and foreign ends, and resolve current names", async () => {
       const p = await createPerson(
         owner,

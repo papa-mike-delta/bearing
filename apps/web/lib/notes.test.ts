@@ -34,6 +34,25 @@ describe("Notes persistence", { skip: !url && "TEST_POSTGRES_URL missing" }, () 
     await db.delete(users).where(inArray(users.id, [a, b]));
     await db.$client.end();
   });
+  test("occasion day persists, clears, rejects future atomically and replays stored values", async () => {
+    const from = operation();
+    const note = await createNote(a, { ...input("Memory"), occasionDate: "2026-10-09", today: "2026-10-21" }, from, db);
+    assert.equal(note.occasionDate, "2026-10-09");
+    const replay = await createNote(a, { ...input("Changed retry"), occasionDate: "2026-10-20", today: "2026-10-21" }, from, db);
+    assert.equal(replay.id, note.id);
+    assert.equal(replay.title, "Memory");
+    assert.equal(replay.occasionDate, "2026-10-09");
+    await assert.rejects(saveNote(a, note.id, { ...note, title: "Should not stick", occasionDate: "2026-10-22", today: "2026-10-21" }, db), /today or a past day/);
+    assert.equal((await getNote(a, note.id, db))?.title, "Memory");
+    assert.equal((await getNote(a, note.id, db))?.revision, 1);
+    await assert.rejects(createNote(a, { ...input("Future refused"), occasionDate: "2026-10-22", today: "2026-10-21" }, operation(), db), /today or a past day/);
+    assert.equal((await listNotes(a, book, db)).some(n => n.title === "Future refused"), false);
+    const saved = await saveNote(a, note.id, { ...note, occasionDate: "2026-10-21", today: "2026-10-21" }, db);
+    assert.equal(saved.occasionDate, "2026-10-21");
+    const cleared = await saveNote(a, note.id, { ...saved, occasionDate: null, today: "2026-10-21" }, db);
+    assert.equal(cleared.occasionDate, null);
+    assert.equal((await createNote(a, input(), operation(), db)).occasionDate, null);
+  });
   test("owner-scoped reads, writes, destinations and malformed IDs", async () => {
     const note = await createNote(a, input(), operation(), db);
     assert.equal(await getNote(b, note.id, db), null);

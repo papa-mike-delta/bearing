@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { journalEntries, journalOperations, notebooks, noteOperations, notes } from "@repo/db";
-import { noteName, validNoteBody } from "@repo/domain";
+import { noteName, validNoteBody, validNoteOccasionDate } from "@repo/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { isUuid, type Db } from "../db.ts";
 import { isJournalDay } from "../journal-day.ts";
@@ -9,7 +9,7 @@ export class NoteError extends Error {}
 export class JournalError extends Error {}
 const unavailable = "That item is unavailable. Refresh and try again.";
 
-export type NoteInput = { notebookId: string; title: string; body: string };
+export type NoteInput = { notebookId: string; title: string; body: string; occasionDate?: string | null; today?: string };
 export type NoteSource = { source: "draft" | "coach"; sourceId: string };
 
 export async function replayNote(userId: string, from: NoteSource, db: Db) {
@@ -23,6 +23,7 @@ export async function replayNote(userId: string, from: NoteSource, db: Db) {
 }
 
 export function validateNoteCreation(input: NoteInput, from: NoteSource) {
+  if (input.occasionDate != null && !validNoteOccasionDate(input.occasionDate, input.today)) throw new NoteError("Occasion date must be today or a past day. Supply the browser’s Today.");
   const title = noteName(input.title);
   if (!title || !validNoteBody(input.body)) throw new NoteError("Use a title of 1–200 characters and a body of at most 100,000 characters.");
   if (!from.sourceId || from.sourceId.length > 250 || !["draft", "coach"].includes(from.source)) throw new NoteError(unavailable);
@@ -43,7 +44,7 @@ export async function createNoteInTransaction(userId: string, input: NoteInput, 
     if (!existing) throw new NoteError(unavailable);
     return existing;
   }
-  const [note] = await tx.insert(notes).values({ id, userId, notebookId: input.notebookId, title, body: input.body }).returning();
+  const [note] = await tx.insert(notes).values({ id, userId, notebookId: input.notebookId, title, body: input.body, occasionDate: input.occasionDate ?? null }).returning();
   return note!;
 }
 

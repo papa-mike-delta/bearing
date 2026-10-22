@@ -155,6 +155,13 @@
       "when": 1792637584261,
       "tag": "0021_person_links",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792641320332,
+      "tag": "0022_note_occasion",
+      "breakpoints": true
     }
   ]
 }

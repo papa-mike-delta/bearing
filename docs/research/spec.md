@@ -179,11 +179,13 @@ Notes: no dedicated docs page in the sidebar. From marketing, shortcuts, API, an
 - Search hits note names only. Full-text and in-note search are roadmap (in-note search claimed shipped on desktop in v2.1.28).
 - Note nesting / folders is roadmap, not current.
 
+Bearing Note occasion dates (#157): a Note has one optional `occasion_date` calendar day, stored by migration `0022_note_occasion` as a nullable date column on Notes only. The browser's Today or any past real day is allowed; future days refuse the whole save and store nothing. Clearing is allowed. The field joins title, body and pin in explicit Save and the same unsaved-changes guard; mobile input is 16px and at least 40px tall. Related shows this date as the Note row's detail with exactly the Journal day row's date label. Unset detail and newest-edge-first ordering stay unchanged in both directions on all pages. Tasks have no occasion date; the Journal is unchanged and a dated Note never appears there automatically. No people or links are added by #157.
+
 ### 4.5 Relationships
 
 Source: [relationships](https://lunatask.app/docs/features/relationships).
 
-Shipped in #154: `/people` and `/people/[id]` require sign-in. #154 added only people storage (account, name, group, rule, last connected, agreed day and timestamps). The Task rule column came later in #163 and person links in #156 (below); there is still no occasion date.
+Shipped in #154: `/people` and `/people/[id]` require sign-in. #154 added only people storage (account, name, group, rule, last connected, agreed day and timestamps). The Task rule column came later in #163 and person links in #156 (below); people still have no occasion date.
 
 Related (#156): a Person is a Related endpoint like a Task, a Note or a saved Journal day, in either direction. This includes **person to person**: one person can be linked to a different person (Paul's decision, 2026-10-21: person-to-person Related links stay). A link from a person to that same person is refused. The person page shows Outgoing and Backlinks, newest edge first. Deleting a person deletes every edge that touches them and nothing else.
 
@@ -335,7 +337,7 @@ Write tools, same mutations the UI uses:
 - `setPersonLastConnected(name, day?)` — one unique case-insensitive name; browser Today or a past day.
 - `setPersonAgreedDay(name, day)` — today or later with a rule; null clears. Neither changes the rule. Both share the three-write cap, release a refused slot, and use content-matched resend identities. The existing JSON operation ledger stores these under source `coach-person`; only the people table is added in #154.
 - People ship in #154: `listPeople` returns page order, group, rule phrase, last connected, agreed day, computed next reach-out and due. `readPerson(name)` requires one match ignoring case; missing or multiple matches asks and writes nothing. People are read only when needed; the Task list is the only automatic read. Read receipts are `Read your people (N)` linked to `/people`, and `Read 'Ada'` linked to her person page. Date receipts are `Connected with 'Ada' today`, `Connected with 'Ada' on Fri, Oct 9`, `Agreed to see 'Ada' on Tue, Mar 3`, and `Cleared the agreed day for 'Ada'`. Failures have no success receipt. Paul cannot add, rename, regroup, or delete a person, set or clear a person's rule, log a note on a person, create a link, or create a recurring Task.
-- `createNote`
+- `createNote(day?)` — optional occasion day (YYYY-MM-DD), only from a day the person states on a Note they ask Paul to create; never inferred from prose. A future day is refused and creates no Note. Leaving it out creates an undated Note. The created-Note receipt names the stored day using `dayWords`/`calendarDayWords` when set, and is unchanged otherwise. Resends keep the existing Notebook/title identity and return stored values, without a second Note; failures have no success receipt. Paul still cannot attach a Note to a person.
 
 A user message that asks for a create or a field edit is the confirmation. Deletes, bulk edits, and anything that completes more than one task require a confirm card in the thread before `execute`. The model proposes; the UI commits. Log every tool call on the thread.
 

@@ -43,7 +43,7 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
     async createNote(userId, input, from) {
       const note = await createNoteRow(userId, input, from, db);
       if (note.notebookId !== input.notebookId) throw new Error("Invalid Note result.");
-      return { id: note.id, notebookId: note.notebookId, title: note.title };
+      return { id: note.id, notebookId: note.notebookId, title: note.title, occasionDate: note.occasionDate };
     },
     async listOpenTasks(userId) {
       return listForCoach(userId, today, db);

@@ -575,3 +575,15 @@ test("person refusals are neutral, not failures", () => {
   assert.equal(receipt({ type: "tool-setPersonLastConnected", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't update that person");
   assert.equal(receipt({ type: "tool-readPerson", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't read that person");
 });
+
+test("dated Note receipts name the stored occasion using domain day words, failures never claim success", () => {
+  const output = { id: noteId, notebookId, name: "Memory", href: noteHref, day: "2026-10-09" };
+  const part = { type: "tool-createNote", state: "output-available", output };
+  assert.equal(receipt(part, "2026-10-09"), "Created Note 'Memory' for Today");
+  assert.equal(receipt(part, "2026-10-10"), "Created Note 'Memory' for Yesterday");
+  assert.equal(receipt(part, "2026-10-21"), "Created Note 'Memory' for Fri, Oct 9");
+  assert.equal(receipt(part), "Created Note 'Memory' for Fri, Oct 9, 2026");
+  assert.equal(receipt(part, "invalid"), "Created Note 'Memory' for Fri, Oct 9, 2026");
+  assert.equal(receipt({ ...part, output: { ...output, refused: true } }), "Couldn't create that Note");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't create that Note");
+});
