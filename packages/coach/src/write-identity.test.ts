@@ -45,3 +45,10 @@ test("old trim-only hash rows are not matched when text normalization changes th
     assert.notEqual(coachWriteKey(tool, oldArguments, today), oldHash);
   }
 });
+
+test('person Note identity matches name and text normalization, and distinguishes person, text and stated occasion day',()=>{
+ const original={name:' Ada ',text:' A quote\nExact words '};
+ const key=coachWriteKey('logNoteOnPerson',original,'2026-10-21');
+ assert.equal(key,coachWriteKey('logNoteOnPerson',{name:'ADA',text:'a quote  exact WORDS'},'2026-10-22'));
+ for(const patch of [{name:'Bo'},{text:'Different'},{day:'2026-10-09'}]) assert.notEqual(key,coachWriteKey('logNoteOnPerson',{...original,...patch},'2026-10-21'));
+});

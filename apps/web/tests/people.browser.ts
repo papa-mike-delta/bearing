@@ -515,6 +515,7 @@ test('Add note writes immediately to Outgoing and No notebook, opens the existin
  await page.setViewportSize({width,height:852});
  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
  const button=page.getByRole('button',{name:'Add note',exact:true});const box=await button.boundingBox();assert.ok(box && box.height >= (width<=480?44:40),JSON.stringify({width,box,style:await button.evaluate(el=>({min:getComputedStyle(el).minHeight,innerWidth:window.innerWidth,media:matchMedia("(max-width: 480px)").matches,classes:el.className}))}));
+ assert.equal(Math.round(box!.x),Math.round((await page.getByLabel('Note text',{exact:true}).boundingBox())!.x));
  assert.equal(await page.getByLabel('Note text',{exact:true}).evaluate(el=>getComputedStyle(el).fontSize),'16px');
  }
  await page.getByRole('button',{name:'Add note',exact:true}).click();

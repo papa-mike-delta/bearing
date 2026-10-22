@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 export function coachWriteKey(tool: string, input: Record<string, unknown>, today?: string) {
   let normalized: Record<string, unknown>;
   if (tool === 'logNoteOnPerson') {
-    normalized = {name:String(input.name).trim().toLowerCase(),text:String(input.text).trim(),day:input.day ?? null};
+    normalized = {name:String(input.name).trim().toLowerCase(),text:normalizeText(input.text),day:input.day ?? null};
   } else if (tool === "setPersonLastConnected" || tool === "setPersonAgreedDay") {
     normalized = { name: String(input.name).trim().toLowerCase(), day: input.day === undefined || input.day === "today" ? today : input.day };
   } else if (tool === "createHabit") {

@@ -182,6 +182,23 @@ test(
         },
       );
       assert.ok("notes" in result);
+      assert.equal(
+        receipt({
+          type: "tool-readPerson",
+          state: "output-available",
+          output: result,
+        }),
+        "Read 'Reader'",
+      );
+      assert.ok(
+        shownParts([
+          {
+            type: "tool-readPerson",
+            state: "output-available",
+            output: result,
+          },
+        ]).some((part) => "href" in part && part.href === `/people/${p.id}`),
+      );
       assert.deepEqual(
         result.notes.map((n) => n.id),
         ids.slice(0, 20),
@@ -220,6 +237,22 @@ test(
           messages: [],
           context: ctx,
         });
+      const duplicate = await createPerson(
+        user,
+        { name: "ADA", group: "Family" },
+        db,
+      );
+      const ambiguous = await run({ name: "Ada", text: "Ambiguous" });
+      assert.ok("refused" in ambiguous && ambiguous.refused);
+      assert.equal(
+        receipt({
+          type: "tool-logNoteOnPerson",
+          state: "output-available",
+          output: ambiguous,
+        }),
+        "No change: asked about 'Ada'",
+      );
+      await deletePerson(user, duplicate.id, db);
       for (const input of [
         { name: "Nobody", text: "Hi" },
         { name: "Ada", text: " " },
@@ -280,6 +313,14 @@ test(
       }
       await assert.rejects(
         async () => run({ name: "Ada", text: "Fourth" }),
+        /only 3/,
+      );
+      await assert.rejects(
+        async () =>
+          tools.setPersonLastConnected.execute!(
+            { name: "Ada" },
+            { toolCallId: "other-write", messages: [], context: ctx },
+          ),
         /only 3/,
       );
       assert.equal((await listLooseNotes(user, db)).length, 3);
