@@ -135,3 +135,15 @@ test("createTask refuses a blank or overlong name, and an overlong note", () => 
     }),
   );
 });
+
+test("createTask accepts only a rule mappable to the control and passes it at creation", async () => {
+  const rule = { every: 3, unit: "weeks" as const, on: "tuesday" as const };
+  const parsed = createTask.inputSchema.parse({ name: "Pay rent", rule });
+  assert.deepEqual(parsed.rule, rule);
+  const { data, calls } = fake({ id: "task-1", name: "Pay rent" });
+  await createTask.run(parsed, ctx(data));
+  assert.deepEqual(calls[0]?.input, { name: "Pay rent", rule });
+  for (const invalid of [{ every: 0, unit: "days" }, { every: 1, unit: "years" }, { every: 1, unit: "weeks", on: ["monday", "tuesday"] }]) {
+    assert.equal(createTask.inputSchema.safeParse({ name: "Pay rent", rule: invalid }).success, false);
+  }
+});

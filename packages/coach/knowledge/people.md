@@ -14,6 +14,6 @@ Adding requires a trimmed name of 1–200 characters and an explicitly chosen gr
 
 Paul reads people only when needed with listPeople or readPerson. A name must match one person, ignoring case; otherwise he asks and writes nothing. The Task list is the only automatic read. On request he can set last connected, or set or clear an agreed day. A clear first-person statement such as “I saw Ada today” or “Ada and I agreed on Friday” is the request: he writes straight away, as with habit logging, without asking first. He never treats a name as a real person, or states facts about one, without looking it up in that turn; an unknown name gets a refused result and the receipt “No change: asked about '<name>'”. These share the three-write cap and content-matched resend protection. A refusal writes nothing and releases its slot.
 
-Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, create a link, or create a recurring Task. There are no occasion dates in this feature.
+Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, or create a link. There are no occasion dates in this feature.
 
 Source: Bearing issue #154 and spec §§8.2–8.7.

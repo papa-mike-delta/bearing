@@ -13,14 +13,14 @@ export const completeTask = {
   inputSchema,
   async run(
     { taskId }: z.infer<typeof inputSchema>,
-    { userId, data }: ToolRunContext,
+    { userId, messageId, today, data }: ToolRunContext,
   ) {
     if (!uuidSchema.safeParse(taskId).success) {
       return { invalidId: true as const };
     }
     const before = await data.listOpenTasks(userId);
     const area = before.find((task) => task.id === taskId)?.area;
-    const result = await data.completeTask(userId, taskId);
+    const result = await data.completeTask(userId, taskId, { messageId, today });
     if (result === null) return { notFound: true as const };
     const after = await data.listOpenTasks(userId);
     const next = after.find(
@@ -29,6 +29,7 @@ export const completeTask = {
     return {
       id: result.id,
       name: result.name,
+      ...(result.spawned ? { spawned: result.spawned } : {}),
       next: next ? { id: next.id, name: next.name } : null,
     };
   },

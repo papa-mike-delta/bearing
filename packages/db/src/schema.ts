@@ -124,6 +124,7 @@ export const tasks = pgTable(
     age: date("age").notNull().default(sql`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`),
     // A reminder day, strictly after the day it was set. Null until scheduled.
     scheduledOn: date("scheduled_on"),
+    rule: jsonb("rule"),
     completedAt: timestamp("completed_at", {
       mode: "date",
       withTimezone: true,

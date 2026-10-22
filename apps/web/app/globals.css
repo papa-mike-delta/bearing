@@ -1387,12 +1387,14 @@ form.flex-row {
 .theme-chip { min-width: 40px; min-height: 40px; }
 main form p.hint a { color: var(--foreground); text-decoration: underline; }
 
-/* People forms (/people add form and the person page). Every control is a 40px
+/* People forms (/people add form and the person page) and the shared next-date
+   rule control (Task Repeat, person Reach-out rule). Every control is a 40px
    target, selects use the same filled field as inputs, and inputs stay 16px on
    phones so iOS does not zoom. */
-.people-form .field { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; }
-.people-form :is(input:not([type="checkbox"]), select, button) { min-height: 2.5rem; }
-.people-form select {
+:is(.people-form, .rule-control) .field { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; }
+:is(.people-form, .rule-control) :is(input:not([type="checkbox"]), select, button) { min-height: 2.5rem; }
+:is(.people-form, .rule-control) select,
+.rule-control input:not([type="checkbox"]) {
   width: 100%;
   border: 1px solid var(--input);
   border-radius: var(--radius-md, calc(var(--radius) - 2px));
@@ -1402,14 +1404,18 @@ main form p.hint a { color: var(--foreground); text-decoration: underline; }
   color: inherit;
   outline: none;
 }
-.dark .people-form select { background: color-mix(in oklab, var(--input) 30%, transparent); }
-.people-form select:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
-.people-form .check-row { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.5rem; cursor: pointer; }
-.people-form .check-row input { width: 1.125rem; height: 1.125rem; }
-/* Rule row: label tops line up (Every, Unit, On day). */
-.people-form .rule-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem; }
-.people-form .rule-row .field { width: auto; flex: 1 1 8rem; }
-@media (min-width: 768px) { .people-form select { font-size: 0.75rem; } }
+.dark :is(.people-form, .rule-control) select,
+.dark .rule-control input:not([type="checkbox"]) { background: color-mix(in oklab, var(--input) 30%, transparent); }
+:is(.people-form, .rule-control) select:focus-visible,
+.rule-control input:not([type="checkbox"]):focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
+:is(.people-form, .rule-control) .check-row { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.5rem; cursor: pointer; }
+:is(.people-form, .rule-control) .check-row input { width: 1.125rem; height: 1.125rem; }
+/* Rule row: label tops line up and, when a label wraps, the controls still
+   share one top edge (Every, Unit, On day). */
+:is(.people-form, .rule-control) .rule-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.75rem; }
+:is(.people-form, .rule-control) .rule-row .field { width: auto; flex: 1 1 5.5rem; min-width: 0; justify-content: space-between; }
+:is(.people-form, .rule-control) .rule-row :is(input, select) { width: 100%; min-width: 0; }
+@media (min-width: 768px) { :is(.people-form, .rule-control) select, .rule-control input:not([type="checkbox"]) { font-size: 0.75rem; } }
 @media (max-width: 480px) {
-  .people-form :is(input, select) { font-size: 16px; }
+  :is(.people-form, .rule-control) :is(input, select) { font-size: 16px; }
 }

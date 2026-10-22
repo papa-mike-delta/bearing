@@ -1,3 +1,4 @@
+import { taskForBrowser } from "../lib/task-for-browser";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { maxAreaNameLength, maxTaskNameLength } from "@repo/domain";
@@ -39,20 +40,7 @@ export default async function Home({
     wipLimit: area.wipLimit,
     createdAt: area.createdAt.toISOString(),
   }));
-  const tasks: StackTask[] = loaded.tasks.map((task) => ({
-    id: task.id,
-    areaId: task.areaId,
-    name: task.name,
-    note: task.note,
-    priority: task.priority,
-    status: task.status,
-    previousStatus: task.previousStatus,
-    age: task.age,
-    date: task.date,
-    goalId: task.goalId,
-    createdAt: task.createdAt.toISOString(),
-    completedAt: task.completedAt ? task.completedAt.toISOString() : null,
-  }));
+  const tasks: StackTask[] = loaded.tasks.map(taskForBrowser);
 
   const goals: StackGoal[] = loaded.goals;
   const wide = areas.some(
