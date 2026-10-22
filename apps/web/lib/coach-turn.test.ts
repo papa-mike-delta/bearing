@@ -477,6 +477,27 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(messages.at(-1)!.parts.some(part => receipt(part) === "Cleared the agreed day for 'Ada'"));
   });
 
+  test("'I saw Ada today' writes last connected directly; an unknown name gets a refused result and a neutral receipt", async () => {
+    const c = await account();
+    const p = await createPerson(c,{name:"Ada",group:"Family"},db);
+    const thread = await coachThread(c,db);
+    await turn(c,thread,userMessage("I saw Ada today"),scripted({setPersonLastConnected:JSON.stringify({name:"Ada"})},{text:"Noted."}));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+    let messages = (await threadMessages(c,thread,db))!;
+    let last = messages.at(-1)!;
+    assert.ok(last.parts.some(part => part.type === "tool-setPersonLastConnected"));
+    assert.ok(shownParts(last.parts,"2026-10-09").some(part => "receipt" in part && part.receipt === "Connected with 'Ada' today"));
+    await turn(c,thread,userMessage("I saw Zed"),scripted({setPersonLastConnected:JSON.stringify({name:"Zed"})},{text:"No person matches Zed. Which one did you mean?"}));
+    messages = (await threadMessages(c,thread,db))!;
+    last = messages.at(-1)!;
+    const call = last.parts.find(part => part.type === "tool-setPersonLastConnected") as { output?: { refused?: boolean; name?: string } } | undefined;
+    assert.equal(call?.output?.refused,true);
+    assert.equal(call?.output?.name,"Zed");
+    assert.ok(last.parts.some(part => receipt(part) === "No change: asked about 'Zed'"));
+    assert.ok(!last.parts.some(part => /Couldn't update/.test(receipt(part) ?? "")));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+  });
+
   test("Bad many-times asks without tools, then records stated total, additions, or none", async () => {
     for (const goalCount of [5, null]) for (const answer of ["4", "2 more", "none"]) {
       const c = await account();

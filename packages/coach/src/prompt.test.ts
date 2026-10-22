@@ -275,3 +275,8 @@ test('People tools and boundaries describe the shipped screen without automatic 
   for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','create a recurring Task','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
   assert.match(prompt,/setPersonLastConnected and setPersonAgreedDay combined/);
 });
+
+test('A first-person connection or agreement writes directly, and no person is real without a lookup this turn', () => {
+  const prompt = coachSystemPrompt();
+  for (const text of ['A clear first-person statement of a past connection','"I saw Ada today"','call setPersonLastConnected straight away','never ask "Would you like me to set…?" first','calls setPersonAgreedDay straight away','Never treat a person as real','without a listPeople, readPerson or person write result from this turn','Never invent a person','say no person matched and ask which one']) assert.ok(prompt.includes(text),text);
+});
