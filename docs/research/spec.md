@@ -379,7 +379,7 @@ Context the panel can attach: the open task, note, or person id, passed into the
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
 - Replay identity is content-keyed, never the provider tool-call id (#140), so a resent message cannot apply a write twice. Coach-created Tasks and Notes set `source = coach` and `source_id` = the message id plus a content hash: for a Task, the first 16 hex of SHA-256 of the trimmed, lowercased name; for a Note, SHA-256 of the notebook id and the trimmed, lowercased title. Habit and Journal writes are keyed in `habit_operations` and `journal_operations` as `<message id>:<tool>:<hash>:<occurrence>`, where the hash covers the normalized arguments (resolved day; Journal text trimmed, lowercased and whitespace collapsed; habit id, action and count; for `createHabit`, name trimmed, lowercased and whitespace collapsed, and resolved defaults) and the occurrence counts the same content earlier in that reply. Old trim-only Habit/Journal hashes are not migrated; a resend whose normalization changes the hash does not match the old row and can apply again. A Daily close reply appends to the Journal at most once: the whole answer goes in as one entry with occurrence 1 (`daily-close/tools.ts`).
-- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit` `trackHabit`, `setPersonLastConnected` and `setPersonAgreedDay`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
+- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit`, `trackHabit`, `setPersonLastConnected` and `setPersonAgreedDay`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
 - Applied writes and never-retract (#141): normal turns and Daily close put an "Applied writes in this thread (saved receipts; these happened)" block in the system prompt, built from the reloaded thread's successful write receipts (the last 10, absolute dates). An earlier receipt is a real write; the Coach never retracts it, and only a later write receipt changes it. `listHabits` without `day` shows only the open period, so the Coach reads past periods with `day`.
 - Knowledge base is not user data and is not mixed into export.
 
@@ -478,7 +478,7 @@ notebooks(id, user_id, name, pin_hash)
 notes(id, notebook_id, name, body_md, pinned)
 journal_entries(id, user_id, day, body_md)
 day_scores(user_id, day, mood, energy, stress)
-people(id, user_id, name, group, reconnect_rule, last_connected, agreed_on)
+people(id, user_id, name, group, rule, last_connected, agreed_day, created_at, updated_at)
 person_fields(person_id, type, label, value)
 person_notes(person_id, body_md, at, is_happy_memory)
 drafts(id, user_id, body, tags, workspace, created_at)

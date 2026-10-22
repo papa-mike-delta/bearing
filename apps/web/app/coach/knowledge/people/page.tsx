@@ -7,8 +7,15 @@ import { Header } from "../../../header";
 export default async function PeopleKnowledge() {
   const user = await requireUser();
   const article = await peopleArticle();
-  return <><Header email={user.email} /><main className="font-sans">
-    <Link href="/coach">Coach</Link>
-    <article className="markdown-preview">{renderMarkdownPreview(article.body).content}</article>
-  </main></>;
+  return (
+    <>
+      <Header email={user.email} />
+      <main className="font-sans">
+        <Link href="/coach">Coach</Link>
+        <article className="markdown-preview">
+          {renderMarkdownPreview(article.body).content}
+        </article>
+      </main>
+    </>
+  );
 }

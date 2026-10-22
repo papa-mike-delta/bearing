@@ -76,7 +76,7 @@ function setup(subject = "Note") {
   };
 }
 
-for (const subject of ["Note", "Journal", "Journal template"]) {
+for (const subject of ["Note", "Journal", "Journal template", "Person"]) {
   test(`${subject}: links cancel or confirm with the existing text, and confirmation disarms unload`, () => {
     const fake = setup(subject);
     const { navigation, dispatch, answers, confirmations } = fake;
