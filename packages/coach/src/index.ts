@@ -37,3 +37,5 @@ export { trackHabit } from "./tools/track-habit.ts";
 export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult, HabitUndoRefusal } from "./data.ts";
 
 export { coachWriteKey } from "./write-identity.ts";
+
+export { listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay } from "./tools/people.ts";

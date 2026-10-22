@@ -138,8 +138,15 @@
     {
       "idx": 19,
       "version": "7",
-      "when": 1792632426191,
-      "tag": "0019_elite_champions",
+      "when": 1792630249741,
+      "tag": "0019_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792633319423,
+      "tag": "0020_task_rule",
       "breakpoints": true
     }
   ]

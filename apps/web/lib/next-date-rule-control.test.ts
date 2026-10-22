@@ -37,17 +37,17 @@ test("the shared control renders a number, unit and optional on-day with its der
   assert.match(html, /type="number"/);
   assert.match(html, /value="3"/);
   assert.match(html, /<label>Unit /);
-  assert.match(html, /<label>On /);
+  assert.match(html, /On day \(optional\)/);
   assert.match(html, /value="tuesday" selected=""/);
   assert.match(html, /every 3 weeks on Tuesday/);
-  assert.match(html, /Clear rule/);
+  assert.match(html, /type="checkbox" checked=""/);
   const days = renderToStaticMarkup(
     createElement(NextDateRuleControl, {
       value: { every: 1, unit: "days" },
       onChange() {},
     }),
   );
-  assert.doesNotMatch(days, /<label>On /);
+  assert.doesNotMatch(days, /On day \(optional\)/);
   const months = renderToStaticMarkup(
     createElement(NextDateRuleControl, {
       value: { every: 1, unit: "months", on: "last" },
@@ -65,6 +65,6 @@ test("Repeat creates the shared every-month default through the actual control",
       value = rule;
     },
   });
-  control.props.onClick();
+  control.props.children[0].props.onChange({ target: { checked: true } });
   assert.deepEqual(value, { every: 1, unit: "months" });
 });

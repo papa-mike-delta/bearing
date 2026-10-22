@@ -1,5 +1,5 @@
 {
-  "id": "d8bc6864-8811-4d14-9d30-57d39ca03d9f",
+  "id": "093b3313-0f3b-4e62-8f80-ab93143841ec",
   "prevId": "f6258b3c-7db0-4e4d-8020-fdb02014978a",
   "version": "7",
   "dialect": "postgresql",
@@ -1635,6 +1635,106 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.people": {
+      "name": "people",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group": {
+          "name": "group",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rule": {
+          "name": "rule",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_connected": {
+          "name": "last_connected",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agreed_day": {
+          "name": "agreed_day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "people_user_id_idx": {
+          "name": "people_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "people_user_id_users_id_fk": {
+          "name": "people_user_id_users_id_fk",
+          "tableFrom": "people",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.sessions": {
       "name": "sessions",
       "schema": "",
@@ -1739,12 +1839,6 @@
         "scheduled_on": {
           "name": "scheduled_on",
           "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rule": {
-          "name": "rule",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

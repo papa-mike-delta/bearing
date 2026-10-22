@@ -1,0 +1,19 @@
+# People: reach-out rules
+
+## Keeping people and seeing who is due
+
+A person is someone in your life, kept in one of eight ordered groups on People: Family, Extended family, Intimate friends, Close friends, Casual friends, Acquaintances, Business contacts, Almost strangers. Empty groups are hidden. Groups with due people start open; others start collapsed. Several groups can be open, and the choice resets on a new visit. Within a group, due people come first, then future reach-outs soonest, then people without a reach-out day. Names break ties.
+
+The rule uses a number, days/weeks/months and an optional on-day. Turning it on starts at every month. Next reach-out is computed from the shared next-date rule, strictly after last connected. An agreed day replaces that computed day and requires a rule. Without last connected or an agreement, a rule has no due day. Someone is due on or after the reach-out day until it moves forward. These are product rules, not a claim about how often anyone should connect.
+
+Source: Bearing issue #154 and spec §4.5.
+
+## Saving and Paul's boundaries
+
+Adding requires a trimmed name of 1–200 characters and an explicitly chosen group; duplicate names are allowed. A new person has no rule or dates. The person page saves all fields in one explicit Save with an unsaved-changes guard. Connected today and R fill last connected using the browser's Today, but still wait for Save. Last connected cannot be future. An agreed day must be today or later and needs a rule. Deletion asks “Delete this person?” and Cancel keeps the person.
+
+Paul reads people only when needed with listPeople or readPerson. A name must match one person, ignoring case; otherwise he asks and writes nothing. The Task list is the only automatic read. On request he can set last connected, or set or clear an agreed day. These share the three-write cap and content-matched resend protection. A refusal writes nothing and releases its slot.
+
+Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, or create a link. There are no occasion dates in this feature.
+
+Source: Bearing issue #154 and spec §§8.2–8.7.

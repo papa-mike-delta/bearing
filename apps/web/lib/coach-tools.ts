@@ -1,3 +1,4 @@
+import { listPeople as peopleRows, setCoachPersonDay } from "./people.ts";
 import type { CoachData } from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import { getMood, setMood as setMoodRow } from "./mood.ts";
@@ -15,6 +16,8 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    listPeople(userId) { return peopleRows(userId, db); },
+    setPersonDay(userId, input) { return setCoachPersonDay(userId, input, db); },
     async listHabits(userId, browserToday) {
       // Habits page order: Daily by position, then Weekly by position.
       // Use the requested day

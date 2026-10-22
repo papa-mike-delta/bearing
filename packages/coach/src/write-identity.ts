@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 // occurrences, so unrelated calls and provider call ids cannot shift a replay.
 export function coachWriteKey(tool: string, input: Record<string, unknown>, today?: string) {
   let normalized: Record<string, unknown>;
-  if (tool === "createHabit") {
+  if (tool === "setPersonLastConnected" || tool === "setPersonAgreedDay") {
+    normalized = { name: String(input.name).trim().toLowerCase(), day: input.day === undefined || input.day === "today" ? today : input.day };
+  } else if (tool === "createHabit") {
     const goalCount = input.goalCount ?? null;
     normalized = { name: normalizeText(input.name), period: input.period ?? "day", trackMode: input.trackMode ?? (goalCount === null ? "once" : "many"), goalCount, bad: input.bad ?? false };
   } else {

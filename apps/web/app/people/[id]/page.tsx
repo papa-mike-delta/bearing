@@ -1,0 +1,25 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { requireUser } from "../../../auth";
+import { getPerson } from "../../../lib/people";
+import { Header } from "../../header";
+import { PersonEditor } from "../person-editor";
+export default async function PersonPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const user = await requireUser();
+  const person = await getPerson(user.id, (await params).id);
+  if (!person) notFound();
+  return (
+    <>
+      <Header email={user.email} />
+      <main className="font-sans">
+        <Link href="/people">People</Link>
+        <h1>{person.name}</h1>
+        <PersonEditor key={person.id} person={person} />
+      </main>
+    </>
+  );
+}

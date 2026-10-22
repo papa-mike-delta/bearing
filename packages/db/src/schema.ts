@@ -432,6 +432,8 @@ export const habitMarks = pgTable(
 // Replay record for Coach habit writes (#95), like note_operations and
 // journal_operations. No habit foreign key: a deleted habit's old operation
 // must never recreate it or apply again. #89 writes nothing here.
+// Person date writes reuse this JSON ledger under source coach-person. In that
+// namespace habit_id is the person id; Habit queries and undo use source coach.
 export const habitOperations = pgTable("habit_operations", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -441,3 +443,16 @@ export const habitOperations = pgTable("habit_operations", {
   result: jsonb("result").notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("habit_operations_source_unique").on(t.userId, t.source, t.operationId)]);
+
+// A person belongs to one account. Reach-out is derived, never stored.
+export const people = pgTable('people', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  group: text('group').notNull(),
+  rule: jsonb('rule').$type<import('@repo/domain').NextDateRule | null>(),
+  lastConnected: date('last_connected'),
+  agreedDay: date('agreed_day'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, t => [index('people_user_id_idx').on(t.userId)]);
