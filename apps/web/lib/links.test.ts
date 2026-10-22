@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { createDb, journalEntries, users } from "@repo/db";
+import { createDb, entityLinks, people, journalEntries, users } from "@repo/db";
 import { taskHref } from "@repo/domain";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { createArea, renameArea } from "./areas.ts";
 import { saveJournalDay, getJournalDay } from "./journal.ts";
 import { formatJournalDay } from "./journal-day.ts";
 import { addLink, related, removeLink, searchLinkTargets } from "./links.ts";
+import { createPerson, deletePerson, getPerson, savePerson } from "./people.ts";
 import { setMood } from "./mood.ts";
 import {
   createNote,
@@ -73,6 +74,300 @@ describe(
     ) {
       return createNote(userId, { notebookId, title, body }, from(), db);
     }
+
+    test("people link in both directions, refuse duplicates, self and foreign ends, and resolve current names", async () => {
+      const p = await createPerson(
+        owner,
+        { name: "Link Ada", group: "Family" },
+        db,
+      );
+      const foreign = await createPerson(
+        other,
+        { name: "Link Secret", group: "Family" },
+        db,
+      );
+      const t = await task(owner, "Person task");
+      const person = { kind: "person" as const, id: p.id };
+      const target = { kind: "task" as const, id: t.id };
+      assert.deepEqual(await addLink(owner, person, target, today, db), {
+        ok: true,
+        created: true,
+      });
+      assert.deepEqual(await addLink(owner, person, target, today, db), {
+        ok: true,
+        created: false,
+      });
+      assert.deepEqual(await addLink(owner, person, person, today, db), {
+        ok: false,
+        reason: "self",
+      });
+      assert.deepEqual(
+        await addLink(
+          owner,
+          target,
+          { kind: "person", id: foreign.id },
+          today,
+          db,
+        ),
+        { ok: false, reason: "not-found" },
+      );
+      assert.deepEqual(
+        await addLink(
+          owner,
+          { kind: "person", id: foreign.id },
+          target,
+          today,
+          db,
+        ),
+        { ok: false, reason: "not-found" },
+      );
+      await addLink(owner, target, person, today, db);
+      await savePerson(owner, p.id, { ...p, name: "Renamed Ada" }, today, db);
+      const lists = await related(owner, target, db);
+      assert.equal(lists.outgoing[0]?.label, "Renamed Ada");
+      assert.equal(lists.outgoing[0]?.href, `/people/${p.id}`);
+      assert.equal(lists.incoming[0]?.label, "Renamed Ada");
+      assert.equal(
+        (await removeLink(owner, lists.incoming[0]!.edgeId, target, db)).ok,
+        false,
+      );
+      assert.equal(
+        (await removeLink(owner, lists.outgoing[0]!.edgeId, target, db)).ok,
+        true,
+      );
+      assert.ok(await getPerson(owner, p.id, db));
+      assert.ok(await taskDetail(owner, t.id, db));
+    });
+
+    test("a person links to a different person: Outgoing on one, Backlink on the other; duplicate, self and foreign refused; deleting either person removes the edge", async () => {
+      for (const victim of ["from", "to"] as const) {
+        const a = await createPerson(
+          owner,
+          { name: `P2P Ada ${victim}`, group: "Family" },
+          db,
+        );
+        const b = await createPerson(
+          owner,
+          { name: `P2P Bo ${victim}`, group: "Close friends" },
+          db,
+        );
+        const foreign = await createPerson(
+          other,
+          { name: `P2P Secret ${victim}`, group: "Family" },
+          db,
+        );
+        const ada = { kind: "person" as const, id: a.id };
+        const bo = { kind: "person" as const, id: b.id };
+        assert.deepEqual(await addLink(owner, ada, bo, today, db), {
+          ok: true,
+          created: true,
+        });
+        assert.deepEqual(await addLink(owner, ada, bo, today, db), {
+          ok: true,
+          created: false,
+        });
+        assert.deepEqual(await addLink(owner, ada, ada, today, db), {
+          ok: false,
+          reason: "self",
+        });
+        assert.deepEqual(
+          await addLink(
+            owner,
+            ada,
+            { kind: "person", id: foreign.id },
+            today,
+            db,
+          ),
+          { ok: false, reason: "not-found" },
+        );
+        const fromAda = await related(owner, ada, db);
+        const fromBo = await related(owner, bo, db);
+        assert.deepEqual(
+          fromAda.outgoing.map((i) => i.label),
+          [b.name],
+        );
+        assert.deepEqual(fromAda.incoming, []);
+        assert.deepEqual(fromBo.outgoing, []);
+        assert.deepEqual(
+          fromBo.incoming.map((i) => i.label),
+          [a.name],
+        );
+        assert.equal(fromBo.incoming[0]?.href, `/people/${a.id}`);
+        await deletePerson(owner, victim === "from" ? a.id : b.id, db);
+        const left = await db
+          .select({ id: entityLinks.id })
+          .from(entityLinks)
+          .where(
+            and(
+              eq(entityLinks.userId, owner),
+              or(
+                inArray(entityLinks.sourceId, [a.id, b.id]),
+                inArray(entityLinks.targetId, [a.id, b.id]),
+              ),
+            ),
+          );
+        assert.deepEqual(left, []);
+        const survivor = victim === "from" ? bo : ada;
+        const lists = await related(owner, survivor, db);
+        assert.deepEqual([...lists.outgoing, ...lists.incoming], []);
+      }
+    });
+
+    test("person picker searches only owned names, excludes self, and pages twenty at a time", async () => {
+      const source = await task(owner, "Picker source");
+      const rows = await Promise.all(
+        Array.from({ length: 21 }, (_, n) =>
+          createPerson(
+            owner,
+            {
+              name: `Picker person ${String(n).padStart(2, "0")}`,
+              group: "Family",
+            },
+            db,
+          ),
+        ),
+      );
+      await createPerson(
+        other,
+        { name: "Picker person foreign", group: "Family" },
+        db,
+      );
+      const input = {
+        query: "picker person",
+        offset: 0,
+        today,
+        exclude: { kind: "task" as const, id: source.id },
+      };
+      const first = await searchLinkTargets(owner, input, db);
+      const second = await searchLinkTargets(
+        owner,
+        { ...input, offset: 20 },
+        db,
+      );
+      assert.equal(first.hits.length, 20);
+      assert.equal(first.more, true);
+      assert.deepEqual(
+        second.hits.map((h) => h.label),
+        ["Picker person 20"],
+      );
+      assert.equal(second.more, false);
+      assert.ok(first.hits.every((h) => h.kind === "person"));
+      const self = await searchLinkTargets(
+        owner,
+        { ...input, exclude: { kind: "person", id: rows[0]!.id } },
+        db,
+      );
+      assert.equal(
+        self.hits.some((h) => h.id === rows[0]!.id),
+        false,
+      );
+      const group = await searchLinkTargets(
+        owner,
+        { ...input, query: "Family" },
+        db,
+      );
+      assert.equal(
+        group.hits.some((h) => h.kind === "person"),
+        false,
+      );
+    });
+
+    test("deleting a person removes both directions and preserves Tasks, Notes and Journal", async () => {
+      const p = await createPerson(
+        owner,
+        { name: "Delete linked", group: "Family" },
+        db,
+      );
+      const t = await task(owner, "Keep linked task");
+      const n = await note(owner, "Keep linked note");
+      const day = "2026-09-01";
+      await saveJournalDay(owner, day, "Keep linked day", 0, today, db);
+      const end = { kind: "person" as const, id: p.id };
+      for (const target of [
+        { kind: "task" as const, id: t.id },
+        { kind: "note" as const, id: n.id },
+        { kind: "journal" as const, id: day },
+      ]) {
+        await addLink(owner, end, target, today, db);
+        await addLink(owner, target, end, today, db);
+      }
+      await assert.rejects(deletePerson(other, p.id, db));
+      assert.equal((await related(owner, end, db)).outgoing.length, 3);
+      await deletePerson(owner, p.id, db);
+      assert.equal(await getPerson(owner, p.id, db), null);
+      assert.deepEqual(await related(owner, end, db), {
+        outgoing: [],
+        incoming: [],
+      });
+      assert.ok(await taskDetail(owner, t.id, db));
+      assert.ok(await getNote(owner, n.id, db));
+      assert.equal(
+        (await getJournalDay(owner, day, db))?.body,
+        "Keep linked day",
+      );
+    });
+
+    test("a failed person deletion rolls back edge removal", async () => {
+      const p = await createPerson(
+        owner,
+        { name: "Atomic person", group: "Family" },
+        db,
+      );
+      const t = await task(owner, "Atomic task");
+      const person = { kind: "person" as const, id: p.id };
+      const target = { kind: "task" as const, id: t.id };
+      await addLink(owner, person, target, today, db);
+      await addLink(owner, target, person, today, db);
+      const name = `refuse_person_${randomUUID().replaceAll("-", "")}`;
+      try {
+        await db.execute(
+          sql.raw(
+            `CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id = '${p.id}'::uuid THEN RAISE EXCEPTION 'test delete failure'; END IF; RETURN OLD; END $$`,
+          ),
+        );
+        await db.execute(
+          sql.raw(
+            `CREATE TRIGGER ${name} BEFORE DELETE ON people FOR EACH ROW EXECUTE FUNCTION ${name}()`,
+          ),
+        );
+        await assert.rejects(deletePerson(owner, p.id, db));
+        assert.ok(await getPerson(owner, p.id, db));
+        const lists = await related(owner, person, db);
+        assert.equal(lists.outgoing.length, 1);
+        assert.equal(lists.incoming.length, 1);
+      } finally {
+        await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${name} ON people`));
+        await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${name}()`));
+      }
+    });
+
+    test("missing person endpoints are hidden from outgoing and backlinks", async () => {
+      const p = await createPerson(
+        owner,
+        { name: "Gone person", group: "Family" },
+        db,
+      );
+      const t = await task(owner, "Orphan task");
+      await addLink(
+        owner,
+        { kind: "person", id: p.id },
+        { kind: "task", id: t.id },
+        today,
+        db,
+      );
+      await addLink(
+        owner,
+        { kind: "task", id: t.id },
+        { kind: "person", id: p.id },
+        today,
+        db,
+      );
+      await db.delete(people).where(eq(people.id, p.id));
+      assert.deepEqual(await related(owner, { kind: "task", id: t.id }, db), {
+        outgoing: [],
+        incoming: [],
+      });
+    });
 
     test("an owned open or completed task opens; a foreign id does not", async () => {
       const open = await task(owner, "Call dentist", "Ask about the crown");
@@ -574,7 +869,9 @@ describe(
         db,
       );
       assert.equal(
-        byLabel.hits.some((hit) => hit.kind === "journal" && hit.id === savedDay),
+        byLabel.hits.some(
+          (hit) => hit.kind === "journal" && hit.id === savedDay,
+        ),
         true,
       );
       const hidden = await searchLinkTargets(

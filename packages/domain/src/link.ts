@@ -1,6 +1,6 @@
 import { isCalendarDay } from "./areas.ts";
 
-export const linkKinds = ["task", "note", "journal"] as const;
+export const linkKinds = ["task", "note", "journal", "person"] as const;
 export type LinkKind = (typeof linkKinds)[number];
 export const linkPageSize = 20;
 

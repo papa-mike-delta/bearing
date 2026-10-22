@@ -25,6 +25,7 @@ const kindLabel: Record<LinkKind, string> = {
   task: "Task",
   note: "Note",
   journal: "Journal",
+  person: "Person",
 };
 
 function Item({
@@ -164,7 +165,7 @@ export function Related({
         className="sr-only"
         htmlFor={`add-link-${source.kind}-${source.id}`}
       >
-        Find a task, note, or journal day
+        Find a task, note, journal day, or person
       </label>
       <Input
         id={`add-link-${source.kind}-${source.id}`}
@@ -177,7 +178,7 @@ export function Related({
             : undefined
         }
         value={query}
-        placeholder="Task name, note title, or date"
+        placeholder="Task name, note title, date, or person name"
         onChange={(event) =>
           dispatch({ type: "query", value: event.target.value })
         }

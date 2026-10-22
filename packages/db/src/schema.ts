@@ -315,11 +315,11 @@ export const entityLinks = pgTable(
     ),
     check(
       "entity_links_source_type",
-      sql`${t.sourceType} in ('task', 'note', 'journal')`,
+      sql`${t.sourceType} in ('task', 'note', 'journal', 'person')`,
     ),
     check(
       "entity_links_target_type",
-      sql`${t.targetType} in ('task', 'note', 'journal')`,
+      sql`${t.targetType} in ('task', 'note', 'journal', 'person')`,
     ),
     check(
       "entity_links_not_self",

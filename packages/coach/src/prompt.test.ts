@@ -300,3 +300,14 @@ test("the Coach states the repeat rule interval as 1–9999, not 1–999", () =>
   assert.ok(prompt.includes("a number (1–9999)"));
   assert.equal(prompt.includes("(1–999)"), false);
 });
+
+test("people can be linked by the user through Related, while Paul cannot create links", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const prompt = coachSystemPrompt();
+  assert.ok(prompt.includes("People can be linked"));
+  assert.ok(prompt.includes("Related"));
+  assert.ok(prompt.includes("You cannot create links"));
+  const knowledge = await readFile(new URL("../knowledge/people.md", import.meta.url), "utf8");
+  assert.ok(knowledge.includes("Related"));
+  assert.ok(knowledge.includes("Paul cannot create links"));
+});
