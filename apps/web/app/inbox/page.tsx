@@ -1,3 +1,4 @@
+import { LogPersonNote } from '../../components/log-person-note';
 import { Button } from "@repo/ui/components/button";
 import Link from "next/link";
 import { Textarea } from "@repo/ui/components/textarea";
@@ -86,6 +87,7 @@ export default async function Inbox({
                 </form>
                 <FileNote draft={draft} notebooks={notebooks} />
                 <FileJournal draftId={draft.id} />
+                <LogPersonNote draftId={draft.id} />
               </li>
             ))}
           </ul>

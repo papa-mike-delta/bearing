@@ -1,3 +1,4 @@
+import { logNoteOnPerson, personLinkedNotes } from './person-notes.ts';
 import { listPeople as peopleRows, setCoachPersonDay } from "./people.ts";
 import type { CoachData } from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
@@ -16,6 +17,8 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    logNoteOnPerson(userId,input) {return logNoteOnPerson(userId,input,db);},
+    personLinkedNotes(userId,personId) {return personLinkedNotes(userId,personId,db);},
     listPeople(userId) { return peopleRows(userId, db); },
     setPersonDay(userId, input) { return setCoachPersonDay(userId, input, db); },
     async listHabits(userId, browserToday) {

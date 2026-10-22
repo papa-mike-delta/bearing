@@ -1,3 +1,6 @@
+import { logNoteOnPerson } from './person-notes.ts';
+import { NoteError } from './notes.ts';
+import { noteHref } from '@repo/domain';
 import {
   isCalendarDay,
   PersonError,
@@ -20,11 +23,19 @@ export function peopleActions(ports: {
 }) {
   const failure = (error: unknown) => ({
     error:
-      error instanceof PersonError
+      error instanceof PersonError || error instanceof NoteError
         ? error.message
         : "Could not save. Your changes are kept here; please try again.",
   });
   return {
+    async logNote(personId:string,text:string,occasionDate:string|null,today:string,operationId:string) {
+      const user=await ports.requireUser();
+      try {
+        const note=await logNoteOnPerson(user.id,{personId,text,occasionDate,today,operationId:`screen:${operationId}`},ports.db);
+        ports.invalidate(`/people/${personId}`);ports.invalidate('/notes');
+        return {href:noteHref(null,note.id)};
+      } catch(error) {return failure(error);}
+    },
     async add(input: { name: string; group: string }) {
       const user = await ports.requireUser();
       try {

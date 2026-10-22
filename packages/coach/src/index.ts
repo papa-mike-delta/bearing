@@ -38,4 +38,4 @@ export type { HabitAction, HabitOperation, HabitWriteState, HabitTrackResult, Ha
 
 export { coachWriteKey } from "./write-identity.ts";
 
-export { listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay } from "./tools/people.ts";
+export { logNoteOnPerson, listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay } from "./tools/people.ts";

@@ -316,3 +316,10 @@ test("Notes can have a stated occasion date, never inferred or attached to a per
   const prompt = coachSystemPrompt();
   for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach a Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
 });
+
+test('logging a new Note is the only Coach link; existing Notes, Tasks, Journal days and other people stay outside tools',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ for(const text of [coachSystemPrompt(),await readFile(new URL('../knowledge/people.md',import.meta.url),'utf8'),await readFile(new URL('../knowledge/notes.md',import.meta.url),'utf8'),await readFile(new URL('../../../README.md',import.meta.url),'utf8')]) {
+ for(const phrase of ['logNoteOnPerson','only link','existing Note','Task','Journal day','person-to-person','20','2000']) assert.ok(text.includes(phrase),phrase);
+ }
+});

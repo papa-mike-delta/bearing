@@ -198,6 +198,15 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const books = (part.output as { notebooks?: unknown } | undefined)?.notebooks;
     return { line: part.state === "output-available" && Array.isArray(books) ? `Read your notebooks (${books.length})` : "Couldn't read your notebooks" };
   }
+  if (part.type === 'tool-logNoteOnPerson') {
+    if(pending(part.state)) return {line:'Logging a note…'};
+    const output=part.output as {id?:unknown;name?:unknown;href?:unknown;refused?:unknown}|undefined;
+    if(part.state==='output-available' && typeof output?.name==='string' && output.name) {
+      if(output.refused===true) return {line:`No change: asked about '${output.name}'`};
+      if(typeof output.id==='string' && receiptId.test(output.id) && output.href===noteHref(null,output.id)) return {line:`Logged a note on '${output.name}'`,href:output.href};
+    }
+    return {line:"Couldn't log that note"};
+  }
   if (part.type === "tool-createNote") {
     if (pending(part.state)) return { line: "Creating a Note…" };
     const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown; day?: unknown } | undefined;

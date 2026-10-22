@@ -503,3 +503,25 @@ test("person to person: link Ada to Bo from Ada's page, then Bo shows the backli
   );
   await page.close();
 });
+
+test('Add note writes immediately to Outgoing and No notebook, opens the existing Note page',async(t)=>{
+ if(!enabled) return t.skip('PEOPLE_TEST_BASE_URL and TEST_POSTGRES_URL');
+ await context.addCookies([{name:'authjs.session-token',value:token,url:base!,httpOnly:true}]);
+ const p=await createPerson(owner,{name:'Note person',group:'Family'},db!);
+ await page.goto(`${base}/people/${p.id}`);
+ await page.getByLabel('Note text',{exact:true}).fill('A memory\nExact words');
+ await page.getByLabel('Occasion date (optional)',{exact:true}).fill('2026-10-09');
+ for(const width of [900,393]) {
+ await page.setViewportSize({width,height:852});
+ const button=page.getByRole('button',{name:'Add note',exact:true});const box=await button.boundingBox();assert.ok(box && box.height >= (width<=480?44:40));
+ assert.equal(await page.getByLabel('Note text',{exact:true}).evaluate(el=>getComputedStyle(el).fontSize),'16px');
+ }
+ await page.getByRole('button',{name:'Add note',exact:true}).click();
+ const region=page.getByRole('region',{name:'Related',exact:true});
+ await region.getByRole('link',{name:'A memory',exact:true}).waitFor();
+ await page.reload();await region.getByRole('link',{name:'A memory',exact:true}).click();
+ await page.waitForURL(/\/notes\/loose\/[\w-]+$/);
+ await page.getByRole('heading',{name:'A memory',exact:true}).waitFor();
+ await page.goto(`${base}/notes`);
+ await page.getByRole('link',{name:'A memory',exact:true}).waitFor();
+});

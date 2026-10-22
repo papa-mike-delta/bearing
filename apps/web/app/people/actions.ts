@@ -25,3 +25,7 @@ export async function removePerson(id: string) {
 export async function duePeople(today: string) {
   return actions.due(today);
 }
+
+export async function addPersonNote(personId:string,text:string,occasionDate:string|null,today:string,operationId:string) {
+ return actions.logNote(personId,text,occasionDate,today,operationId);
+}

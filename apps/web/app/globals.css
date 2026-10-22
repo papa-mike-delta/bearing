@@ -1488,3 +1488,11 @@ main form p.hint a { color: var(--foreground); text-decoration: underline; }
 @media (max-width: 480px) {
   :is(.people-form, .rule-control) :is(input, select) { font-size: 16px; }
 }
+
+.person-note-form { display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; padding-block: 1rem; width: 100%; }
+.person-note-form label { display: flex; flex-direction: column; gap: .4rem; width: 100%; }
+.person-note-form :is(input, textarea) { font-size: 16px; min-height: 40px; }
+.person-note-form button { min-height: 40px; }
+@media (max-width: 480px) {
+  .person-note-form :is(input, button) { min-height: 44px; }
+}
