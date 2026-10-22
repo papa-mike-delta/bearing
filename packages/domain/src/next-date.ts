@@ -16,8 +16,8 @@ export type NextDateRule =
 
 export const defaultNextDateRule: NextDateRule = { every: 1, unit: "months" };
 
-// The largest interval a rule may use. 999 for now; the exact cap is Paul's call.
-export const maxNextDateEvery = 999;
+// The largest interval a rule may use (Paul's decision: 9999).
+export const maxNextDateEvery = 9999;
 
 const positiveInt = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1;
 
