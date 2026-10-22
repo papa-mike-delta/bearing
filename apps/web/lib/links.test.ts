@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { createDb, people, journalEntries, users } from "@repo/db";
+import { createDb, entityLinks, people, journalEntries, users } from "@repo/db";
 import { taskHref } from "@repo/domain";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { createArea, renameArea } from "./areas.ts";
 import { saveJournalDay, getJournalDay } from "./journal.ts";
 import { formatJournalDay } from "./journal-day.ts";
@@ -137,6 +137,80 @@ describe(
       );
       assert.ok(await getPerson(owner, p.id, db));
       assert.ok(await taskDetail(owner, t.id, db));
+    });
+
+    test("a person links to a different person: Outgoing on one, Backlink on the other; duplicate, self and foreign refused; deleting either person removes the edge", async () => {
+      for (const victim of ["from", "to"] as const) {
+        const a = await createPerson(
+          owner,
+          { name: `P2P Ada ${victim}`, group: "Family" },
+          db,
+        );
+        const b = await createPerson(
+          owner,
+          { name: `P2P Bo ${victim}`, group: "Close friends" },
+          db,
+        );
+        const foreign = await createPerson(
+          other,
+          { name: `P2P Secret ${victim}`, group: "Family" },
+          db,
+        );
+        const ada = { kind: "person" as const, id: a.id };
+        const bo = { kind: "person" as const, id: b.id };
+        assert.deepEqual(await addLink(owner, ada, bo, today, db), {
+          ok: true,
+          created: true,
+        });
+        assert.deepEqual(await addLink(owner, ada, bo, today, db), {
+          ok: true,
+          created: false,
+        });
+        assert.deepEqual(await addLink(owner, ada, ada, today, db), {
+          ok: false,
+          reason: "self",
+        });
+        assert.deepEqual(
+          await addLink(
+            owner,
+            ada,
+            { kind: "person", id: foreign.id },
+            today,
+            db,
+          ),
+          { ok: false, reason: "not-found" },
+        );
+        const fromAda = await related(owner, ada, db);
+        const fromBo = await related(owner, bo, db);
+        assert.deepEqual(
+          fromAda.outgoing.map((i) => i.label),
+          [b.name],
+        );
+        assert.deepEqual(fromAda.incoming, []);
+        assert.deepEqual(fromBo.outgoing, []);
+        assert.deepEqual(
+          fromBo.incoming.map((i) => i.label),
+          [a.name],
+        );
+        assert.equal(fromBo.incoming[0]?.href, `/people/${a.id}`);
+        await deletePerson(owner, victim === "from" ? a.id : b.id, db);
+        const left = await db
+          .select({ id: entityLinks.id })
+          .from(entityLinks)
+          .where(
+            and(
+              eq(entityLinks.userId, owner),
+              or(
+                inArray(entityLinks.sourceId, [a.id, b.id]),
+                inArray(entityLinks.targetId, [a.id, b.id]),
+              ),
+            ),
+          );
+        assert.deepEqual(left, []);
+        const survivor = victim === "from" ? bo : ada;
+        const lists = await related(owner, survivor, db);
+        assert.deepEqual([...lists.outgoing, ...lists.incoming], []);
+      }
     });
 
     test("person picker searches only owned names, excludes self, and pages twenty at a time", async () => {

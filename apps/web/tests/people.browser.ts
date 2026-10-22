@@ -430,3 +430,57 @@ test(
     assert.equal((await listPeople(other, db!)).length, 1);
   },
 );
+
+test("person to person: link Ada to Bo from Ada's page, then Bo shows the backlink", async (t) => {
+  if (!enabled) return t.skip("PEOPLE_TEST_BASE_URL and TEST_POSTGRES_URL");
+  const bo = await createPerson(
+    owner,
+    { name: "Bo Pairlink", group: "Close friends" },
+    db!,
+  );
+  const ada = await createPerson(
+    owner,
+    { name: "Ada Pairlink", group: "Family" },
+    db!,
+  );
+  // The acceptance test ends signed in as the other account; sign back in as owner.
+  await context.addCookies([
+    { name: "authjs.session-token", value: token, url: base!, httpOnly: true },
+  ]);
+  const page = await context.newPage();
+  page.setDefaultTimeout(10_000);
+  await page.goto(`${base}/people/${ada.id}`);
+  const relatedSection = page.getByRole("region", {
+    name: "Related",
+    exact: true,
+  });
+  await relatedSection
+    .getByRole("button", { name: "Add link", exact: true })
+    .click();
+  await relatedSection.getByRole("combobox").fill("Bo Pairlink");
+  await relatedSection
+    .getByRole("button", { name: "Person: Bo Pairlink", exact: true })
+    .click();
+  await relatedSection
+    .getByRole("link", { name: "Bo Pairlink", exact: true })
+    .waitFor();
+  const fromAda = await related(owner, { kind: "person", id: ada.id }, db!);
+  assert.ok(fromAda.outgoing.some((i) => i.id === bo.id));
+  await page.goto(`${base}/people/${bo.id}`);
+  await relatedSection
+    .getByRole("link", { name: ada.name, exact: true })
+    .waitFor();
+  assert.equal(
+    await relatedSection
+      .getByRole("button", { name: "Remove link", exact: true })
+      .count(),
+    0,
+  );
+  const fromBo = await related(owner, { kind: "person", id: bo.id }, db!);
+  assert.deepEqual(fromBo.outgoing, []);
+  assert.deepEqual(
+    fromBo.incoming.map((i) => i.id),
+    [ada.id],
+  );
+  await page.close();
+});
