@@ -16,6 +16,9 @@ export type NextDateRule =
 
 export const defaultNextDateRule: NextDateRule = { every: 1, unit: "months" };
 
+// The largest interval a rule may use. 999 for now; the exact cap is Paul's call.
+export const maxNextDateEvery = 999;
+
 const positiveInt = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1;
 
 // Returns a clean copy of a valid rule, or null. A weekday only goes with weeks,
@@ -26,7 +29,7 @@ export function parseNextDateRule(value: unknown): NextDateRule | null {
   const keys = Object.keys(value);
   if (keys.some((key) => key !== "every" && key !== "unit" && key !== "on")) return null;
   const { every, unit, on } = value as Record<string, unknown>;
-  if (!positiveInt(every)) return null;
+  if (!positiveInt(every) || every > maxNextDateEvery) return null;
   const hasOn = keys.includes("on");
   if (unit === "days") return hasOn ? null : { every, unit };
   if (unit === "weeks") {
@@ -65,7 +68,13 @@ function clampedDay(year: number, month: number, date: number | "last") {
 //   (n - 1) weeks. An anchor already on that weekday moves a full n weeks.
 // - months on a day or "last": the first such day strictly after the anchor
 //   (this month or next, clamped), plus (n - 1) months, clamped again.
+// Only a real calendar day (year 0000-9999) is returned; anything past 9999-12-31 is null.
 export function nextDate(rule: NextDateRule, anchor: string): string | null {
+  const day = rawNextDate(rule, anchor);
+  return day !== null && isCalendarDay(day) ? day : null;
+}
+
+function rawNextDate(rule: NextDateRule, anchor: string): string | null {
   const valid = parseNextDateRule(rule);
   if (!valid || !isCalendarDay(anchor)) return null;
   const { year, month, date } = parts(anchor);

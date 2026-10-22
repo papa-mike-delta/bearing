@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultNextDateRule, nextDate, nextDatePhrase, parseNextDateRule, type NextDateRule } from "./next-date.ts";
+import { defaultNextDateRule, maxNextDateEvery, nextDate, nextDatePhrase, parseNextDateRule, type NextDateRule } from "./next-date.ts";
 
 test("phrases are derived from the stored shape", () => {
   const cases: [NextDateRule, string][] = [
@@ -88,4 +88,24 @@ test("a month without the day clamps to its last day", () => {
 test("a bad anchor or rule gives no date", () => {
   assert.equal(nextDate({ every: 1, unit: "months" }, "2026-02-30"), null);
   assert.equal(nextDate({ every: 1, unit: "days", on: 3 } as unknown as NextDateRule, "2026-02-03"), null);
+});
+
+test("every is capped", () => {
+  assert.deepEqual(parseNextDateRule({ every: maxNextDateEvery, unit: "days" }), { every: maxNextDateEvery, unit: "days" });
+  for (const every of [maxNextDateEvery + 1, 1e7, 1e9, Number.MAX_SAFE_INTEGER]) {
+    for (const unit of ["days", "weeks", "months"]) {
+      assert.equal(parseNextDateRule({ every, unit }), null, `${every} ${unit}`);
+      assert.equal(nextDate({ every, unit } as NextDateRule, "2026-10-21"), null, `${every} ${unit}`);
+    }
+  }
+});
+
+test("nextDate never throws and only returns a calendar day", () => {
+  assert.equal(nextDate({ every: 1, unit: "days" }, "9999-12-31"), null);
+  assert.equal(nextDate({ every: 1, unit: "weeks", on: "monday" }, "9999-12-31"), null);
+  assert.equal(nextDate({ every: 1, unit: "months", on: "last" }, "9999-12-31"), null);
+  assert.equal(nextDate({ every: 1, unit: "days" }, "9999-12-30"), "9999-12-31");
+  assert.equal(nextDate({ every: maxNextDateEvery, unit: "months" }, "2026-10-21"), "2110-01-21");
+  assert.doesNotThrow(() => nextDate({ every: 1e7, unit: "days" } as NextDateRule, "2026-10-21"));
+  assert.doesNotThrow(() => nextDate({ every: 1e9, unit: "days" } as NextDateRule, "2026-10-21"));
 });
