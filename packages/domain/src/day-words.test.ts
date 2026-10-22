@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dayWords } from "./day-words.ts";
+import { calendarDayWords, dayWords } from "./day-words.ts";
 
 test("day words: today, tomorrow, yesterday, a weekday this week, else a short date", () => {
   const today = "2026-10-21"; // Wednesday
@@ -13,4 +13,9 @@ test("day words: today, tomorrow, yesterday, a weekday this week, else a short d
   assert.equal(dayWords("2026-10-15", today), "Thu, Oct 15");
   assert.equal(dayWords("2027-01-05", today), "Tue, Jan 5, 2027");
   assert.equal(dayWords("2026-02-30", today), "2026-02-30");
+});
+
+test("calendarDayWords gives a Today-free date with the year, never ISO", () => {
+  assert.equal(calendarDayWords("2026-10-28"), "Wed, Oct 28, 2026");
+  assert.equal(calendarDayWords("not a day"), "not a day");
 });

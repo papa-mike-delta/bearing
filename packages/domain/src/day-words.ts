@@ -17,3 +17,10 @@ export function dayWords(day: string, today: string): string {
   if (diff > 1 && diff < 7) return weekday.format(utc(day));
   return (day.slice(0, 4) === today.slice(0, 4) ? short : shortYear).format(utc(day));
 }
+
+// A calendar day with no Today to compare against (server render, before the
+// browser's Today is known): always "Wed, Oct 28, 2026", never an ISO date.
+// It depends only on the day, so server and first client render match.
+export function calendarDayWords(day: string): string {
+  return isCalendarDay(day) ? shortYear.format(utc(day)) : day;
+}
