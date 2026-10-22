@@ -122,7 +122,7 @@ test("clean editors, non-links, ctrl/meta clicks, and blank-target links do not 
 test("editor forms bypass confirmation; other forms cancel or confirm and disarm the guard", () => {
   const { navigation, dispatch, answers, confirmations, stop } = setup();
   navigation.sync(true);
-  for (const attribute of ["data-note-editor", "data-journal-editor"]) {
+  for (const attribute of ["data-note-editor", "data-journal-editor", "data-explicit-save-editor"]) {
     assert.equal(dispatch("submit", new FakeElement({ [attribute]: "" })).event.defaultPrevented, false);
   }
   assert.deepEqual(confirmations, []);

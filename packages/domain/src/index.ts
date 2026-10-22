@@ -23,3 +23,5 @@ export const workflows = [
 ] as const;
 
 export type Workflow = (typeof workflows)[number];
+
+export * from "./person.ts";

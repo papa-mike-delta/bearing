@@ -38,6 +38,18 @@ A Goal belongs to one Area. Its name is unique in that Area, ignoring case. A Ta
 
 Migration `0007_notes_fks` makes `notes.notebook_id` nullable and adds foreign keys. Deleting a user cascades to that user's Notes and Notebooks. Deleting a Notebook can leave its Notes with no Notebook (`ON DELETE SET NULL`). Before those keys are added, the migration deletes Notes and Notebooks whose user is missing, and clears `notebook_id` on Notes whose Notebook is missing.
 
+## People
+
+`/people` keeps account-private people in eight ordered groups, from Family to Almost strangers. Empty groups are hidden. Due groups start open, the others collapsed; several can be open, and each visit resets the choice. Due people come first by name, followed by future reach-outs soonest, then no day. The People link shows the due count, including 0, after the browser's Today is known.
+
+Add a trimmed name of 1–200 characters and choose a group (none is preselected). Duplicate names are allowed. A new person has no rule or dates. `/people/<id>` saves name, group, next-date rule, last connected and agreed day with one explicit **Save person**, using Notes' unsaved-changes guard. Turning a rule on starts at every month; its phrase and next reach-out are derived with `packages/domain/src/next-date.ts`. Next reach-out is strictly after last connected; an agreed day replaces it. No last connected or agreed day means no due day. On that day and afterward the person is due until reach-out moves forward. Last connected is today or earlier. An agreed day requires a rule and is today or later. Invalid saves change nothing. **Connected today** and **R** fill the browser's Today but still wait for Save. Delete asks `Delete this person?`; Cancel keeps the person.
+
+Paul reads `listPeople` in page order or `readPerson` by one name matching ignoring case, only when needed. Missing or duplicate names ask which one and write nothing. The Task list remains the only automatic read. `setPersonLastConnected` and `setPersonAgreedDay` (including null to clear) share the three-write cap with Task, Note, Journal, Mood, filing and Habit writes. Refused writes release their slot. Content-matched identities normalize the name and resolve Today; the existing JSON operation ledger (`habit_operations`, isolated source `coach-person`) preserves results atomically with the update, including concurrent resends and resends after newer edits or deletion. No new operation table is added. People read receipts link to the list or person and stay out of Applied writes; successful date receipts link to the person and use the existing day words. Failures show no success receipt.
+
+Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, create a link, or create a recurring Task. Migration `0019_people` adds only people; there is no Task rule column, occasion date or new link storage. Product knowledge is at `/coach/knowledge/people`.
+
+The People browser acceptance test runs against a running local app and migrated throwaway Postgres: `PEOPLE_TEST_BASE_URL=http://localhost:3000 TEST_POSTGRES_URL=... CHROME_PATH=/opt/google/chrome/chrome npm run test:people -w web`. The app must use that same database. The test creates and deletes its own accounts.
+
 ## Journal
 
 `/journal` opens the browser's Today at `/journal/YYYY-MM-DD`. Previous, the date field, and Next navigate calendar days; Next stops at Today. Future days say **This day is not open yet** and have no editor or Save. Impossible dates return not-found. Today refreshes at local midnight and when the browser regains focus; an open dated entry keeps its original day.

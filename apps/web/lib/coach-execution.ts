@@ -1,4 +1,5 @@
 import {
+  listPeople, readPerson, setPersonLastConnected, setPersonAgreedDay,
   appendJournal,
   coachWriteKey,
   readSkill,
@@ -34,6 +35,7 @@ import { DraftError } from "./draft-filing/index.ts";
 import { JournalError } from "./journal.ts";
 import { MoodError } from "./mood.ts";
 import { HabitError } from "./habits.ts";
+import { PersonError } from "./people.ts";
 import { NoteError } from "./notes.ts";
 import { isJournalDay } from "./journal-day.ts";
 
@@ -52,7 +54,7 @@ type Context = z.infer<typeof toolContext>;
 const caps = {
   write: {
     max: maxCreatesPerTurn,
-    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal, Mood, filing or Habit writes per reply.`,
+    message: `You can make only ${maxCreatesPerTurn} Task, Note, Journal, Mood, filing, Habit or Person writes per reply.`,
   },
   complete: { max: 1, message: "You can complete only one Task per reply." },
   schedule: { max: 3, message: "You can schedule only 3 Tasks per reply." },
@@ -66,7 +68,7 @@ function turnAttempts() {
   const counts = { write: 0, complete: 0, schedule: 0, update: 0 };
   const occurrences = new Map<string, number>();
   return {
-    reserve(cap: Cap | undefined, append: boolean, habit: boolean, key: string) {
+    reserve(cap: Cap | undefined, append: boolean, habit: boolean, person: boolean, key: string) {
       if (cap) {
         if (counts[cap] >= caps[cap].max) throw new Error(caps[cap].message);
         counts[cap] += 1;
@@ -79,6 +81,7 @@ function turnAttempts() {
         },
         ...(append && { appendOrdinal: occurrence }),
         ...(habit && { habitOrdinal: occurrence }),
+        ...(person && { personOrdinal: occurrence }),
       };
     },
   };
@@ -114,6 +117,7 @@ type Policy<Input> = {
   cap?: Cap;
   appendOrdinal?: boolean;
   habitOrdinal?: boolean;
+  personOrdinal?: boolean;
   validateDay?: (input: Input, context: Context) => void;
   failure: string | null;
   safeErrors?: readonly (new (...args: never[]) => Error)[];
@@ -129,16 +133,16 @@ function executionTool<Name extends string, Input, Output>(
     inputSchema: z.ZodType<Input>;
     run: (
       input: Input,
-      context: ToolRunContext & { appendOrdinal: number; habitOrdinal: number },
+      context: ToolRunContext & { appendOrdinal: number; habitOrdinal: number; personOrdinal: number },
     ) => Promise<Output>;
   },
   policy: Policy<Input>,
 ) {
   async function run(
     input: Input,
-    context: ToolRunContext & { appendOrdinal?: number; habitOrdinal?: number },
+    context: ToolRunContext & { appendOrdinal?: number; habitOrdinal?: number; personOrdinal?: number },
   ) {
-    const runContext = context as ToolRunContext & { appendOrdinal: number; habitOrdinal: number };
+    const runContext = context as ToolRunContext & { appendOrdinal: number; habitOrdinal: number; personOrdinal: number };
     // Static knowledge has always been uncapped and unwrapped.
     if (policy.failure === null) return core.run(input, runContext);
     try {
@@ -185,6 +189,7 @@ function executionTool<Name extends string, Input, Output>(
           policy.cap,
           policy.appendOrdinal ?? false,
           policy.habitOrdinal ?? false,
+          policy.personOrdinal ?? false,
           name + ":" + coachWriteKey(name, input as Record<string, unknown>, context.today),
         );
         const { settle, ...ordinals } = reservation;
@@ -300,6 +305,10 @@ const vocabulary = [
     cap: "update",
     failure: "Couldn't update that task.",
   }),
+  executionTool("listPeople", listPeople, { failure: "Couldn't read your people." }),
+  executionTool("readPerson", readPerson, { failure: "Couldn't read that person." }),
+  executionTool("setPersonLastConnected", setPersonLastConnected, { cap: "write", personOrdinal: true, failure: "Couldn't update that person.", safeErrors: [PersonError] }),
+  executionTool("setPersonAgreedDay", setPersonAgreedDay, { cap: "write", personOrdinal: true, failure: "Couldn't update that person.", safeErrors: [PersonError] }),
 ] as const;
 
 type SkillState = { habitDesign: boolean; outsideSteps: WeakSet<object> };
