@@ -273,7 +273,7 @@ test("prompt and README describe true undo and convert fewer into a setCount tot
 test("recurring Tasks are create-only for Paul, require a mapped phrase, and inherit no links", () => {
   const prompt = coachSystemPrompt();
   for (const phrase of ["A Task may repeat", "next Task does not inherit links", "cannot change or clear the rule", "otherwise ask one question and write nothing", "does not take a create slot"]) assert.ok(prompt.includes(phrase), phrase);
-  assert.doesNotMatch(prompt, /occasion/);
+  assert.doesNotMatch(prompt, /A Task may have an occasion/);
 });
 
 test("Coach knowledge and README teach repeating Task behavior and create-only rules", async () => {
@@ -310,4 +310,9 @@ test("people can be linked by the user through Related, while Paul cannot create
   const knowledge = await readFile(new URL("../knowledge/people.md", import.meta.url), "utf8");
   assert.ok(knowledge.includes("Related"));
   assert.ok(knowledge.includes("Paul cannot create links"));
+});
+
+test("Notes can have a stated occasion date, never inferred or attached to a person", () => {
+  const prompt = coachSystemPrompt();
+  for (const phrase of ["A Note may have an occasion date", "only from a day the person states", "never infer it from prose", "future day is refused", "cannot attach a Note to a person", "does not put the Note in the Journal"]) assert.ok(prompt.includes(phrase), phrase);
 });

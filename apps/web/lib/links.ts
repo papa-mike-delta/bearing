@@ -192,6 +192,7 @@ async function showEnds(
             title: notes.title,
             notebookId: notes.notebookId,
             notebookName: notebooks.name,
+            occasionDate: notes.occasionDate,
           })
           .from(notes)
           .leftJoin(notebooks, eq(notebooks.id, notes.notebookId))
@@ -245,7 +246,7 @@ async function showEnds(
       id: row.id,
       label: row.title,
       href: noteHref(row.notebookId, row.id),
-      detail: row.notebookName ?? "No notebook",
+      detail: row.occasionDate ? formatJournalDay(row.occasionDate) : row.notebookName ?? "No notebook",
       completed: false,
     });
   }

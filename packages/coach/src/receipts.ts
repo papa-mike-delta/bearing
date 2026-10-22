@@ -2,7 +2,7 @@
 // streamed tool part; null for parts that aren't a Coach tool call.
 
 import { coachMoods } from "./moods.ts";
-import { addCalendarDays, isCalendarDay, habitPeriodDay, mondayOf, noteHref, taskHref } from "@repo/domain";
+import { addCalendarDays, calendarDayWords, dayWords, isCalendarDay, habitPeriodDay, mondayOf, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
@@ -200,12 +200,16 @@ function show(part: ToolPart, today?: string | null): Line | null {
   }
   if (part.type === "tool-createNote") {
     if (pending(part.state)) return { line: "Creating a Note…" };
-    const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
+    const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown; day?: unknown } | undefined;
     const name = nameOf(part.output);
     const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && receiptId.test(output.notebookId)) ? output.notebookId : undefined;
     if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && receiptId.test(output.id) && notebookId !== undefined) {
       const href = noteHref(notebookId, output.id);
-      if (output.href === href) return { line: `Created Note '${name}'`, href };
+      if (output.href === href) {
+        if (output.day !== undefined && (typeof output.day !== "string" || !isCalendarDay(output.day))) return { line: "Couldn't create that Note" };
+        const occasion = typeof output.day === "string" ? ` for ${today && isCalendarDay(today) ? dayWords(output.day, today) : calendarDayWords(output.day)}` : "";
+        return { line: `Created Note '${name}'${occasion}`, href };
+      }
     }
     return { line: "Couldn't create that Note" };
   }

@@ -16,7 +16,7 @@ export default async function NotePage({ params }: { params: Promise<{ notebookI
     const lists = await related(user.id, { kind: "note", id: note.id });
     return <><Header email={user.email} /><main className="font-sans">
       <Link href="/notes">No notebook</Link><h1>{note.title}</h1>
-      <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision }} />
+      <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision, occasionDate: note.occasionDate }} />
       <Related source={{ kind: "note", id: note.id }} initial={lists} />
     </main></>;
   }
@@ -25,7 +25,7 @@ export default async function NotePage({ params }: { params: Promise<{ notebookI
   const lists = await related(user.id, { kind: "note", id: note.id });
   return <><Header email={user.email} /><main className="font-sans">
     <Link href={`/notes/${book.id}`}>{book.name}</Link><h1>{note.title}</h1>
-    <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision }} />
+    <NoteEditor key={note.id} note={{ id: note.id, title: note.title, body: note.body, pinned: note.pinned, revision: note.revision, occasionDate: note.occasionDate }} />
     <Related source={{ kind: "note", id: note.id }} initial={lists} />
   </main></>;
 }

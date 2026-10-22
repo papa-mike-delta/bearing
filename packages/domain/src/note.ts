@@ -1,3 +1,5 @@
+import { isCalendarDay } from "./areas.ts";
+
 export const maxNoteNameLength = 200;
 export const maxNoteBodyLength = 100_000;
 
@@ -17,4 +19,9 @@ export function draftNoteTitle(body: string): string {
 
 export function noteHref(notebookId: string | null, noteId: string) {
   return `/notes/${notebookId ?? "_"}/${noteId}` as const;
+}
+
+export function validNoteOccasionDate(day: unknown, today: unknown): day is string | null {
+  return typeof today === "string" && isCalendarDay(today) &&
+    (day === null || (typeof day === "string" && isCalendarDay(day) && day <= today));
 }

@@ -7,24 +7,27 @@ import { Input } from "@repo/ui/components/input";
 import { Field, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { MarkdownEditor } from "../../components/markdown-editor";
 import { useExplicitSave } from "../../lib/use-explicit-save";
+import { useBrowserToday } from "../browser-today";
 import { removeNote, updateNote } from "./actions";
 
-type Note = { id: string; title: string; body: string; pinned: boolean; revision: number };
+type Note = { id: string; title: string; body: string; pinned: boolean; revision: number; occasionDate: string | null };
 
 export function NoteEditor({ note }: { note: Note }) {
+  const today = useBrowserToday();
   const session = useExplicitSave({
-    initial: { saved: note, value: { title: note.title, body: note.body, pinned: note.pinned } },
-    equal: (left, right) => left.title === right.title && left.body === right.body && left.pinned === right.pinned,
+    initial: { saved: note, value: { title: note.title, body: note.body, pinned: note.pinned, occasionDate: note.occasionDate } },
+    equal: (left, right) => left.title === right.title && left.body === right.body && left.pinned === right.pinned && left.occasionDate === right.occasionDate,
     failureMessage: "Could not save. Your text is kept here; please retry.",
     save: async ({ value, saved }) => {
-      const result = await updateNote(note.id, { ...value, revision: saved.revision });
+      if (!today) return { error: "Wait for the browser’s Today before saving." };
+      const result = await updateNote(note.id, { ...value, today, revision: saved.revision });
       if ("error" in result) return result;
       const accepted = { ...value, title: result.title };
       return { value: accepted, saved: { ...saved, ...accepted, revision: result.revision } };
     },
   });
   const { value, saved, error, dirty, setError } = session;
-  const { title, body, pinned } = value;
+  const { title, body, pinned, occasionDate } = value;
   const setTitle = (title: string) => session.edit({ ...value, title });
   const setBody = (body: string) => session.edit({ ...value, body });
   const setPinned = (pinned: boolean) => session.edit({ ...value, pinned });
@@ -38,13 +41,17 @@ export function NoteEditor({ note }: { note: Note }) {
     <FieldGroup><Field><FieldLabel htmlFor="note-title">Title</FieldLabel>
       <Input id="note-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={pending} />
     </Field></FieldGroup>
+    <Field><FieldLabel htmlFor="note-occasion">Occasion date (optional)</FieldLabel>
+      <Input id="note-occasion" type="date" className="min-h-10 text-base" value={occasionDate ?? ""} max={today ?? undefined}
+        onChange={(event) => session.edit({ ...value, occasionDate: event.target.value || null })} disabled={pending} />
+    </Field>
     <MarkdownEditor value={body} onChange={setBody} disabled={pending} />
     <label className="flex items-center gap-2"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} disabled={pending} />Pin this Note</label>
     {body.length > 100_000 && <p role="alert">Body exceeds 100,000 characters. Shorten it before saving; your text has not been truncated.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="flex flex-wrap items-center gap-3">
       <span role="status">{pending ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</span>
-      <Button type="submit" disabled={pending || !dirty || body.length > 100_000}>Save Note</Button>
+      <Button type="submit" disabled={pending || !dirty || !today || body.length > 100_000}>Save Note</Button>
       <Button type="button" variant="destructive" className="ml-auto" disabled={pending} onClick={() => {
         if (!window.confirm("Delete this Note permanently? Any unsaved changes will also be lost.")) return;
         start(async () => {

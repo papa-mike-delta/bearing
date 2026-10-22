@@ -210,6 +210,7 @@ export const notes = pgTable(
     notebookId: uuid("notebook_id").references(() => notebooks.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     body: text("body").notNull(),
+    occasionDate: date("occasion_date"),
     pinned: boolean("pinned").notNull().default(false),
     revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),

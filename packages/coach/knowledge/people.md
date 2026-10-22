@@ -14,10 +14,18 @@ Adding requires a trimmed name of 1–200 characters and an explicitly chosen gr
 
 Paul reads people only when needed with listPeople or readPerson. A name must match one person, ignoring case; otherwise he asks and writes nothing. The Task list is the only automatic read. On request he can set last connected, or set or clear an agreed day. A clear first-person statement such as “I saw Ada today” or “Ada and I agreed on Friday” is the request: he writes straight away, as with habit logging, without asking first. He never treats a name as a real person, or states facts about one, without looking it up in that turn; an unknown name gets a refused result and the receipt “No change: asked about '<name>'”. These share the three-write cap and content-matched resend protection. A refusal writes nothing and releases its slot.
 
-Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, or create a link. There are no occasion dates in this feature.
+Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, or create a link. People have no occasion date.
 
 Source: Bearing issue #154 and spec §§8.2–8.7.
 
 ## Related links
 
 People can be linked to Tasks, Notes, saved Journal days, or other people in either direction by the user through Related. Add link searches this account’s people by name, twenty at a time. The person page shows Outgoing and Backlinks, newest first. A backlink opens its source; only outgoing links can be removed. Removing a link leaves both records. Deleting a person removes every link touching them in the same transaction and leaves Tasks, Notes and Journal days. Names and addresses are read when shown. Paul cannot create links; he directs the user to Add link in Related. There is no occasion date or log on person.
+
+## Note occasion dates
+
+A Note may have an optional occasion date for a past occasion, memory, or quote. The browser's Today or a past day is allowed; a future day is refused and nothing is stored. In the Note editor it waits for explicit Save with title, body and pin, under the same unsaved-changes guard; clearing is allowed. In Related, the date replaces a dated Note's row detail using exactly the Journal day row's date label. Without a date the detail stays unchanged, and order is always newest edge first.
+
+Paul sets createNote's optional day only from a day the person states on a Note they ask him to create; he never infers it from prose. A future day is refused and no Note is created. Leaving day out creates an undated Note. The success receipt names the stored day using the existing day words when set, and stays unchanged otherwise. A resend returns stored values without creating another Note; a failure has no success receipt. Paul still cannot attach a Note to a person. Tasks have no occasion date, and the day does not put the Note in the Journal.
+
+Source: Bearing issue #157 and spec §§4.4, 8.2.
