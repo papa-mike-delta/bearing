@@ -17,3 +17,7 @@ Paul reads people only when needed with listPeople or readPerson. A name must ma
 Paul cannot add, rename, regroup or delete a person, set or clear their rule, log a note on a person, or create a link. There are no occasion dates in this feature.
 
 Source: Bearing issue #154 and spec §§8.2–8.7.
+
+## Related links
+
+People can be linked to Tasks, Notes, saved Journal days, or other people in either direction by the user through Related. Add link searches this account’s people by name, twenty at a time. The person page shows Outgoing and Backlinks, newest first. A backlink opens its source; only outgoing links can be removed. Removing a link leaves both records. Deleting a person removes every link touching them in the same transaction and leaves Tasks, Notes and Journal days. Names and addresses are read when shown. Paul cannot create links; he directs the user to Add link in Related. There is no occasion date or log on person.

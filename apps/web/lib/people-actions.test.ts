@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createDb, users } from "@repo/db";
 import { eq } from "drizzle-orm";
+import { addLink, related } from "./links.ts";
+import { createPerson, getPerson } from "./people.ts";
 import { peopleActions } from "./people-actions.ts";
 const url = process.env.TEST_POSTGRES_URL;
 const db = url ? createDb(url) : null;
@@ -59,7 +61,25 @@ test(
       );
     assert.deepEqual(await actions.due(today), { count: 1 });
     assert.ok("error" in (await actions.due("invalid")));
+    const kept = await createPerson(
+      id,
+      { name: "Kept person", group: "Family" },
+      db!,
+    );
+    const source = { kind: "person" as const, id: personId };
+    const target = { kind: "person" as const, id: kept.id };
+    await addLink(id, source, target, today, db!);
+    await addLink(id, target, source, today, db!);
     assert.deepEqual(await actions.remove(personId), { href: "/people" });
+    assert.deepEqual(await related(id, source, db!), {
+      outgoing: [],
+      incoming: [],
+    });
+    assert.deepEqual(await related(id, target, db!), {
+      outgoing: [],
+      incoming: [],
+    });
+    assert.ok(await getPerson(id, kept.id, db!));
     assert.deepEqual(await actions.due(today), { count: 0 });
     assert.ok(paths.includes("/people"));
     const signedOut = peopleActions({

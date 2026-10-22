@@ -44,3 +44,13 @@ test("a self-link is the same kind and id", () => {
     false,
   );
 });
+
+test("person link ends require UUIDs and normalize case", () => {
+  const id = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+  assert.deepEqual(linkEnd("person", id), {
+    kind: "person",
+    id: id.toLowerCase(),
+  });
+  assert.equal(linkEnd("person", "not-an-id"), null);
+  assert.equal(linkEnd("person", "2026-10-21"), null);
+});

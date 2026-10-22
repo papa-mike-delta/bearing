@@ -10,6 +10,7 @@ import {
 } from "playwright-core";
 import { createDb, sessions, users } from "@repo/db";
 import { inArray } from "drizzle-orm";
+import { related } from "../lib/links.ts";
 import { peopleGroups } from "@repo/domain";
 import {
   createPerson,
@@ -36,22 +37,18 @@ async function until(check: () => Promise<boolean>, message: string) {
 }
 before(async () => {
   if (!enabled) return;
-  await db!
-    .insert(users)
-    .values(
-      [owner, other].map((id) => ({
-        id,
-        email: `${id}@test.invalid`,
-        passwordHash: "-",
-      })),
-    );
-  await db!
-    .insert(sessions)
-    .values({
-      sessionToken: token,
-      userId: owner,
-      expires: new Date(Date.now() + 3600_000),
-    });
+  await db!.insert(users).values(
+    [owner, other].map((id) => ({
+      id,
+      email: `${id}@test.invalid`,
+      passwordHash: "-",
+    })),
+  );
+  await db!.insert(sessions).values({
+    sessionToken: token,
+    userId: owner,
+    expires: new Date(Date.now() + 3600_000),
+  });
   for (const group of peopleGroups) {
     const p = await createPerson(
       owner,
@@ -222,6 +219,78 @@ test(
       "New person",
     );
     assert.equal((await getPerson(owner, id, db!))?.rule, null);
+    const relatedSection = page.getByRole("region", {
+      name: "Related",
+      exact: true,
+    });
+    await relatedSection
+      .getByRole("button", { name: "Add link", exact: true })
+      .click();
+    await relatedSection.getByRole("combobox").fill("Ada");
+    await relatedSection
+      .getByRole("button", { name: "Person: Ada", exact: true })
+      .waitFor();
+    await relatedSection
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
+    assert.deepEqual(await related(owner, { kind: "person", id }, db!), {
+      outgoing: [],
+      incoming: [],
+    });
+    await relatedSection
+      .getByRole("button", { name: "Add link", exact: true })
+      .click();
+    await relatedSection.getByRole("combobox").fill("Ada");
+    await relatedSection
+      .getByRole("button", { name: "Person: Ada", exact: true })
+      .click();
+    await relatedSection
+      .getByRole("link", { name: "Ada", exact: true })
+      .waitFor();
+    await relatedSection
+      .getByRole("button", { name: "Add link", exact: true })
+      .click();
+    await relatedSection.getByRole("combobox").fill("Ada");
+    await relatedSection
+      .getByRole("button", { name: "Person: Ada · Linked", exact: true })
+      .click();
+    await relatedSection
+      .getByRole("status")
+      .filter({ hasText: "That link already exists." })
+      .waitFor();
+    assert.equal(
+      (await related(owner, { kind: "person", id }, db!)).outgoing.length,
+      1,
+    );
+    await relatedSection
+      .getByRole("link", { name: "Ada", exact: true })
+      .click();
+    await page.waitForURL(`**/people/${adaId}`);
+    await relatedSection
+      .getByRole("link", { name: "New person", exact: true })
+      .waitFor();
+    assert.equal(
+      await relatedSection
+        .getByRole("button", { name: "Remove link", exact: true })
+        .count(),
+      0,
+    );
+    await relatedSection
+      .getByRole("link", { name: "New person", exact: true })
+      .click();
+    await page.waitForURL(`**/people/${id}`);
+    page.once("dialog", (dialog) => {
+      assert.equal(dialog.message(), "Remove this link?");
+      void dialog.accept();
+    });
+    await relatedSection
+      .getByRole("button", { name: "Remove link", exact: true })
+      .click();
+    await relatedSection
+      .getByText("No outgoing links.", { exact: true })
+      .waitFor();
+    assert.ok(await getPerson(owner, adaId, db!));
+    assert.ok(await getPerson(owner, id, db!));
     await page.getByLabel("Reach-out rule").check();
     assert.equal(
       await page.getByLabel("Every", { exact: true }).inputValue(),
@@ -234,7 +303,9 @@ test(
     await page.getByText("every month", { exact: true }).waitFor();
     await page.getByLabel("Last connected", { exact: true }).fill("2026-01-31");
     await until(
-      async () => (await page.locator("output").getAttribute("data-day")) === "2026-02-28",
+      async () =>
+        (await page.locator("output").getAttribute("data-day")) ===
+        "2026-02-28",
       "derived next day",
     );
     await page.getByLabel("On day (optional)").selectOption("last");
@@ -247,7 +318,9 @@ test(
     await page.getByText("every 2 weeks on Friday", { exact: true }).waitFor();
     await page.getByLabel("Agreed day", { exact: true }).fill("2026-11-03");
     await until(
-      async () => (await page.locator("output").getAttribute("data-day")) === "2026-11-03",
+      async () =>
+        (await page.locator("output").getAttribute("data-day")) ===
+        "2026-11-03",
       "agreement overrides",
     );
     assert.equal((await getPerson(owner, id, db!))?.lastConnected, null);
@@ -329,13 +402,11 @@ test(
     await page.goto(`${base}/people/${foreign.id}`);
     await page.getByRole("heading", { name: "404", exact: true }).waitFor();
     const emptyToken = randomUUID();
-    await db!
-      .insert(sessions)
-      .values({
-        sessionToken: emptyToken,
-        userId: other,
-        expires: new Date(Date.now() + 3600_000),
-      });
+    await db!.insert(sessions).values({
+      sessionToken: emptyToken,
+      userId: other,
+      expires: new Date(Date.now() + 3600_000),
+    });
     await context.addCookies([
       {
         name: "authjs.session-token",

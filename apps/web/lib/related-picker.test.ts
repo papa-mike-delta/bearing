@@ -548,3 +548,35 @@ test("Escape resets like a pick: closed, query cleared, reopen lists recent targ
   assert.equal(requests[1]!.query, "");
   assert.equal(requests[1]!.offset, 0);
 });
+
+test("person hits match names, page by twenty, and self is excluded for a person source", async () => {
+  const { picker, requests, begin } = setup();
+  picker.dispatch({ type: "source", source: { kind: "person", id: "self" } });
+  begin("Ada");
+  requests[0]!.resolve({
+    hits: [
+      hit("self", "Ada self", "person"),
+      hit("ada", "Ada Lovelace", "person"),
+      hit("other", "Bo", "person"),
+    ],
+    more: true,
+  });
+  await Promise.resolve();
+  assert.deepEqual(
+    picker.getSnapshot().hits.map((h) => h.id),
+    ["ada"],
+  );
+  picker.dispatch({ type: "more" });
+  assert.equal(requests[1]!.offset, 20);
+  requests[1]!.resolve({
+    hits: [hit("ada2", "Ada Byron", "person")],
+    more: false,
+  });
+  await Promise.resolve();
+  assert.deepEqual(
+    picker.getSnapshot().hits.map((h) => h.id),
+    ["ada", "ada2"],
+  );
+  picker.dispatch({ type: "cancel" });
+  assert.equal(picker.getSnapshot().open, false);
+});

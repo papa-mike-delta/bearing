@@ -1,11 +1,16 @@
-import { db as defaultDb, people, habitOperations } from "@repo/db";
+import {
+  db as defaultDb,
+  people,
+  entityLinks,
+  habitOperations,
+} from "@repo/db";
 import {
   PersonError,
   personIdentity,
   validatePerson,
   type PersonFields,
 } from "@repo/domain";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 export { PersonError };
 const owned = (userId: string, id: string) =>
@@ -68,11 +73,33 @@ export async function deletePerson(
   db: Db = defaultDb,
 ) {
   if (!isUuid(id)) throw unavailable();
-  const [row] = await db
-    .delete(people)
-    .where(owned(userId, id))
-    .returning({ id: people.id });
-  if (!row) throw unavailable();
+  await db.transaction(async (tx) => {
+    // Serialize with addLink's endpoint lock before removing either direction.
+    const [row] = await tx
+      .select({ id: people.id })
+      .from(people)
+      .where(owned(userId, id))
+      .for("update");
+    if (!row) throw unavailable();
+    await tx
+      .delete(entityLinks)
+      .where(
+        and(
+          eq(entityLinks.userId, userId),
+          or(
+            and(
+              eq(entityLinks.sourceType, "person"),
+              eq(entityLinks.sourceId, row.id),
+            ),
+            and(
+              eq(entityLinks.targetType, "person"),
+              eq(entityLinks.targetId, row.id),
+            ),
+          ),
+        ),
+      );
+    await tx.delete(people).where(owned(userId, row.id));
+  });
 }
 export type PersonDayInput = {
   personId: string;
@@ -125,15 +152,13 @@ export async function setCoachPersonDay(
       .set({ [input.field]: input.day })
       .where(owned(userId, input.personId));
     const result = { id: person.id, name: person.name, day: input.day };
-    await tx
-      .insert(habitOperations)
-      .values({
-        userId,
-        source,
-        operationId: input.operationId,
-        habitId: person.id,
-        result,
-      });
+    await tx.insert(habitOperations).values({
+      userId,
+      source,
+      operationId: input.operationId,
+      habitId: person.id,
+      result,
+    });
     return result;
   });
 }
