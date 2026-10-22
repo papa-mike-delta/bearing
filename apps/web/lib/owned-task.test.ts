@@ -120,6 +120,17 @@ describe(
       assert.equal(await completeTask(userId, task.id, db, "2026-02-20", randomUUID()), null);
     });
 
+    test("a resend on a later day replays the stored next date", async () => {
+      const { userId, task } = await fixture();
+      await db.update(tasks).set({ rule: { every: 1, unit: "weeks", on: "tuesday" } }).where(eq(tasks.id, task.id));
+      const identity = randomUUID();
+      const original = await completeTask(userId, task.id, db, "2026-02-20", identity);
+      assert.equal(original?.spawned?.date, "2026-02-24");
+      const resend = await completeTask(userId, task.id, db, "2026-02-25", identity);
+      assert.deepEqual(resend, original);
+      assert.equal((await db.select().from(tasks).where(eq(tasks.areaId, task.areaId))).length, 2);
+    });
+
     test("a next Task insert failure rolls back the completed Task", async () => {
       const { userId, area, task } = await fixture();
       await setTaskRule(userId, task.id, { every: 1, unit: "days" }, db);

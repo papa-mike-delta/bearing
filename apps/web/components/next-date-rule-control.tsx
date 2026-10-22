@@ -25,7 +25,7 @@ export function NextDateRuleControl({
   const change = (field: Parameters<typeof ruleControlChange>[1], text = "") =>
     onChange(ruleControlChange(value, field, text));
   const toggle = (
-    <label>
+    <label className="check-row">
       <input
         type="checkbox"
         checked={value !== null}
@@ -34,18 +34,18 @@ export function NextDateRuleControl({
       {toggleLabel}
     </label>
   );
-  if (!value) return toggle;
+  if (!value) return <div className="rule-control">{toggle}</div>;
   return (
-    <fieldset className="space-y-2">
+    <fieldset className="rule-control space-y-2">
       <legend className="sr-only">{toggleLabel}</legend>
       {toggle}
-      <div className="flex flex-wrap items-end gap-3">
-        <label>
-          Every{" "}
+      <div className="rule-row">
+        <label className="field">
+          Every
           <input
             aria-label="Every"
             name="every"
-            className="border rounded p-2 block"
+           
             type="number"
             min={1}
             max={maxNextDateEvery}
@@ -53,12 +53,12 @@ export function NextDateRuleControl({
             onChange={(event) => change("every", event.target.value)}
           />
         </label>
-        <label>
-          Unit{" "}
+        <label className="field">
+          Unit
           <select
             aria-label="Unit"
             name="unit"
-            className="border rounded p-2 block"
+           
             value={value.unit}
             onChange={(event) => change("unit", event.target.value)}
           >
@@ -70,12 +70,12 @@ export function NextDateRuleControl({
           </select>
         </label>
         {value.unit !== "days" ? (
-          <label>
-            On day (optional){" "}
+          <label className="field">
+            On day (optional)
             <select
               aria-label="On day (optional)"
               name="on"
-              className="border rounded p-2 block"
+             
               value={value.on ?? ""}
               onChange={(event) => change("on", event.target.value)}
             >

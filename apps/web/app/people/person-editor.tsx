@@ -2,6 +2,7 @@
 import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  dayWords,
   parseNextDateRule,
   peopleGroups,
   personNextReachOut,
@@ -72,14 +73,14 @@ export function PersonEditor({ person }: { person: Person }) {
   return (
     <form
       data-explicit-save-editor
-      className="flex flex-col gap-5"
+      className="people-form flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();
         session.save();
       }}
     >
       <fieldset disabled={pending} className="flex flex-col gap-4">
-        <label>
+        <label className="field">
           Name
           <Input
             name="name"
@@ -89,12 +90,12 @@ export function PersonEditor({ person }: { person: Person }) {
             onChange={(e) => edit({ name: e.target.value })}
           />
         </label>
-        <label>
+        <label className="field">
           Group
           <select
             aria-label="Group"
             name="group"
-            className="border rounded p-2 block"
+           
             value={value.group}
             required
             onChange={(e) => edit({ group: e.target.value })}
@@ -110,7 +111,7 @@ export function PersonEditor({ person }: { person: Person }) {
           toggleLabel="Reach-out rule"
           sameDayLabel="Same day as last connected"
         />
-        <label>
+        <label className="field">
           Last connected
           <Input
             type="date"
@@ -118,8 +119,14 @@ export function PersonEditor({ person }: { person: Person }) {
             max={today ?? undefined}
             value={value.lastConnected ?? ""}
             onChange={(e) => edit({ lastConnected: e.target.value || null })}
+            aria-describedby="lastConnected-words"
           />
         </label>
+        {value.lastConnected && today && (
+          <span id="lastConnected-words" className="text-sm text-muted-foreground -mt-3">
+            {dayWords(value.lastConnected, today)}
+          </span>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -128,7 +135,7 @@ export function PersonEditor({ person }: { person: Person }) {
         >
           Connected today
         </Button>
-        <label>
+        <label className="field">
           Agreed day
           <Input
             type="date"
@@ -136,10 +143,22 @@ export function PersonEditor({ person }: { person: Person }) {
             min={today ?? undefined}
             value={value.agreedDay ?? ""}
             onChange={(e) => edit({ agreedDay: e.target.value || null })}
+            aria-describedby="agreedDay-words"
           />
         </label>
+        {value.agreedDay && today && (
+          <span id="agreedDay-words" className="text-sm text-muted-foreground -mt-3">
+            {dayWords(value.agreedDay, today)}
+          </span>
+        )}
         <p>
-          Next reach-out: <output>{reachOut ?? "No reach-out day"}</output>
+          Next reach-out: <output data-day={reachOut ?? undefined}>
+            {reachOut
+              ? today
+                ? dayWords(reachOut, today)
+                : reachOut
+              : "No reach-out day"}
+          </output>
         </p>
       </fieldset>
       {error && <p role="alert">{error}</p>}

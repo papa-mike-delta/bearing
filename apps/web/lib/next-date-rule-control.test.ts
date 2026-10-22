@@ -36,7 +36,7 @@ test("the shared control renders a number, unit and optional on-day with its der
   );
   assert.match(html, /type="number"/);
   assert.match(html, /value="3"/);
-  assert.match(html, /<label>Unit /);
+  assert.match(html, /<label class="field">Unit/);
   assert.match(html, /On day \(optional\)/);
   assert.match(html, /value="tuesday" selected=""/);
   assert.match(html, /every 3 weeks on Tuesday/);
@@ -65,6 +65,6 @@ test("Repeat creates the shared every-month default through the actual control",
       value = rule;
     },
   });
-  control.props.children[0].props.onChange({ target: { checked: true } });
+  control.props.children.props.children[0].props.onChange({ target: { checked: true } });
   assert.deepEqual(value, { every: 1, unit: "months" });
 });

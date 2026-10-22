@@ -17,6 +17,7 @@ export function TaskRule({
   const [pending, setPending] = useState(false);
   return (
     <form
+      className="rule-control space-y-2"
       action={async (form) => {
         setPending(true);
         setError("");
@@ -32,7 +33,7 @@ export function TaskRule({
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="rule" value={JSON.stringify(rule)} />
       <NextDateRuleControl value={rule} onChange={setRule} />
-      <button type="submit" disabled={pending}>
+      <button type="submit" className="rule-save" disabled={pending}>
         Save rule
       </button>
       {error ? <p role="alert">{error}</p> : null}

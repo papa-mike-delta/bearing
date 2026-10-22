@@ -157,13 +157,10 @@ export async function completeTask(
       if (!messageId || !isUuid(messageId)) return null;
       const detail = await taskDetail(userId, taskId, tx);
       if (!detail || !detail.task.completedAt) return null;
-      const fields = spawnTask(
-        { ...detail.task, rule: detail.task.rule ?? null },
-        today,
-      );
-      if (!fields) return null;
+      // A resend replays the stored next date, never one recomputed from
+      // the resend's own day.
       const [existing] = await tx
-        .select({ id: tasks.id })
+        .select({ id: tasks.id, scheduledOn: tasks.scheduledOn })
         .from(tasks)
         .where(
           and(
@@ -172,11 +169,11 @@ export async function completeTask(
             eq(tasks.sourceId, `${messageId}:${taskId}`),
           ),
         );
-      return existing
+      return existing && existing.scheduledOn
         ? {
             id: taskId,
             name: detail.task.name,
-            spawned: { id: existing.id, date: fields.date },
+            spawned: { id: existing.id, date: existing.scheduledOn },
           }
         : null;
     }

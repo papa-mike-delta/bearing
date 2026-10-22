@@ -1,5 +1,4 @@
 import { taskForBrowser } from "../../../../lib/task-for-browser";
-import { nextDatePhrase } from "@repo/domain";
 import { TaskRule } from "../../../../components/task-rule";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -38,7 +37,6 @@ export default async function TaskItemPage({
         <p>Area: {area.name}</p>
         <p>Status: {statusLabel[task.status] ?? task.status}</p>
         <p style={{ whiteSpace: "pre-wrap" }}>{task.note || "No note"}</p>
-        {task.rule ? <p>{nextDatePhrase(task.rule)}</p> : null}
         {!task.completedAt && task.status !== "completed" ? (
           <TaskRule id={task.id} initial={task.rule ?? null} />
         ) : null}
