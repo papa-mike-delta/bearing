@@ -3035,6 +3035,64 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(receipts.includes("Couldn't create that task"));
   });
 
+  test("Coach creates and reads an explicitly requested recurring Task but refuses later rule edits", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const rule = { every: 3, unit: "weeks", on: "tuesday" };
+    await turn(c, thread, userMessage("Add Pay rent every 3 weeks on Tuesday"), scripted({ createTask: JSON.stringify({ name: "Pay rent", rule }) }, { text: "Created." }));
+    const open = await openTasks(c, db);
+    assert.equal(open.length, 1);
+    assert.deepEqual(open[0]!.rule, rule);
+    const data = coachData(db, "2026-10-09");
+    assert.deepEqual((await data.listOpenTasks(c))[0]!.rule, rule);
+    assert.equal((await data.listOpenTasks(c))[0]!.repeat, "every 3 weeks on Tuesday");
+    const tools = coachTools(data);
+    const update = tools.updateTask.inputSchema as { safeParse(input: unknown): { success: boolean } };
+    assert.equal(update.safeParse({ taskId: open[0]!.id, rule: null }).success, false);
+    const questionThread = await coachThread(c, db);
+    await turn(c, questionThread, userMessage("Add another every March and July"), scripted({ text: "Which number of days, weeks or months should it repeat on?" }));
+    assert.equal((await openTasks(c, db)).length, 1);
+  });
+
+  test("a repeating completion uses no create slot and its linked receipt survives reload", async () => {
+    const c = await account();
+    const task = await addTask(c, { name: "Pay rent", today: "2026-02-20", rule: { every: 1, unit: "months", on: 3 } }, db);
+    assert.ok(task);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Complete Pay rent and add A, B, C"), scripted(
+      { completeTask: JSON.stringify({ taskId: task.id }) },
+      { createTask: JSON.stringify({ name: "A" }) },
+      { createTask: JSON.stringify({ name: "B" }) },
+      { createTask: JSON.stringify({ name: "C" }) },
+      { text: "Done." },
+    ), "2026-02-20");
+    const open = await openTasks(c, db);
+    assert.deepEqual(open.map(t => t.name).sort(), ["A", "B", "C", "Pay rent"]);
+    const next = open.find(t => t.name === "Pay rent")!;
+    assert.equal(next.date, "2026-03-03");
+    const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
+    const completed = parts.find(p => "receipt" in p && p.receipt.startsWith("Completed"));
+    assert.ok(completed && "receipt" in completed);
+    assert.equal(completed.receipt, "Completed 'Pay rent'. Next is Tue, Mar 3");
+    assert.equal(completed.href, taskHref(task.id));
+    assert.deepEqual(completed.nextLink, { text: "Tue, Mar 3", href: taskHref(next.id) });
+  });
+
+  test("a failed recurring completion turn resends with changed provider identity without another Task", async () => {
+    const c = await account();
+    const task = await addTask(c, { name: "Pay rent", today: "2026-02-20", rule: { every: 1, unit: "months", on: 3 } }, db);
+    assert.ok(task);
+    const thread = await coachThread(c, db);
+    const message = userMessage("Complete Pay rent");
+    const input = { taskId: task.id };
+    await turn(c, thread, message, failingAfterWrite("completeTask", input), "2026-02-20");
+    await turn(c, thread, message, scripted({ completeTask: JSON.stringify(input), toolCallId: "changed_provider_id" }, { text: "Done." }), "2026-04-20");
+    const open = await openTasks(c, db);
+    assert.equal(open.length, 1);
+    assert.equal(open[0]!.date, "2026-03-03");
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Completed 'Pay rent'. Next is Tue, Mar 3"));
+  });
+
   test("completeTask completes the person's Task and moves Next when needed", async () => {
     const c = await account();
     const ids = await addTasks(c, [

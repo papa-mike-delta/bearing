@@ -2,14 +2,9 @@
 import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  defaultNextDateRule,
-  maxNextDateEvery,
-  nextDatePhrase,
-  nextDateUnits,
   parseNextDateRule,
   peopleGroups,
   personNextReachOut,
-  weekdays,
   type PersonFields,
 } from "@repo/domain";
 import { Button } from "@repo/ui/components/button";
@@ -17,6 +12,7 @@ import { Input } from "@repo/ui/components/input";
 import { useExplicitSave } from "../../lib/use-explicit-save";
 import { useBrowserToday } from "../browser-today";
 import { removePerson, updatePerson } from "./actions";
+import { NextDateRuleControl } from "../../components/next-date-rule-control";
 type Person = PersonFields & { id: string };
 export function PersonEditor({ person }: { person: Person }) {
   const today = useBrowserToday();
@@ -108,111 +104,12 @@ export function PersonEditor({ person }: { person: Person }) {
             ))}
           </select>
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={value.rule !== null}
-            onChange={(e) =>
-              edit({
-                rule: e.target.checked ? { ...defaultNextDateRule } : null,
-              })
-            }
-          />{" "}
-          Reach-out rule
-        </label>
-        {value.rule !== null && (
-          <div className="flex flex-wrap items-end gap-3">
-            <label>
-              Every
-              <Input
-                type="number"
-                name="every"
-                min={1}
-                max={maxNextDateEvery}
-                required
-                value={value.rule.every || ""}
-                onChange={(e) =>
-                  edit({
-                    rule: { ...value.rule!, every: Number(e.target.value) },
-                  })
-                }
-              />
-            </label>
-            <label>
-              Unit
-              <select
-                aria-label="Unit"
-                name="unit"
-                className="border rounded p-2 block"
-                value={value.rule.unit}
-                onChange={(e) =>
-                  edit({
-                    rule: {
-                      every: value.rule!.every,
-                      unit: e.target.value,
-                    } as PersonFields["rule"],
-                  })
-                }
-              >
-                {nextDateUnits.map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-            </label>
-            {value.rule.unit !== "days" && (
-              <label>
-                On day (optional)
-                <select
-                  aria-label="On day (optional)"
-                  name="on"
-                  className="border rounded p-2 block"
-                  value={value.rule.on ?? ""}
-                  onChange={(e) => {
-                    const { every, unit } = value.rule!;
-                    const on = e.target.value;
-                    edit({
-                      rule: (on === ""
-                        ? { every, unit }
-                        : {
-                            every,
-                            unit,
-                            on:
-                              unit === "months" && on !== "last"
-                                ? Number(on)
-                                : on,
-                          }) as PersonFields["rule"],
-                    });
-                  }}
-                >
-                  <option value="">Same day as last connected</option>
-                  {value.rule.unit === "weeks" ? (
-                    weekdays.map((d) => (
-                      <option key={d} value={d}>
-                        {d[0]!.toUpperCase() + d.slice(1)}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      {Array.from({ length: 31 }, (_, i) => (
-                        <option key={i + 1} value={i + 1}>
-                          {i + 1}
-                        </option>
-                      ))}
-                      <option value="last">Last day</option>
-                    </>
-                  )}
-                </select>
-              </label>
-            )}
-          </div>
-        )}
-        <p aria-live="polite">
-          {value.rule === null
-            ? "No reach-out rule"
-            : rule
-              ? nextDatePhrase(rule)
-              : "Use a valid next-date rule."}
-        </p>
+        <NextDateRuleControl
+          value={rule}
+          onChange={(next) => edit({ rule: next })}
+          toggleLabel="Reach-out rule"
+          sameDayLabel="Same day as last connected"
+        />
         <label>
           Last connected
           <Input

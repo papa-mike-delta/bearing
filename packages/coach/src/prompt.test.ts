@@ -270,8 +270,22 @@ test("prompt and README describe true undo and convert fewer into a setCount tot
   }
 });
 
+test("recurring Tasks are create-only for Paul, require a mapped phrase, and inherit no links", () => {
+  const prompt = coachSystemPrompt();
+  for (const phrase of ["A Task may repeat", "next Task does not inherit links", "cannot change or clear the rule", "otherwise ask one question and write nothing", "does not take a create slot"]) assert.ok(prompt.includes(phrase), phrase);
+  assert.doesNotMatch(prompt, /occasion/);
+});
+
+test("Coach knowledge and README teach repeating Task behavior and create-only rules", async () => {
+  const { readFile } = await import("node:fs/promises");
+  for (const path of ["../knowledge/habits.md", "../../../README.md"]) {
+    const text = await readFile(new URL(path, import.meta.url), "utf8");
+    for (const phrase of ["A Task may repeat", "no streak", "write nothing", "cannot change or clear", "create slot", "Related", "Inbox"]) assert.ok(text.includes(phrase), `${path}: ${phrase}`);
+  }
+});
+
 test('People tools and boundaries describe the shipped screen without automatic reads or unsupported writes', () => {
   const prompt = coachSystemPrompt();
-  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','create a recurring Task','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
+  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
   assert.match(prompt,/setPersonLastConnected and setPersonAgreedDay combined/);
 });

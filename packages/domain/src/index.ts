@@ -24,4 +24,5 @@ export const workflows = [
 
 export type Workflow = (typeof workflows)[number];
 
+export * from "./recurring-task.ts";
 export * from "./person.ts";

@@ -539,6 +539,18 @@ test("setCount receipts preserve total and unchanged date words after reload", (
   }
 });
 
+test("recurring completion links the completed name and next date separately", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const nextId = "22222222-2222-4222-8222-222222222222";
+  const part = { type: "tool-completeTask", state: "output-available", output: { id, name: "Pay rent", spawned: { id: nextId, date: "2026-03-03" } } };
+  assert.equal(receipt(part), "Completed 'Pay rent'. Next is Tue, Mar 3");
+  const shown = shownParts([part])[0];
+  assert.ok(shown && "receipt" in shown);
+  assert.equal(shown.href, `/tasks/item/${id}`);
+  assert.deepEqual(shown.nextLink, { text: "Tue, Mar 3", href: `/tasks/item/${nextId}` });
+  assert.equal(receipt({ ...part, output: { id, name: "Pay rent" } }), "Completed 'Pay rent'");
+});
+
 test('people reads are reads and exact linked day receipts survive reload; refusals never show success', () => {
   const id = '11111111-1111-4111-8111-111111111111';
   const part = (type: string, output: unknown) => ({type:`tool-${type}`,state:'output-available',output});

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { areas, createDb, goals, tasks, users } from "@repo/db";
+import { viewArea } from "@repo/domain";
+import { addLink, related } from "./links.ts";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   changePriority,
@@ -9,6 +11,7 @@ import {
   moveTask,
   scheduleOn,
   setTaskGoal,
+  setTaskRule,
   taskDetail,
   updateOpenTask,
 } from "./owned-task.ts";
@@ -93,6 +96,104 @@ describe(
         null,
       );
     }
+
+    test("completion spawns one Task atomically from the browser completion day", async () => {
+      const { userId, task } = await fixture();
+      await db.update(tasks).set({ rule: { every: 1, unit: "months", on: 3 } }).where(eq(tasks.id, task.id));
+      const done = await completeTask(userId, task.id, db, "2026-02-20");
+      assert.ok(done?.spawned);
+      const detail = await taskDetail(userId, done.spawned.id, db);
+      assert.equal(detail?.task.date, "2026-03-03");
+      assert.equal(detail?.task.status, "later");
+      assert.equal(detail?.task.note, "A note");
+      assert.equal((await taskDetail(userId, task.id, db))?.task.status, "completed");
+      assert.equal(await completeTask(userId, task.id, db, "2026-02-20"), null);
+    });
+
+    test("completion write identity replays the same next Task after a resend", async () => {
+      const { userId, task } = await fixture();
+      await db.update(tasks).set({ rule: { every: 1, unit: "days" } }).where(eq(tasks.id, task.id));
+      const identity = randomUUID();
+      const original = await completeTask(userId, task.id, db, "2026-02-20", identity);
+      assert.deepEqual(await completeTask(userId, task.id, db, "2026-02-20", identity), original);
+      assert.equal((await db.select().from(tasks).where(eq(tasks.areaId, task.areaId))).length, 2);
+      assert.equal(await completeTask(userId, task.id, db, "2026-02-20", randomUUID()), null);
+    });
+
+    test("a next Task insert failure rolls back the completed Task", async () => {
+      const { userId, area, task } = await fixture();
+      await setTaskRule(userId, task.id, { every: 1, unit: "days" }, db);
+      const constraint = sql.identifier(`test_spawn_${randomUUID().replaceAll("-", "")}`);
+      await db.execute(sql`alter table tasks add constraint ${constraint} check (area_id <> ${sql.raw("'" + area.id + "'")}::uuid or scheduled_on is null) not valid`);
+      try {
+        await assert.rejects(() => completeTask(userId, task.id, db, today));
+        assert.equal((await taskDetail(userId, task.id, db))?.task.status, "later");
+        assert.equal((await db.select().from(tasks).where(eq(tasks.areaId, area.id))).length, 1);
+      } finally {
+        await db.execute(sql`alter table tasks drop constraint ${constraint}`);
+      }
+    });
+
+    test("rule changes affect only the next creation and clearing stops spawning", async () => {
+      const { userId, task } = await fixture();
+      await setTaskRule(userId, task.id, { every: 1, unit: "months" }, db);
+      await setTaskRule(userId, task.id, { every: 2, unit: "weeks", on: "tuesday" }, db);
+      assert.equal((await taskDetail(userId, task.id, db))?.task.date, null);
+      const done = await completeTask(userId, task.id, db, "2026-02-20");
+      assert.equal(done?.spawned?.date, "2026-03-03");
+      assert.equal(await setTaskRule(userId, task.id, null, db), false);
+      assert.ok(done?.spawned);
+      await setTaskRule(userId, done.spawned.id, null, db);
+      const cleared = await completeTask(userId, done.spawned.id, db, "2026-03-03");
+      assert.deepEqual(cleared, { id: done.spawned.id, name: task.name });
+    });
+
+    for (const workflow of ["now-later", "kanban", "priority-list"] as const) {
+      test(`recurrence copies Task fields, keeps only completed Task edges, and follows ${workflow} dates`, async () => {
+        const { userId, area, task } = await fixture();
+        const folder = await goal(area.id);
+        await db.update(areas).set({ workflow }).where(eq(areas.id, area.id));
+        await db.update(tasks).set({ priority: -2, goalId: folder.id }).where(eq(tasks.id, task.id));
+        await setTaskRule(userId, task.id, { every: 1, unit: "months", on: 3 }, db);
+        const target = await db.insert(tasks).values({ areaId: area.id, name: "Related", priority: 0, age: today }).returning();
+        await addLink(userId, { kind: "task", id: task.id }, { kind: "task", id: target[0]!.id }, today, db);
+        const done = await completeTask(userId, task.id, db, "2026-02-20");
+        assert.ok(done?.spawned);
+        const next = (await taskDetail(userId, done.spawned.id, db))!;
+        assert.equal(next.task.name, task.name);
+        assert.equal(next.task.note, task.note);
+        assert.equal(next.task.priority, -2);
+        assert.equal(next.task.areaId, area.id);
+        assert.equal(next.task.goalId, folder.id);
+        assert.deepEqual(next.task.rule, { every: 1, unit: "months", on: 3 });
+        assert.equal(next.task.date, "2026-03-03");
+        assert.equal("streak" in next.task, false);
+        const oldEdges = await related(userId, { kind: "task", id: task.id }, db);
+        const newEdges = await related(userId, { kind: "task", id: next.task.id }, db);
+        assert.equal(oldEdges.outgoing.length, 1);
+        assert.equal(newEdges.outgoing.length, 0);
+        assert.equal(newEdges.incoming.length, 0);
+        const before = viewArea(next.area, [next.task], "2026-03-02", next.goals);
+        const due = viewArea(next.area, [next.task], "2026-03-03", next.goals);
+        if (workflow === "priority-list") {
+          assert.equal(before.workflow, "priority-list");
+          assert.equal(due.workflow, "priority-list");
+          assert.equal(before.tasks.length, 1);
+          assert.equal(due.tasks.length, 1);
+        } else {
+          assert.equal(before.strip.length, 0);
+          assert.equal(due.strip.length, 1);
+        }
+      });
+    }
+
+    test("failed next date leaves the Task open and creates nothing", async () => {
+      const { userId, task } = await fixture();
+      await db.update(tasks).set({ rule: { every: 1, unit: "days" } }).where(eq(tasks.id, task.id));
+      await assert.rejects(() => completeTask(userId, task.id, db, "9999-12-31"));
+      assert.equal((await taskDetail(userId, task.id, db))?.task.status, "later");
+      assert.equal((await db.select().from(tasks).where(eq(tasks.areaId, task.areaId))).length, 1);
+    });
 
     test("foreign, missing and malformed Tasks retain each operation's refusal shape", async () => {
       const owner = await fixture();
@@ -223,6 +324,7 @@ describe(
         age: today,
         date: null,
         goalId: null,
+        rule: null,
         completedAt: null,
         createdAt: task.createdAt,
       });

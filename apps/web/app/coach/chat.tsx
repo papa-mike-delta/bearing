@@ -142,7 +142,9 @@ export function Chat({
               {message.parts.map((part) =>
                 "receipt" in part ? (
                   <p key={part.key} className={part.read ? "receipt receipt-read" : "receipt"} data-calls={part.calls}>
-                    {part.href ? (
+                    {part.nextLink && part.href ? (
+                      <><Link href={part.href}>{part.receipt.slice(0, part.receipt.length - part.nextLink.text.length - ". Next is ".length)}</Link>{". Next is "}<Link href={part.nextLink.href}>{part.nextLink.text}</Link></>
+                    ) : part.href ? (
                       <Link href={part.href}>{part.receipt}</Link>
                     ) : (
                       part.receipt

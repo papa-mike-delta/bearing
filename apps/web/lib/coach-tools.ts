@@ -51,8 +51,8 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
     createTask(userId, input, from) {
       return addTask(userId, { ...input, from, today }, db);
     },
-    completeTask(userId, taskId) {
-      return completeTaskRow(userId, taskId, db);
+    completeTask(userId, taskId, identity) {
+      return completeTaskRow(userId, taskId, db, identity?.today ?? today, identity?.messageId);
     },
     scheduleTask(userId, taskId, date) {
       return scheduleOn(userId, taskId, date, today, db);
