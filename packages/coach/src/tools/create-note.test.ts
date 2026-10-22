@@ -107,6 +107,8 @@ test("createNote refuses an unknown or ambiguous Notebook and writes nothing", a
     ),
     {
       refused: true,
+      name: "X",
+      reason: "notebook",
       clarification:
         "Ask the person to choose one existing, unambiguous Notebook name.",
     },
@@ -124,6 +126,8 @@ test("createNote refuses an unknown or ambiguous Notebook and writes nothing", a
     ),
     {
       refused: true,
+      name: "X",
+      reason: "notebook",
       clarification:
         "Ask the person to choose one existing, unambiguous Notebook name.",
     },
@@ -159,4 +163,30 @@ test("future, invalid, or undated-context days are refused without creating a No
     assert.equal("id" in result, false);
     assert.equal(creates.length, 0);
   }
+});
+
+test("a future day refuses with the title and creates nothing", async () => {
+  const { data, creates } = fake([{ id: notebookId, name: "Ideas" }]);
+  const result = await createNote.run({ notebook: "Ideas", title: "Memory", body: "", day: "2026-10-22" }, { ...ctx(data), today: "2026-10-21" });
+  assert.deepEqual([result.refused, "name" in result && result.name, "reason" in result && result.reason], [true, "Memory", "future-day"]);
+  assert.equal(creates.length, 0);
+});
+
+test("an unknown Notebook refuses with the title and creates nothing", async () => {
+  const { data, creates } = fake([{ id: notebookId, name: "Ideas" }]);
+  const result = await createNote.run({ notebook: "Nope", title: "Memory", body: "" }, ctx(data));
+  assert.deepEqual([result.refused, "name" in result && result.name, "reason" in result && result.reason], [true, "Memory", "notebook"]);
+  assert.equal(creates.length, 0);
+});
+
+test("a resend with a different day keeps the first stored day", async () => {
+  const noteId = "44444444-4444-4444-8444-444444444444";
+  const { data } = fake([{ id: notebookId, name: "Ideas" }]);
+  let stored: { id: string; notebookId: string; title: string; occasionDate: string | null } | undefined;
+  data.createNote = async (_userId, input) => (stored ??= { id: noteId, notebookId, title: input.title, occasionDate: input.occasionDate ?? null });
+  const context = { ...ctx(data), today: "2026-10-21" };
+  const first = await createNote.run({ notebook: "Ideas", title: "Memory", body: "", day: "2026-10-09" }, context);
+  const resend = await createNote.run({ notebook: "Ideas", title: "Memory", body: "", day: "2026-10-15" }, context);
+  assert.equal("day" in resend && resend.day, "2026-10-09");
+  assert.deepEqual(resend, first);
 });

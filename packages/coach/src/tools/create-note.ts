@@ -29,10 +29,10 @@ export const createNote = {
   async run(input: z.infer<typeof inputSchema>, { userId, messageId, today, data }: ToolRunContext) {
     if (!data.listNotebooks || !data.createNote) throw new Error("Notes are unavailable.");
     const parsed = inputSchema.parse(input);
-    if (parsed.day !== undefined && !validNoteOccasionDate(parsed.day, today)) return { refused: true, clarification: "Occasion date must be today or a past day. Supply the browser’s Today." };
+    if (parsed.day !== undefined && !validNoteOccasionDate(parsed.day, today)) return { refused: true, name: parsed.title, reason: "future-day" as const, clarification: "Occasion date must be today or a past day. Ask the person for the day." };
     const books = await data.listNotebooks(userId);
     const matches = books.filter((book) => book.name.toLowerCase() === parsed.notebook.toLowerCase());
-    if (matches.length !== 1) return { refused: true, clarification: "Ask the person to choose one existing, unambiguous Notebook name." };
+    if (matches.length !== 1) return { refused: true, name: parsed.title, reason: "notebook" as const, clarification: "Ask the person to choose one existing, unambiguous Notebook name." };
     const notebookId = matches[0]!.id;
     const row = await data.createNote(userId, { notebookId, title: parsed.title, body: parsed.body, ...(parsed.day !== undefined && { occasionDate: parsed.day, today }) }, { source: "coach", sourceId: coachNoteSourceId(messageId, notebookId, parsed.title) });
     if (!z.uuid().safeParse(row.id).success || row.notebookId !== notebookId) throw new Error("Invalid Note result.");

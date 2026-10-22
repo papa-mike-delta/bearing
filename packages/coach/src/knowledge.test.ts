@@ -57,3 +57,21 @@ test("habits.md and its generated copy state the repeat rule interval as 1–999
   }
   assert.equal(habitsMarkdown, source);
 });
+
+test("Note occasion dates live in notes.md, while people.md keeps 'People have no occasion date'", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { notesMarkdown, peopleMarkdown } = await import("./knowledge-articles.generated.ts");
+  const notes = await readFile(new URL("../knowledge/notes.md", import.meta.url), "utf8");
+  const people = await readFile(new URL("../knowledge/people.md", import.meta.url), "utf8");
+  assert.equal(notesMarkdown, notes);
+  assert.equal(peopleMarkdown, people);
+  assert.match(notes, /^## Note occasion dates/m);
+  assert.doesNotMatch(people, /## Note occasion dates/);
+  assert.ok(people.includes("People have no occasion date"));
+  const { notesArticle } = await import("./knowledge.ts");
+  const article = await notesArticle();
+  assert.equal(article.href, "/coach/knowledge/notes");
+  const result = await searchKnowledge("Note occasion dates");
+  assert.equal(result.match, true);
+  if (result.match) assert.equal(result.href, "/coach/knowledge/notes");
+});

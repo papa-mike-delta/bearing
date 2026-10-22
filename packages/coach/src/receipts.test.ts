@@ -587,3 +587,11 @@ test("dated Note receipts name the stored occasion using domain day words, failu
   assert.equal(receipt({ ...part, output: { ...output, refused: true } }), "Couldn't create that Note");
   assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't create that Note");
 });
+
+test("refused createNote results get neutral receipts naming the Note; real errors keep the failure line", () => {
+  const part = { type: "tool-createNote", state: "output-available", output: { refused: true, name: "Memory", reason: "future-day", clarification: "…" } };
+  assert.equal(receipt(part), "No change: asked about the day for Note 'Memory'");
+  assert.equal(receipt({ ...part, output: { refused: true, name: "Memory", reason: "notebook", clarification: "…" } }), "No change: asked which Notebook for Note 'Memory'");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't create that Note");
+  assert.equal(receipt({ ...part, output: { refused: true, name: "", reason: "future-day" } }), "Couldn't create that Note");
+});

@@ -3427,13 +3427,14 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const reloaded = await threadMessages(c, thread, db);
     const receipts = receiptsOf(reloaded)!;
     assert.equal(
-      receipts.filter((r) => r === "Couldn't create that Note").length,
+      receipts.filter((r) => /^No change: asked which Notebook for Note '/.test(r)).length,
       2,
     );
+    assert.equal(receipts.filter((r) => r === "Couldn't create that Note").length, 0);
     const failed = reloaded!
       .flatMap((m) => shownParts(m.parts))
       .filter(
-        (p) => "receipt" in p && p.receipt === "Couldn't create that Note",
+        (p) => "receipt" in p && /^No change: asked which Notebook for Note '/.test(String(p.receipt)),
       );
     assert.equal(failed.length, 2);
     for (const part of failed) {
@@ -3640,5 +3641,17 @@ test("a person-write refusal is a checked result, not an applied write or a fail
   const block = checkedResultsBlock([message]);
   assert.match(block, /- No change: asked about 'Ada'/);
   assert.match(block, /- No change: asked about 'Bo'/);
+  assert.doesNotMatch(block, /Couldn't/);
+});
+
+test("a refused createNote is a checked result with a neutral line, not an applied write or a failure", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-createNote", toolCallId: "a", state: "output-available", input: { notebook: "Ideas", title: "Memory", day: "2026-10-30" }, output: { refused: true, name: "Memory", reason: "future-day", clarification: "Ask for the day." } },
+    { type: "tool-createNote", toolCallId: "b", state: "output-available", input: { notebook: "Nope", title: "Quote" }, output: { refused: true, name: "Quote", reason: "notebook", clarification: "Ask which Notebook." } },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+  const block = checkedResultsBlock([message]);
+  assert.match(block, /- No change: asked about the day for Note 'Memory'/);
+  assert.match(block, /- No change: asked which Notebook for Note 'Quote'/);
   assert.doesNotMatch(block, /Couldn't/);
 });
