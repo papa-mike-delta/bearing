@@ -35,3 +35,14 @@ test("searchKnowledge: no match is a normal result, not an error", async () => {
 test("searchKnowledge: a load failure rejects, so the receipt says it couldn't look up", async () => {
   await assert.rejects(searchKnowledge("21 days", async () => { throw new Error("ENOENT habits.md"); }), /ENOENT/);
 });
+
+test('People knowledge ships its product rules, boundaries and searchable section with a linked receipt', async () => {
+  const {peopleArticle} = await import('./knowledge.ts');
+  const article = await peopleArticle();
+  assert.equal(article.href,'/coach/knowledge/people');
+  assert.match(article.body,/strictly after last connected/);
+  assert.match(article.body,/cannot add, rename, regroup or delete/);
+  const result = await searchKnowledge('Keeping people');
+  assert.equal(result.match,true);
+  if(result.match) {assert.equal(result.title,'People: reach-out rules');assert.equal(result.href,article.href);}
+});

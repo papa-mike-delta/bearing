@@ -45,7 +45,7 @@ test("the Coach can add a Task and complete one Task", () => {
   );
   assert.ok(
     coachSystemPrompt().includes(
-      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit and trackHabit combined.`,
+      `At most ${maxCreatesPerTurn} mutation calls per reply across createTask, createNote, appendJournal, setMood, fileDraft, createHabit, trackHabit, setPersonLastConnected and setPersonAgreedDay combined.`,
     ),
   );
   assert.ok(
@@ -268,4 +268,10 @@ test("prompt and README describe true undo and convert fewer into a setCount tot
     for (const phrase of ["N fewer", "one less", "setCount"]) assert.ok(text.includes(phrase));
     assert.doesNotMatch(text, /removes? one/);
   }
+});
+
+test('People tools and boundaries describe the shipped screen without automatic reads or unsupported writes', () => {
+  const prompt = coachSystemPrompt();
+  for (const text of ['A person is someone in your life','listPeople','readPerson','setPersonLastConnected','setPersonAgreedDay','add, rename, regroup, or delete a person',"set or clear a person's rule",'log a note','create a link','create a recurring Task','People are read only on request','Task list remains the only automatic read']) assert.ok(prompt.includes(text),text);
+  assert.match(prompt,/setPersonLastConnected and setPersonAgreedDay combined/);
 });

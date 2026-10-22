@@ -1,3 +1,4 @@
+import { createPerson, getPerson, savePerson } from "./people.ts";
 import { searchKnowledge } from "@repo/coach/knowledge";
 import { access } from "node:fs/promises";
 import { dailyCloseDay as coachCloseDay } from "./daily-close/index.ts";
@@ -88,6 +89,7 @@ function writeToolsOffered(
     "listInboxDrafts",
     "scheduleTask",
     "updateTask",
+    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
   ]) {
     assert.ok(names.includes(name), name);
   }
@@ -247,6 +249,10 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // A model that runs one scripted step per call: a tool call with `input`,
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
+  | { listPeople: string; toolCallId?: string }
+  | { readPerson: string; toolCallId?: string }
+  | { setPersonLastConnected: string; toolCallId?: string }
+  | { setPersonAgreedDay: string; toolCallId?: string }
   | { listArea: string; toolCallId?: string }
   | { listHabits: string; toolCallId?: string }
   | { createHabit: string; toolCallId?: string }
@@ -271,6 +277,10 @@ function scripted(...steps: Step[]) {
     doStream: async () => {
       const step = steps[Math.min(calls++, steps.length - 1)]!;
       const tool =
+        "listPeople" in step ? {name:"listPeople" as const,input:step.listPeople,id:step.toolCallId} :
+        "readPerson" in step ? {name:"readPerson" as const,input:step.readPerson,id:step.toolCallId} :
+        "setPersonLastConnected" in step ? {name:"setPersonLastConnected" as const,input:step.setPersonLastConnected,id:step.toolCallId} :
+        "setPersonAgreedDay" in step ? {name:"setPersonAgreedDay" as const,input:step.setPersonAgreedDay,id:step.toolCallId} :
         "listArea" in step
           ? {
               name: "listArea" as const,
@@ -434,6 +444,38 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
+
+  test("People reads stay out of automatic context and applied writes; saved date receipts and content-matched resends survive newer edits", async () => {
+    const c = await account();
+    const p = await createPerson(c,{name:"Ada",group:"Family"},db);
+    await savePerson(c,p.id,{...p,rule:{every:1,unit:"months"},lastConnected:"2026-09-01"},"2026-10-09",db);
+    const thread = await coachThread(c,db);
+    const automatic = scripted({text:"Hello."});
+    await turn(c,thread,userMessage("Hello"),automatic);
+    assert.ok(!promptText(automatic).includes('"name":"Ada"'));
+    await turn(c,thread,userMessage("Read Ada"),scripted({listPeople:"{}"},{readPerson:JSON.stringify({name:"ADA"})},{text:"Ada is due."}));
+    let messages = (await threadMessages(c,thread,db))!;
+    const lines = messages.at(-1)!.parts.flatMap(part => receipt(part) ?? []);
+    assert.ok(lines.includes("Read your people (1)"));assert.ok(lines.includes("Read 'Ada'"));
+    assert.equal(appliedWritesBlock(messages),"");
+    const message = userMessage("Connected with Ada today");
+    await turn(c,thread,message,failingAfterWrite("setPersonLastConnected",{name:" Ada "}));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+    await savePerson(c,p.id,{...p,rule:{every:1,unit:"months"},lastConnected:"2026-10-08"},"2026-10-09",db);
+    await turn(c,thread,message,scripted({setPersonLastConnected:JSON.stringify({name:"ADA",day:"2026-10-09"}),toolCallId:"changed_provider_id"},{text:"Recorded."}),"2026-10-10");
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-08");
+    messages = (await threadMessages(c,thread,db))!;
+    const shown = shownParts(messages.at(-1)!.parts,"2026-10-09");
+    assert.ok(shown.some(part => "receipt" in part && part.receipt === "Connected with 'Ada' today" && part.href === `/people/${p.id}`));
+    assert.match(appliedWritesBlock(messages),/Connected with 'Ada' on Fri, Oct 9/);
+    assert.doesNotMatch(appliedWritesBlock(messages),/Read your people|Read 'Ada'/);
+    await turn(c,thread,userMessage("Agreed to see Ada on November 3"),scripted({setPersonAgreedDay:JSON.stringify({name:"Ada",day:"2026-11-03"})},{text:"Agreed."}));
+    assert.equal((await getPerson(c,p.id,db))?.agreedDay,"2026-11-03");
+    await turn(c,thread,userMessage("Clear Ada's agreed day"),scripted({setPersonAgreedDay:JSON.stringify({name:"Ada",day:null})},{text:"Cleared."}));
+    messages = (await threadMessages(c,thread,db))!;
+    assert.equal((await getPerson(c,p.id,db))?.agreedDay,null);
+    assert.ok(messages.at(-1)!.parts.some(part => receipt(part) === "Cleared the agreed day for 'Ada'"));
+  });
 
   test("Bad many-times asks without tools, then records stated total, additions, or none", async () => {
     for (const goalCount of [5, null]) for (const answer of ["4", "2 more", "none"]) {
@@ -637,7 +679,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       const rows = await listHabits(c, "2026-10-09", [], db);
       const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
       assert.ok(parts.some((part) => "receipt" in part && part.receipt === (fourth === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit") && !part.href));
-      assert.match(JSON.stringify(model.doStreamCalls.at(-1)!.prompt), /only 3 .*Habit writes/);
+      assert.match(JSON.stringify(model.doStreamCalls.at(-1)!.prompt), /only 3 .*Person writes/);
       assert.equal(rows.find((row) => row.id === habit.id)!.count, fourth === "createHabit" ? 1 : 0);
       assert.equal(rows.length, fourth === "createHabit" ? 1 : 2);
       assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 1);

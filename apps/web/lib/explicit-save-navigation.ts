@@ -29,7 +29,7 @@ export function createExplicitSaveNavigation() {
         else active = false;
       };
       const submit = (event: SubmitEvent) => {
-        if (!active || (isElement(event.target) && (event.target.hasAttribute("data-note-editor") || event.target.hasAttribute("data-journal-editor")))) return;
+        if (!active || (isElement(event.target) && (event.target.hasAttribute("data-explicit-save-editor") || event.target.hasAttribute("data-note-editor") || event.target.hasAttribute("data-journal-editor")))) return;
         if (!window.confirm(message)) { event.preventDefault(); event.stopPropagation(); }
         else active = false;
       };

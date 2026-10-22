@@ -538,3 +538,17 @@ test("setCount receipts preserve total and unchanged date words after reload", (
     }
   }
 });
+
+test('people reads are reads and exact linked day receipts survive reload; refusals never show success', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const part = (type: string, output: unknown) => ({type:`tool-${type}`,state:'output-available',output});
+  assert.equal(receipt(part('listPeople',{people:[{id}]})), 'Read your people (1)');
+  assert.equal(receipt(part('readPerson',{id,name:'Ada'})), "Read 'Ada'");
+  assert.equal(receipt(part('setPersonLastConnected',{id,name:'Ada',day:'2026-10-21'}),'2026-10-21'), "Connected with 'Ada' today");
+  assert.equal(receipt(part('setPersonLastConnected',{id,name:'Ada',day:'2026-10-09'}),'2026-10-21'), "Connected with 'Ada' on Fri, Oct 9");
+  assert.equal(receipt(part('setPersonAgreedDay',{id,name:'Ada',day:'2026-03-03'})), "Agreed to see 'Ada' on Tue, Mar 3");
+  assert.equal(receipt(part('setPersonAgreedDay',{id,name:'Ada',day:null})), "Cleared the agreed day for 'Ada'");
+  const shown = shownParts([part('listPeople',{people:[]}),part('readPerson',{id,name:'Ada'}),part('setPersonAgreedDay',{id,name:'Ada',day:null})]);
+  assert.deepEqual(shown.map(p => 'href' in p ? [p.href,p.read] : []), [['/people',true],[`/people/${id}`,true],[`/people/${id}`,undefined]]);
+  for (const tool of ['readPerson','setPersonLastConnected','setPersonAgreedDay']) assert.doesNotMatch(receipt(part(tool,{refused:true,id,name:'Ada',day:null})) ?? '', /^(Read '|Connected|Agreed|Cleared)/);
+});

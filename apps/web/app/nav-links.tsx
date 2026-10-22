@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PeopleCount } from "./people/people-count";
 import { useCallback, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useBrowserToday } from "./browser-today";
@@ -12,6 +13,7 @@ const links: { href: string; label: string; count?: boolean }[] = [
   { href: "/notes", label: "Notes" },
   { href: "/journal", label: "Journal" },
   { href: "/habits", label: "Habits", count: true },
+  { href: "/people", label: "People" },
   { href: "/coach", label: "Coach" },
   { href: "/account", label: "Account" },
 ];
@@ -67,7 +69,7 @@ export function NavLinks() {
             aria-current={active ? "page" : undefined}
           >
             {link.label}
-            {link.count ? <HabitCount /> : null}
+            {link.count ? <HabitCount /> : link.href === "/people" ? <PeopleCount /> : null}
           </Link>
         );
       })}

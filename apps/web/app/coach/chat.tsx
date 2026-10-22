@@ -68,6 +68,7 @@ export function Chat({
       }
     },
     onFinish: () => {
+      window.dispatchEvent(new Event("people-changed"));
       closeDay.current = undefined;
       // Keep the streamed reply. Persistence runs independently on the server;
       // an immediate refresh could replace it with the not-yet-saved thread.

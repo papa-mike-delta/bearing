@@ -51,6 +51,28 @@ function taskReceipt(line: string, output: unknown): Line {
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart, today?: string | null): Line | null {
   if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
+  if (part.type === "tool-listPeople") {
+    if (pending(part.state)) return { line: "Reading your people…" };
+    const rows = (part.output as { people?: unknown } | undefined)?.people;
+    return part.state === "output-available" && Array.isArray(rows) && !flag(part.output, "refused")
+      ? { line: `Read your people (${rows.length})`, href: "/people" } : { line: "Couldn't read your people" };
+  }
+  if (["tool-readPerson", "tool-setPersonLastConnected", "tool-setPersonAgreedDay"].includes(part.type)) {
+    if (pending(part.state)) return { line: part.type === "tool-readPerson" ? "Reading this person…" : "Updating this person…" };
+    const output = part.output as { id?: unknown; name?: unknown; day?: unknown } | undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name) {
+      const href = `/people/${output.id}`;
+      if (part.type === "tool-readPerson") return { line: `Read '${output.name}'`, href };
+      if (part.type === "tool-setPersonAgreedDay" && output.day === null) return { line: `Cleared the agreed day for '${output.name}'`, href };
+      if (typeof output.day === "string" && isCalendarDay(output.day)) {
+        const date = weekdayMonthDay.format(utcDay(output.day));
+        return { line: part.type === "tool-setPersonLastConnected"
+          ? `Connected with '${output.name}' ${output.day === today ? "today" : `on ${date}`}`
+          : `Agreed to see '${output.name}' on ${date}`, href };
+      }
+    }
+    return { line: part.type === "tool-readPerson" ? "Couldn't read that person" : "Couldn't update that person" };
+  }
   if (part.type === "tool-readSkill") {
     if (pending(part.state)) return { line: "Opening skill…" };
     if (part.state === "output-available" && typeof part.output === "string") {
@@ -67,7 +89,7 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const output = part.output as { match?: unknown; title?: unknown; heading?: unknown; href?: unknown } | undefined;
     const title = output?.title;
     const heading = output?.heading;
-    const href = title === "Habits"
+    const href = title === "People: reach-out rules" ? "/coach/knowledge/people" : title === "Habits"
       ? "/coach/knowledge/habits"
       : title === "Journaling: evidence and limits"
         ? "/coach/knowledge/journaling"
@@ -240,7 +262,7 @@ export type ShownPart =
 // Reads show muted and plain; only writes look like actions.
 // One list for every read tool part type, shared with the web app's Applied
 // writes block so a read can never be shown as a saved write.
-export const coachReadToolTypes: ReadonlySet<string> = new Set(["tool-readSkill", "tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
+export const coachReadToolTypes: ReadonlySet<string> = new Set(["tool-listPeople", "tool-readPerson", "tool-readSkill", "tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
 // What a message shows: its text and its receipts, in order. A finished
 // listArea read with the same result as the receipt just before it (nothing

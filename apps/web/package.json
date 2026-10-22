@@ -11,7 +11,8 @@
     "check-types": "next typegen && tsc --noEmit",
     "test": "node --test",
     "reset-password": "node scripts/reset-password.ts",
-    "themes:generate": "node scripts/generate-shadcn-themes.ts"
+    "themes:generate": "node scripts/generate-shadcn-themes.ts",
+    "test:people": "node --test tests/people.browser.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.136",
@@ -32,9 +33,9 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
-    "shadcn": "4.21.4",
     "rehype-highlight": "7.0.2",
     "remark-gfm": "4.0.1",
+    "shadcn": "4.21.4",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -45,6 +46,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "eslint": "10.9.1",
+    "playwright-core": "1.64.1",
     "typescript": "7.0.2"
   }
 }
