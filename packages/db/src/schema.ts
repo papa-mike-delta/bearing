@@ -124,6 +124,7 @@ export const tasks = pgTable(
     age: date("age").notNull().default(sql`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`),
     // A reminder day, strictly after the day it was set. Null until scheduled.
     scheduledOn: date("scheduled_on"),
+    rule: jsonb("rule"),
     completedAt: timestamp("completed_at", {
       mode: "date",
       withTimezone: true,
@@ -209,6 +210,7 @@ export const notes = pgTable(
     notebookId: uuid("notebook_id").references(() => notebooks.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     body: text("body").notNull(),
+    occasionDate: date("occasion_date"),
     pinned: boolean("pinned").notNull().default(false),
     revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
@@ -314,11 +316,11 @@ export const entityLinks = pgTable(
     ),
     check(
       "entity_links_source_type",
-      sql`${t.sourceType} in ('task', 'note', 'journal')`,
+      sql`${t.sourceType} in ('task', 'note', 'journal', 'person')`,
     ),
     check(
       "entity_links_target_type",
-      sql`${t.targetType} in ('task', 'note', 'journal')`,
+      sql`${t.targetType} in ('task', 'note', 'journal', 'person')`,
     ),
     check(
       "entity_links_not_self",
@@ -431,6 +433,8 @@ export const habitMarks = pgTable(
 // Replay record for Coach habit writes (#95), like note_operations and
 // journal_operations. No habit foreign key: a deleted habit's old operation
 // must never recreate it or apply again. #89 writes nothing here.
+// Person date writes reuse this JSON ledger under source coach-person. In that
+// namespace habit_id is the person id; Habit queries and undo use source coach.
 export const habitOperations = pgTable("habit_operations", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -440,3 +444,16 @@ export const habitOperations = pgTable("habit_operations", {
   result: jsonb("result").notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("habit_operations_source_unique").on(t.userId, t.source, t.operationId)]);
+
+// A person belongs to one account. Reach-out is derived, never stored.
+export const people = pgTable('people', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  group: text('group').notNull(),
+  rule: jsonb('rule').$type<import('@repo/domain').NextDateRule | null>(),
+  lastConnected: date('last_connected'),
+  agreedDay: date('agreed_day'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, t => [index('people_user_id_idx').on(t.userId)]);

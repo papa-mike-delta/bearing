@@ -1,5 +1,5 @@
 import { db as defaultDb, notebooks, notes } from "@repo/db";
-import { noteHref, noteName, validNoteBody } from "@repo/domain";
+import { noteHref, noteName, validNoteBody, validNoteOccasionDate } from "@repo/domain";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 import { deleteEdgesForNotes } from "./links.ts";
@@ -59,13 +59,16 @@ export async function createNote(userId: string, input: NoteInput, from: NoteSou
   return db.transaction((tx) => createNoteInTransaction(userId, input, from, tx));
 }
 
-export async function saveNote(userId: string, id: string, input: { title: string; body: string; pinned: boolean; revision: number }, db: Db = defaultDb) {
+export type SaveNoteInput = { title: string; body: string; pinned: boolean; revision: number; occasionDate?: string | null; today?: string };
+
+export async function saveNote(userId: string, id: string, input: SaveNoteInput, db: Db = defaultDb) {
+  if (input.occasionDate != null && !validNoteOccasionDate(input.occasionDate, input.today)) throw new NoteError("Occasion date must be today or a past day. Supply the browser’s Today.");
   const title = noteName(input.title);
   if (!title || !validNoteBody(input.body) || typeof input.pinned !== "boolean" || !Number.isSafeInteger(input.revision) || input.revision < 1) {
     throw new NoteError("Use a title of 1–200 characters and a body of at most 100,000 characters.");
   }
   if (!isUuid(id)) throw new NoteError(unavailable);
-  const [note] = await db.update(notes).set({ title, body: input.body, pinned: input.pinned, revision: sql`${notes.revision} + 1` })
+  const [note] = await db.update(notes).set({ title, body: input.body, pinned: input.pinned, occasionDate: input.occasionDate, revision: sql`${notes.revision} + 1` })
     .where(and(eq(notes.id, id), eq(notes.userId, userId), eq(notes.revision, input.revision))).returning();
   if (note) return note;
   if (!(await getNote(userId, id, db))) throw new NoteError(unavailable);

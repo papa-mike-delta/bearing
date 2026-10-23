@@ -1,6 +1,9 @@
 import { areas, db as defaultDb, goals, tasks } from "@repo/db";
 import {
   applyTaskUpdate,
+  parseNextDateRule,
+  spawnTask,
+  isCalendarDay,
   assignGoal,
   changeStatus,
   goalInArea,
@@ -20,7 +23,11 @@ import {
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { isUuid, type Db } from "./db.ts";
 
-type TaskRef = { id: string; name: string };
+type TaskRef = {
+  id: string;
+  name: string;
+  spawned?: { id: string; date: string };
+};
 
 // Single-Task access includes hidden Areas. Only commands require an open Task.
 // Ownership is checked in Postgres; no account collections cross this seam.
@@ -43,6 +50,7 @@ const taskFields = {
   completedAt: tasks.completedAt,
   priority: tasks.priority,
   goalId: tasks.goalId,
+  rule: tasks.rule,
 };
 
 // Detail and name-based edits need this Area's Goals, never other Areas' Goals.
@@ -88,6 +96,7 @@ export async function taskDetail(
   return {
     task: {
       ...row.task,
+      rule: parseNextDateRule(row.task.rule),
       status: asTaskStatus(row.task.status),
       previousStatus: row.task.previousStatus
         ? asTaskStatus(row.task.previousStatus)
@@ -138,11 +147,39 @@ export async function completeTask(
   userId: string,
   taskId: string,
   db: Db = defaultDb,
+  today = "",
+  messageId?: string,
 ): Promise<TaskRef | null> {
   if (!isUuid(taskId)) return null;
   return db.transaction(async (tx) => {
     const row = await lockedOpen(userId, taskId, tx);
-    if (!row) return null;
+    if (!row) {
+      if (!messageId || !isUuid(messageId)) return null;
+      const detail = await taskDetail(userId, taskId, tx);
+      if (!detail || !detail.task.completedAt) return null;
+      // A resend replays the stored next date, never one recomputed from
+      // the resend's own day.
+      const [existing] = await tx
+        .select({ id: tasks.id, scheduledOn: tasks.scheduledOn })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.areaId, detail.task.areaId),
+            eq(tasks.source, "recurring"),
+            eq(tasks.sourceId, `${messageId}:${taskId}`),
+          ),
+        );
+      return existing && existing.scheduledOn
+        ? {
+            id: taskId,
+            name: detail.task.name,
+            spawned: { id: existing.id, date: existing.scheduledOn },
+          }
+        : null;
+    }
+    const rule = parseNextDateRule(row.rule);
+    if (row.rule !== null && (!rule || !isCalendarDay(today))) return null;
+    const spawned = spawnTask({ ...row, rule }, today);
     const next = changeStatus(toStatusTask(row), "completed", new Date());
     if (!next) return null;
     const [done] = await tx
@@ -154,7 +191,23 @@ export async function completeTask(
       })
       .where(eq(tasks.id, taskId))
       .returning({ id: tasks.id, name: tasks.name });
-    return done ?? null;
+    if (!done) throw new Error("Completion returned no Task");
+    if (!spawned) return done;
+    const { date, ...fields } = spawned;
+    const [created] = await tx
+      .insert(tasks)
+      .values({
+        ...fields,
+        scheduledOn: date,
+        age: date,
+        status: "later",
+        ...(messageId && isUuid(messageId)
+          ? { source: "recurring", sourceId: `${messageId}:${taskId}` }
+          : {}),
+      })
+      .returning({ id: tasks.id });
+    if (!created) throw new Error("Next Task returned no row");
+    return { ...done, spawned: { id: created.id, date } };
   });
 }
 
@@ -345,5 +398,22 @@ export async function updateOpenTask(
       .where(eq(tasks.id, taskId))
       .returning({ id: tasks.id, name: tasks.name });
     return saved ?? null;
+  });
+}
+
+// Screen-only command. The Coach has no rule mutation tool.
+export async function setTaskRule(
+  userId: string,
+  taskId: string,
+  input: unknown,
+  db: Db = defaultDb,
+) {
+  const rule = parseNextDateRule(input);
+  if (input !== null && !rule) return false;
+  return db.transaction(async (tx) => {
+    const row = await lockedOpen(userId, taskId, tx);
+    if (!row) return false;
+    await tx.update(tasks).set({ rule }).where(eq(tasks.id, taskId));
+    return true;
   });
 }

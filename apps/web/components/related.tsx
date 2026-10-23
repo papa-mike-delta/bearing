@@ -25,6 +25,7 @@ const kindLabel: Record<LinkKind, string> = {
   task: "Task",
   note: "Note",
   journal: "Journal",
+  person: "Person",
 };
 
 function Item({
@@ -59,9 +60,9 @@ function Item({
       {direction === "outgoing" ? (
         <Button
           type="button"
-          variant="ghost"
-          size="xs"
-          className="related-remove"
+          variant="outline"
+          size="sm"
+          className="related-button related-remove"
           disabled={pending}
           onClick={() => {
             if (!window.confirm("Remove this link?")) return;
@@ -83,7 +84,7 @@ export function Related({
   initial: RelatedLists;
 }) {
   const [lists, setLists] = useState(initial);
-  const { open, query, hits, more, active, dispatch } =
+  const { open, query, hits, more, active, noMatches, dispatch } =
     useRelatedPicker(source);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -159,12 +160,12 @@ export function Related({
   }
 
   const picker = open ? (
-    <div>
+    <div className="related-picker">
       <label
         className="sr-only"
         htmlFor={`add-link-${source.kind}-${source.id}`}
       >
-        Find a task, note, or journal day
+        Find a task, note, journal day, or person
       </label>
       <Input
         id={`add-link-${source.kind}-${source.id}`}
@@ -177,14 +178,20 @@ export function Related({
             : undefined
         }
         value={query}
-        placeholder="Task name, note title, or date"
+        placeholder="Task name, note title, date, or person name"
         onChange={(event) =>
           dispatch({ type: "query", value: event.target.value })
         }
         onKeyDown={onKeyDown}
         autoFocus
       />
-      <ul id={`link-hits-${source.id}`} role="listbox">
+      {noMatches ? <p className="related-empty">No matches</p> : null}
+      <ul
+        id={`link-hits-${source.id}`}
+        role="listbox"
+        hidden={hits.length === 0}
+        className="related-hits"
+      >
         {hits.map((hit, index) => (
           <li
             key={`${hit.kind}:${hit.id}`}
@@ -231,6 +238,7 @@ export function Related({
       type="button"
       variant="outline"
       size="sm"
+      className="related-button related-add"
       onClick={() => {
         dispatch({ type: "open" });
         setNotice("");
@@ -260,7 +268,11 @@ export function Related({
           ))}
         </ul>
       )}
-      {picker}
+      <div className="related-add-row">
+        {picker}
+        {notice ? <p role="status">{notice}</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
+      </div>
       <h3>Backlinks</h3>
       {lists.incoming.length === 0 ? (
         <p>No backlinks.</p>
@@ -277,8 +289,6 @@ export function Related({
           ))}
         </ul>
       )}
-      {notice ? <p role="status">{notice}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
     </section>
   );
 }

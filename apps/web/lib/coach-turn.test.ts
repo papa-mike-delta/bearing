@@ -1,3 +1,5 @@
+import { personLinkedNotes } from "./person-notes.ts";
+import { createPerson, getPerson, savePerson } from "./people.ts";
 import { searchKnowledge } from "@repo/coach/knowledge";
 import { access } from "node:fs/promises";
 import { dailyCloseDay as coachCloseDay } from "./daily-close/index.ts";
@@ -88,6 +90,7 @@ function writeToolsOffered(
     "listInboxDrafts",
     "scheduleTask",
     "updateTask",
+    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay",
   ]) {
     assert.ok(names.includes(name), name);
   }
@@ -247,6 +250,12 @@ const userTurnsIn = (model: MockLanguageModelV4) =>
 // A model that runs one scripted step per call: a tool call with `input`,
 // or a text reply. Past the end of the script it repeats the last step.
 type Step =
+  | { readSkill: string; toolCallId?: string }
+  | { logNoteOnPerson: string; toolCallId?: string }
+  | { listPeople: string; toolCallId?: string }
+  | { readPerson: string; toolCallId?: string }
+  | { setPersonLastConnected: string; toolCallId?: string }
+  | { setPersonAgreedDay: string; toolCallId?: string }
   | { listArea: string; toolCallId?: string }
   | { listHabits: string; toolCallId?: string }
   | { createHabit: string; toolCallId?: string }
@@ -271,6 +280,12 @@ function scripted(...steps: Step[]) {
     doStream: async () => {
       const step = steps[Math.min(calls++, steps.length - 1)]!;
       const tool =
+        "readSkill" in step ? {name:"readSkill" as const,input:step.readSkill,id:step.toolCallId} :
+        "logNoteOnPerson" in step ? {name:"logNoteOnPerson" as const,input:step.logNoteOnPerson,id:step.toolCallId} :
+        "listPeople" in step ? {name:"listPeople" as const,input:step.listPeople,id:step.toolCallId} :
+        "readPerson" in step ? {name:"readPerson" as const,input:step.readPerson,id:step.toolCallId} :
+        "setPersonLastConnected" in step ? {name:"setPersonLastConnected" as const,input:step.setPersonLastConnected,id:step.toolCallId} :
+        "setPersonAgreedDay" in step ? {name:"setPersonAgreedDay" as const,input:step.setPersonAgreedDay,id:step.toolCallId} :
         "listArea" in step
           ? {
               name: "listArea" as const,
@@ -434,6 +449,91 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     await createArea(user!.id, "Tasks", db);
     return user!.id;
   }
+
+  test("reconnect history preserves reads and permits sent confirmation writes on the next turn", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const person = await createPerson(c, { name: "Dee", group: "Close friends" }, db);
+    const line = "Hi Dee, would you like to catch up?";
+    await turn(c, thread, userMessage("Help me reach out to someone"), scripted(
+      { readSkill: JSON.stringify({ name: "reconnect" }) },
+      { listPeople: "{}" },
+      { text: `Dee is due. Draft: "${line}" Tell me "I sent it" once sent.` },
+    ), "2026-10-09");
+    const model = scripted(
+      { logNoteOnPerson: JSON.stringify({ name: "Dee", text: line }) },
+      { setPersonLastConnected: JSON.stringify({ name: "Dee", day: "2026-10-10" }) },
+      { text: "Recorded." },
+    );
+    await turn(c, thread, userMessage("I sent it"), model, "2026-10-10");
+    const prompt = promptText(model);
+    assert.match(prompt, /\[Checked: .*Opened the reconnect skill; Read your people \(1\)/);
+    assert.match(prompt, /reconnect skill was loaded earlier in this thread/);
+    assert.match(prompt, /restriction applied only to that reply/);
+    assert.ok(prompt.includes(line));
+    assert.ok(model.doStreamCalls[0]!.tools?.some((t) => t.name === "logNoteOnPerson"));
+    const savedMessages = await threadMessages(c, thread, db);
+    const receipts = savedMessages!.flatMap((m) => m.parts.map((p) => receipt(p, "2026-10-10")));
+    assert.ok(receipts.includes("Logged a note on 'Dee'"));
+    assert.ok(receipts.includes("Connected with 'Dee' today"));
+    const saved = await getPerson(c, person.id, db);
+    assert.equal(saved?.lastConnected, "2026-10-10");
+    const linked = await personLinkedNotes(c, person.id, db);
+    assert.equal(linked[0]?.title, line);
+  });
+
+  test("People reads stay out of automatic context and applied writes; saved date receipts and content-matched resends survive newer edits", async () => {
+    const c = await account();
+    const p = await createPerson(c,{name:"Ada",group:"Family"},db);
+    await savePerson(c,p.id,{...p,rule:{every:1,unit:"months"},lastConnected:"2026-09-01"},"2026-10-09",db);
+    const thread = await coachThread(c,db);
+    const automatic = scripted({text:"Hello."});
+    await turn(c,thread,userMessage("Hello"),automatic);
+    assert.ok(!promptText(automatic).includes('"name":"Ada"'));
+    await turn(c,thread,userMessage("Read Ada"),scripted({listPeople:"{}"},{readPerson:JSON.stringify({name:"ADA"})},{text:"Ada is due."}));
+    let messages = (await threadMessages(c,thread,db))!;
+    const lines = messages.at(-1)!.parts.flatMap(part => receipt(part) ?? []);
+    assert.ok(lines.includes("Read your people (1)"));assert.ok(lines.includes("Read 'Ada'"));
+    assert.equal(appliedWritesBlock(messages),"");
+    const message = userMessage("Connected with Ada today");
+    await turn(c,thread,message,failingAfterWrite("setPersonLastConnected",{name:" Ada "}));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+    await savePerson(c,p.id,{...p,rule:{every:1,unit:"months"},lastConnected:"2026-10-08"},"2026-10-09",db);
+    await turn(c,thread,message,scripted({setPersonLastConnected:JSON.stringify({name:"ADA",day:"2026-10-09"}),toolCallId:"changed_provider_id"},{text:"Recorded."}),"2026-10-10");
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-08");
+    messages = (await threadMessages(c,thread,db))!;
+    const shown = shownParts(messages.at(-1)!.parts,"2026-10-09");
+    assert.ok(shown.some(part => "receipt" in part && part.receipt === "Connected with 'Ada' today" && part.href === `/people/${p.id}`));
+    assert.match(appliedWritesBlock(messages),/Connected with 'Ada' on Fri, Oct 9/);
+    assert.doesNotMatch(appliedWritesBlock(messages),/Read your people|Read 'Ada'/);
+    await turn(c,thread,userMessage("Agreed to see Ada on November 3"),scripted({setPersonAgreedDay:JSON.stringify({name:"Ada",day:"2026-11-03"})},{text:"Agreed."}));
+    assert.equal((await getPerson(c,p.id,db))?.agreedDay,"2026-11-03");
+    await turn(c,thread,userMessage("Clear Ada's agreed day"),scripted({setPersonAgreedDay:JSON.stringify({name:"Ada",day:null})},{text:"Cleared."}));
+    messages = (await threadMessages(c,thread,db))!;
+    assert.equal((await getPerson(c,p.id,db))?.agreedDay,null);
+    assert.ok(messages.at(-1)!.parts.some(part => receipt(part) === "Cleared the agreed day for 'Ada'"));
+  });
+
+  test("'I saw Ada today' writes last connected directly; an unknown name gets a refused result and a neutral receipt", async () => {
+    const c = await account();
+    const p = await createPerson(c,{name:"Ada",group:"Family"},db);
+    const thread = await coachThread(c,db);
+    await turn(c,thread,userMessage("I saw Ada today"),scripted({setPersonLastConnected:JSON.stringify({name:"Ada"})},{text:"Noted."}));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+    let messages = (await threadMessages(c,thread,db))!;
+    let last = messages.at(-1)!;
+    assert.ok(last.parts.some(part => part.type === "tool-setPersonLastConnected"));
+    assert.ok(shownParts(last.parts,"2026-10-09").some(part => "receipt" in part && part.receipt === "Connected with 'Ada' today"));
+    await turn(c,thread,userMessage("I saw Zed"),scripted({setPersonLastConnected:JSON.stringify({name:"Zed"})},{text:"No person matches Zed. Which one did you mean?"}));
+    messages = (await threadMessages(c,thread,db))!;
+    last = messages.at(-1)!;
+    const call = last.parts.find(part => part.type === "tool-setPersonLastConnected") as { output?: { refused?: boolean; name?: string } } | undefined;
+    assert.equal(call?.output?.refused,true);
+    assert.equal(call?.output?.name,"Zed");
+    assert.ok(last.parts.some(part => receipt(part) === "No change: asked about 'Zed'"));
+    assert.ok(!last.parts.some(part => /Couldn't update/.test(receipt(part) ?? "")));
+    assert.equal((await getPerson(c,p.id,db))?.lastConnected,"2026-10-09");
+  });
 
   test("Bad many-times asks without tools, then records stated total, additions, or none", async () => {
     for (const goalCount of [5, null]) for (const answer of ["4", "2 more", "none"]) {
@@ -637,7 +737,7 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
       const rows = await listHabits(c, "2026-10-09", [], db);
       const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
       assert.ok(parts.some((part) => "receipt" in part && part.receipt === (fourth === "createHabit" ? "Couldn't create that habit" : "Couldn't track that habit") && !part.href));
-      assert.match(JSON.stringify(model.doStreamCalls.at(-1)!.prompt), /only 3 .*Habit writes/);
+      assert.match(JSON.stringify(model.doStreamCalls.at(-1)!.prompt), /only 3 .*Person writes/);
       assert.equal(rows.find((row) => row.id === habit.id)!.count, fourth === "createHabit" ? 1 : 0);
       assert.equal(rows.length, fourth === "createHabit" ? 1 : 2);
       assert.equal((await db.select().from(habitOperations).where(eq(habitOperations.userId, c))).length, 1);
@@ -2577,8 +2677,11 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
         "user",
         "assistant",
         "user",
+        "assistant",
+        "user",
       ],
     );
+    assert.ok(JSON.stringify(history).includes("[Checked: Read your list (1 open); Read your list (1 open)]"));
     for (const m of history) {
       assert.ok(
         Array.isArray(m.content) && m.content.length,
@@ -2993,6 +3096,64 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     assert.ok(receipts.includes("Couldn't create that task"));
   });
 
+  test("Coach creates and reads an explicitly requested recurring Task but refuses later rule edits", async () => {
+    const c = await account();
+    const thread = await coachThread(c, db);
+    const rule = { every: 3, unit: "weeks", on: "tuesday" };
+    await turn(c, thread, userMessage("Add Pay rent every 3 weeks on Tuesday"), scripted({ createTask: JSON.stringify({ name: "Pay rent", rule }) }, { text: "Created." }));
+    const open = await openTasks(c, db);
+    assert.equal(open.length, 1);
+    assert.deepEqual(open[0]!.rule, rule);
+    const data = coachData(db, "2026-10-09");
+    assert.deepEqual((await data.listOpenTasks(c))[0]!.rule, rule);
+    assert.equal((await data.listOpenTasks(c))[0]!.repeat, "every 3 weeks on Tuesday");
+    const tools = coachTools(data);
+    const update = tools.updateTask.inputSchema as { safeParse(input: unknown): { success: boolean } };
+    assert.equal(update.safeParse({ taskId: open[0]!.id, rule: null }).success, false);
+    const questionThread = await coachThread(c, db);
+    await turn(c, questionThread, userMessage("Add another every March and July"), scripted({ text: "Which number of days, weeks or months should it repeat on?" }));
+    assert.equal((await openTasks(c, db)).length, 1);
+  });
+
+  test("a repeating completion uses no create slot and its linked receipt survives reload", async () => {
+    const c = await account();
+    const task = await addTask(c, { name: "Pay rent", today: "2026-02-20", rule: { every: 1, unit: "months", on: 3 } }, db);
+    assert.ok(task);
+    const thread = await coachThread(c, db);
+    await turn(c, thread, userMessage("Complete Pay rent and add A, B, C"), scripted(
+      { completeTask: JSON.stringify({ taskId: task.id }) },
+      { createTask: JSON.stringify({ name: "A" }) },
+      { createTask: JSON.stringify({ name: "B" }) },
+      { createTask: JSON.stringify({ name: "C" }) },
+      { text: "Done." },
+    ), "2026-02-20");
+    const open = await openTasks(c, db);
+    assert.deepEqual(open.map(t => t.name).sort(), ["A", "B", "C", "Pay rent"]);
+    const next = open.find(t => t.name === "Pay rent")!;
+    assert.equal(next.date, "2026-03-03");
+    const parts = shownParts((await threadMessages(c, thread, db))!.at(-1)!.parts);
+    const completed = parts.find(p => "receipt" in p && p.receipt.startsWith("Completed"));
+    assert.ok(completed && "receipt" in completed);
+    assert.equal(completed.receipt, "Completed 'Pay rent'. Next is Tue, Mar 3");
+    assert.equal(completed.href, taskHref(task.id));
+    assert.deepEqual(completed.nextLink, { text: "Tue, Mar 3", href: taskHref(next.id) });
+  });
+
+  test("a failed recurring completion turn resends with changed provider identity without another Task", async () => {
+    const c = await account();
+    const task = await addTask(c, { name: "Pay rent", today: "2026-02-20", rule: { every: 1, unit: "months", on: 3 } }, db);
+    assert.ok(task);
+    const thread = await coachThread(c, db);
+    const message = userMessage("Complete Pay rent");
+    const input = { taskId: task.id };
+    await turn(c, thread, message, failingAfterWrite("completeTask", input), "2026-02-20");
+    await turn(c, thread, message, scripted({ completeTask: JSON.stringify(input), toolCallId: "changed_provider_id" }, { text: "Done." }), "2026-04-20");
+    const open = await openTasks(c, db);
+    assert.equal(open.length, 1);
+    assert.equal(open[0]!.date, "2026-03-03");
+    assert.ok(receiptsOf(await threadMessages(c, thread, db))!.includes("Completed 'Pay rent'. Next is Tue, Mar 3"));
+  });
+
   test("completeTask completes the person's Task and moves Next when needed", async () => {
     const c = await account();
     const ids = await addTasks(c, [
@@ -3306,13 +3467,14 @@ describe("Coach turns", { skip: !url && "TEST_POSTGRES_URL not set" }, () => {
     const reloaded = await threadMessages(c, thread, db);
     const receipts = receiptsOf(reloaded)!;
     assert.equal(
-      receipts.filter((r) => r === "Couldn't create that Note").length,
+      receipts.filter((r) => /^No change: asked which Notebook for Note '/.test(r)).length,
       2,
     );
+    assert.equal(receipts.filter((r) => r === "Couldn't create that Note").length, 0);
     const failed = reloaded!
       .flatMap((m) => shownParts(m.parts))
       .filter(
-        (p) => "receipt" in p && p.receipt === "Couldn't create that Note",
+        (p) => "receipt" in p && /^No change: asked which Notebook for Note '/.test(String(p.receipt)),
       );
     assert.equal(failed.length, 2);
     for (const part of failed) {
@@ -3508,4 +3670,28 @@ test("fake CoachData undo refusals return a neutral receipt and release their wr
   }
   await assert.rejects(execute(), /only 3 .* writes per reply/);
   assert.equal(calls, 5);
+});
+
+test("a person-write refusal is a checked result, not an applied write or a failure", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-setPersonLastConnected", toolCallId: "a", state: "output-available", input: { name: "Ada" }, output: { refused: true, name: "Ada", question: "No person matches 'Ada'." } },
+    { type: "tool-setPersonAgreedDay", toolCallId: "b", state: "output-available", input: { name: "Bo", day: "2026-11-01" }, output: { refused: true, name: "Bo", question: "An agreed day requires a rule." } },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+  const block = checkedResultsBlock([message]);
+  assert.match(block, /- No change: asked about 'Ada'/);
+  assert.match(block, /- No change: asked about 'Bo'/);
+  assert.doesNotMatch(block, /Couldn't/);
+});
+
+test("a refused createNote is a checked result with a neutral line, not an applied write or a failure", () => {
+  const message = { id: "m", role: "assistant", parts: [
+    { type: "tool-createNote", toolCallId: "a", state: "output-available", input: { notebook: "Ideas", title: "Memory", day: "2026-10-30" }, output: { refused: true, name: "Memory", reason: "future-day", clarification: "Ask for the day." } },
+    { type: "tool-createNote", toolCallId: "b", state: "output-available", input: { notebook: "Nope", title: "Quote" }, output: { refused: true, name: "Quote", reason: "notebook", clarification: "Ask which Notebook." } },
+  ] } as unknown as UIMessage;
+  assert.equal(appliedWritesBlock([message]), "");
+  const block = checkedResultsBlock([message]);
+  assert.match(block, /- No change: asked about the day for Note 'Memory'/);
+  assert.match(block, /- No change: asked which Notebook for Note 'Quote'/);
+  assert.doesNotMatch(block, /Couldn't/);
 });

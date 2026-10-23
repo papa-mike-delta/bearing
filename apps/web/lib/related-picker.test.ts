@@ -3,6 +3,7 @@ import { afterEach, beforeEach, mock, test } from "node:test";
 import type { LinkEnd, PickerHit } from "@repo/domain";
 import {
   createRelatedPicker,
+  showNoMatches,
   type RelatedPickerSearch,
 } from "./related-picker.ts";
 
@@ -547,4 +548,57 @@ test("Escape resets like a pick: closed, query cleared, reopen lists recent targ
   assert.equal(requests.length, 2);
   assert.equal(requests[1]!.query, "");
   assert.equal(requests[1]!.offset, 0);
+});
+
+test("person hits match names, page by twenty, and self is excluded for a person source", async () => {
+  const { picker, requests, begin } = setup();
+  picker.dispatch({ type: "source", source: { kind: "person", id: "self" } });
+  begin("Ada");
+  requests[0]!.resolve({
+    hits: [
+      hit("self", "Ada self", "person"),
+      hit("ada", "Ada Lovelace", "person"),
+      hit("other", "Bo", "person"),
+    ],
+    more: true,
+  });
+  await Promise.resolve();
+  assert.deepEqual(
+    picker.getSnapshot().hits.map((h) => h.id),
+    ["ada"],
+  );
+  picker.dispatch({ type: "more" });
+  assert.equal(requests[1]!.offset, 20);
+  requests[1]!.resolve({
+    hits: [hit("ada2", "Ada Byron", "person")],
+    more: false,
+  });
+  await Promise.resolve();
+  assert.deepEqual(
+    picker.getSnapshot().hits.map((h) => h.id),
+    ["ada", "ada2"],
+  );
+  picker.dispatch({ type: "cancel" });
+  assert.equal(picker.getSnapshot().open, false);
+});
+
+test("No matches shows only after a finished search leaves no hits, including the source itself", async () => {
+  const { picker, requests, begin } = setup();
+  assert.equal(showNoMatches(picker.getSnapshot()), false);
+  begin("source");
+  assert.equal(showNoMatches(picker.getSnapshot()), false, "still loading");
+  requests
+    .at(-1)!
+    .resolve({ hits: [hit("source", "Plan source")], more: false });
+  await Promise.resolve();
+  assert.deepEqual(picker.getSnapshot().hits, []);
+  assert.equal(showNoMatches(picker.getSnapshot()), true);
+  picker.dispatch({ type: "query", value: "Plan" });
+  assert.equal(showNoMatches(picker.getSnapshot()), false, "new query resets");
+  mock.timers.tick(150);
+  requests.at(-1)!.resolve({ hits: [plan], more: false });
+  await Promise.resolve();
+  assert.equal(showNoMatches(picker.getSnapshot()), false);
+  picker.dispatch({ type: "cancel" });
+  assert.equal(showNoMatches(picker.getSnapshot()), false);
 });

@@ -41,3 +41,23 @@ test("prompt lists habit-design name and description only and README describes l
   assert.match(readme, /habit-design skill loads through readSkill/);
   assert.doesNotMatch(readme, /habit-design skill has no file and is not offered/);
 });
+
+test("reconnect loads verbatim with a read receipt and a bounded one-line draft", async () => {
+  const body = await readSkill.run({ name: "reconnect" });
+  assert.equal(body, await readFile(new URL("../../skills/reconnect.md", import.meta.url), "utf8"));
+  for (const phrase of ["up to 10", "more", "ONE line", "never send", "no research quotes", "I sent it", "logNoteOnPerson", "setPersonLastConnected", "browser's Today", "Allowed tools: listPeople, readPerson."]) assert.ok(body.includes(phrase), phrase);
+  assert.equal(receipt({ type: "tool-readSkill", state: "output-available", output: body }), "Opened the reconnect skill");
+});
+
+test("reconnect receipt is classified as a read, never an applied write", async () => {
+  const { shownParts } = await import("../receipts.ts");
+  const output = await readSkill.run({ name: "reconnect" });
+  assert.deepEqual(shownParts([{ type: "tool-readSkill", state: "output-available", output }]), [
+    { key: "part-0", receipt: "Opened the reconnect skill", calls: 1, read: true },
+  ]);
+});
+
+ test("reconnect always drafts when naming someone and ends with sent confirmation", async () => {
+  const text = await readSkill.run({ name: "reconnect" });
+  for (const phrase of ["SAME reply", "exactly one drafted message line", "top/chosen person", "clearly marked as a quote", "Never reply with only a question", 'Tell me "I sent it" once sent.']) assert.ok(text.includes(phrase), phrase);
+});

@@ -134,6 +134,34 @@
       "when": 1792338101217,
       "tag": "0018_habit_counts",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792630249741,
+      "tag": "0019_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792633319423,
+      "tag": "0020_task_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792637584261,
+      "tag": "0021_person_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792641320332,
+      "tag": "0022_note_occasion",
+      "breakpoints": true
     }
   ]
 }

@@ -538,3 +538,60 @@ test("setCount receipts preserve total and unchanged date words after reload", (
     }
   }
 });
+
+test("recurring completion links the completed name and next date separately", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const nextId = "22222222-2222-4222-8222-222222222222";
+  const part = { type: "tool-completeTask", state: "output-available", output: { id, name: "Pay rent", spawned: { id: nextId, date: "2026-03-03" } } };
+  assert.equal(receipt(part), "Completed 'Pay rent'. Next is Tue, Mar 3");
+  const shown = shownParts([part])[0];
+  assert.ok(shown && "receipt" in shown);
+  assert.equal(shown.href, `/tasks/item/${id}`);
+  assert.deepEqual(shown.nextLink, { text: "Tue, Mar 3", href: `/tasks/item/${nextId}` });
+  assert.equal(receipt({ ...part, output: { id, name: "Pay rent" } }), "Completed 'Pay rent'");
+});
+
+test('people reads are reads and exact linked day receipts survive reload; refusals never show success', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const part = (type: string, output: unknown) => ({type:`tool-${type}`,state:'output-available',output});
+  assert.equal(receipt(part('listPeople',{people:[{id}]})), 'Read your people (1)');
+  assert.equal(receipt(part('readPerson',{id,name:'Ada'})), "Read 'Ada'");
+  assert.equal(receipt(part('setPersonLastConnected',{id,name:'Ada',day:'2026-10-21'}),'2026-10-21'), "Connected with 'Ada' today");
+  assert.equal(receipt(part('setPersonLastConnected',{id,name:'Ada',day:'2026-10-09'}),'2026-10-21'), "Connected with 'Ada' on Fri, Oct 9");
+  assert.equal(receipt(part('setPersonAgreedDay',{id,name:'Ada',day:'2026-03-03'})), "Agreed to see 'Ada' on Tue, Mar 3");
+  assert.equal(receipt(part('setPersonAgreedDay',{id,name:'Ada',day:null})), "Cleared the agreed day for 'Ada'");
+  const shown = shownParts([part('listPeople',{people:[]}),part('readPerson',{id,name:'Ada'}),part('setPersonAgreedDay',{id,name:'Ada',day:null})]);
+  assert.deepEqual(shown.map(p => 'href' in p ? [p.href,p.read] : []), [['/people',true],[`/people/${id}`,true],[`/people/${id}`,undefined]]);
+  for (const tool of ['readPerson','setPersonLastConnected','setPersonAgreedDay']) assert.doesNotMatch(receipt(part(tool,{refused:true,id,name:'Ada',day:null})) ?? '', /^(Read '|Connected|Agreed|Cleared)/);
+});
+
+test("person refusals are neutral, not failures", () => {
+  for (const type of ["tool-readPerson", "tool-setPersonLastConnected", "tool-setPersonAgreedDay"]) {
+    const line = receipt({ type, state: "output-available", output: { refused: true, name: "Ada", question: "Which 'Ada' do you mean?" } } as never, "2026-10-21");
+    assert.equal(line, "No change: asked about 'Ada'");
+    assert.doesNotMatch(line ?? "", /Couldn't/);
+  }
+  assert.equal(receipt({ type: "tool-setPersonAgreedDay", state: "output-available", output: { refused: true, question: "?" } } as never, "2026-10-21"), "No change: asked which person");
+  assert.equal(receipt({ type: "tool-setPersonLastConnected", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't update that person");
+  assert.equal(receipt({ type: "tool-readPerson", state: "output-error", errorText: "x" } as never, "2026-10-21"), "Couldn't read that person");
+});
+
+test("dated Note receipts name the stored occasion using domain day words, failures never claim success", () => {
+  const output = { id: noteId, notebookId, name: "Memory", href: noteHref, day: "2026-10-09" };
+  const part = { type: "tool-createNote", state: "output-available", output };
+  assert.equal(receipt(part, "2026-10-09"), "Created Note 'Memory' for Today");
+  assert.equal(receipt(part, "2026-10-10"), "Created Note 'Memory' for Yesterday");
+  assert.equal(receipt(part, "2026-10-21"), "Created Note 'Memory' for Fri, Oct 9");
+  assert.equal(receipt(part), "Created Note 'Memory' for Fri, Oct 9, 2026");
+  assert.equal(receipt(part, "invalid"), "Created Note 'Memory' for Fri, Oct 9, 2026");
+  assert.equal(receipt({ ...part, output: { ...output, refused: true } }), "Couldn't create that Note");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't create that Note");
+});
+
+test("refused createNote results get neutral receipts naming the Note; real errors keep the failure line", () => {
+  const part = { type: "tool-createNote", state: "output-available", output: { refused: true, name: "Memory", reason: "future-day", clarification: "…" } };
+  assert.equal(receipt(part), "No change: asked about the day for Note 'Memory'");
+  assert.equal(receipt({ ...part, output: { refused: true, name: "Memory", reason: "notebook", clarification: "…" } }), "No change: asked which Notebook for Note 'Memory'");
+  assert.equal(receipt({ ...part, state: "output-error" }), "Couldn't create that Note");
+  assert.equal(receipt({ ...part, output: { refused: true, name: "", reason: "future-day" } }), "Couldn't create that Note");
+});

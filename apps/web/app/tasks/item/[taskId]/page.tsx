@@ -1,3 +1,5 @@
+import { taskForBrowser } from "../../../../lib/task-for-browser";
+import { TaskRule } from "../../../../components/task-rule";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../../auth";
@@ -35,23 +37,11 @@ export default async function TaskItemPage({
         <p>Area: {area.name}</p>
         <p>Status: {statusLabel[task.status] ?? task.status}</p>
         <p style={{ whiteSpace: "pre-wrap" }}>{task.note || "No note"}</p>
+        {!task.completedAt && task.status !== "completed" ? (
+          <TaskRule id={task.id} initial={task.rule ?? null} />
+        ) : null}
         <OpenTaskActions
-          task={{
-            id: task.id,
-            areaId: task.areaId,
-            name: task.name,
-            note: task.note,
-            priority: task.priority,
-            status: task.status,
-            previousStatus: task.previousStatus,
-            age: task.age,
-            date: task.date,
-            goalId: task.goalId,
-            createdAt: task.createdAt.toISOString(),
-            completedAt: task.completedAt
-              ? task.completedAt.toISOString()
-              : null,
-          }}
+          task={taskForBrowser(task)}
           goals={goals}
           workflow={area.workflow}
         />

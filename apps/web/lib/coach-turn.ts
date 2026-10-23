@@ -127,7 +127,7 @@ export async function coachTurn({
   const history = await convertToModelMessages(textOnly(recent));
   const result = streamText({
     model,
-    system: prepared.system + appliedWritesBlock(prepared.prior) + checkedResultsBlock(prepared.prior),
+    system: prepared.system + appliedWritesBlock(prepared.prior) + checkedResultsBlock(prepared.prior) + reconnectBlock(recent),
     messages: [...history, ...read.messages],
     tools,
     toolsContext: prepared.toolsContext,
@@ -186,7 +186,8 @@ export async function coachTurn({
 }
 
 // The thread as the model sees it: what was said, nothing else. Earlier tool
-// calls and their output go (the list may have changed since), and so do
+// outputs go (the list may have changed since); short read receipts remain, as do
+// applied write receipts. We drop
 // step markers and blank text. A reply left with nothing is dropped, and
 // back-to-back messages from one side are joined (a message whose reply
 // failed, then the next one), so the thread alternates as providers expect.
@@ -231,6 +232,15 @@ export function checkedResultsBlock(messages: UIMessage[], max = 10): string {
   return lines.length ? `\n\nChecked results in this thread (nothing written):\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
 }
 
+// Keep the continuation rule only while the skill call is in the history window.
+export function reconnectBlock(messages: UIMessage[]): string {
+  const loaded = messages.some((message) => message.role === "assistant" &&
+    message.parts.some((part) => part.type === "tool-readSkill" &&
+      part.state === "output-available" &&
+      (part.input as { name?: string } | undefined)?.name === "reconnect"));
+  return loaded ? '\n\nThe reconnect skill was loaded earlier in this thread. Its tool restriction applied only to that reply. A later "I sent it", without reloading the skill, must call logNoteOnPerson on that person with the drafted line as the note text and setPersonLastConnected to the browser\'s Today, then report both receipts truthfully. Recover the person and exact drafted line from history; if unclear, ask instead of guessing. Never claim you did not check people you read. Earlier [Checked: ...] lines record reads that really ran; their data may since have changed.' : "";
+}
+
 function textOnly(messages: UIMessage[]) {
   const said: UIMessage[] = [];
   for (const message of messages) {
@@ -239,6 +249,14 @@ function textOnly(messages: UIMessage[]) {
     );
     // Earlier applied writes stay visible as one line, with absolute dates.
     if (message.role === "assistant") {
+      const reads = message.parts.flatMap((part) => {
+        if (!coachReadToolTypes.has(part.type)) return [];
+        const tool = part as { type: string; state?: string; output?: unknown };
+        if (tool.state !== "output-available") return [];
+        const line = receipt(tool);
+        return line ? [line] : [];
+      });
+      if (reads.length) parts.push({ type: "text", text: `[Checked: ${reads.join("; ")}]` });
       const lines = appliedReceipts(message);
       if (lines.length) parts.push({ type: "text", text: `[Receipts: ${lines.join("; ")}]` });
     }

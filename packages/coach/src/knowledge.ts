@@ -1,4 +1,4 @@
-import { habitsMarkdown, journalingMarkdown } from "./knowledge-articles.generated.ts";
+import { habitsMarkdown, journalingMarkdown, notesMarkdown, peopleMarkdown } from "./knowledge-articles.generated.ts";
 import { searchKnowledgeArticles } from "./knowledge-search.ts";
 
 // The article text is embedded at build time (see scripts/generate-knowledge.ts),
@@ -7,9 +7,9 @@ import { searchKnowledgeArticles } from "./knowledge-search.ts";
 const habitsHref = "/coach/knowledge/habits";
 const journalingHref = "/coach/knowledge/journaling";
 
-export type KnowledgeArticles = { habits: string; journaling: string };
+export type KnowledgeArticles = { habits: string; journaling: string; people?: string; notes?: string };
 
-const embedded = async (): Promise<KnowledgeArticles> => ({ habits: habitsMarkdown, journaling: journalingMarkdown });
+const embedded = async (): Promise<KnowledgeArticles> => ({ habits: habitsMarkdown, journaling: journalingMarkdown, people: peopleMarkdown, notes: notesMarkdown });
 
 export async function journalingArticle() {
   return { title: "Journaling: evidence and limits", body: journalingMarkdown, href: journalingHref };
@@ -21,12 +21,18 @@ export async function habitsArticle() {
 
 const hrefForTitle: Record<string, string> = {
   Habits: habitsHref,
+  "People: reach-out rules": "/coach/knowledge/people",
   "Journaling: evidence and limits": journalingHref,
+  "Notes: occasion dates": "/coach/knowledge/notes",
 };
 
 export async function searchKnowledge(query: string, load: () => Promise<KnowledgeArticles> = embedded) {
-  const { habits, journaling } = await load();
-  const found = searchKnowledgeArticles([{ markdown: habits }, { markdown: journaling }], query);
+  const { habits, journaling, people, notes } = await load();
+  const found = searchKnowledgeArticles([{ markdown: habits }, { markdown: journaling }, ...(people ? [{ markdown: people }] : []), ...(notes ? [{ markdown: notes }] : [])], query);
   if (!found) return { match: false as const };
   return { match: true as const, ...found, href: hrefForTitle[found.title] };
 }
+
+export async function peopleArticle() { return {title:"People: reach-out rules",body:peopleMarkdown,href:"/coach/knowledge/people"}; }
+
+export async function notesArticle() { return { title: "Notes: occasion dates", body: notesMarkdown, href: "/coach/knowledge/notes" }; }

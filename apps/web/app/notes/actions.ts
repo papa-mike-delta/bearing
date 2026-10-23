@@ -3,7 +3,8 @@
 import { db } from "@repo/db";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../auth";
-import { createNotebook, deleteNote, deleteNotebook, noteHref, NoteError, saveNote } from "../../lib/notes";
+import { createNotebook, deleteNote, deleteNotebook, noteHref, NoteError, type SaveNoteInput } from "../../lib/notes";
+import { noteActions } from "../../lib/note-actions";
 import { fileDraftAsNote } from "../../lib/draft-filing/index";
 
 function failure(error: unknown) {
@@ -29,13 +30,8 @@ export async function fileNote(draftId: string, notebookId: string, title: strin
   } catch (error) { return failure(error); }
 }
 
-export async function updateNote(id: string, input: { title: string; body: string; pinned: boolean; revision: number }) {
-  const user = await requireUser();
-  try {
-    const note = await saveNote(user.id, id, input);
-    revalidatePath("/notes", "layout");
-    return { revision: note.revision, title: note.title };
-  } catch (error) { return failure(error); }
+export async function updateNote(id: string, input: SaveNoteInput) {
+  return noteActions({ requireUser, db, invalidate: (path) => revalidatePath(path, "layout") }).save(id, input);
 }
 
 export async function removeNote(id: string, revision: number) {

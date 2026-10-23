@@ -6,7 +6,7 @@ import {
 } from "react";
 import type { LinkEnd } from "@repo/domain";
 import { findLinkTargets } from "../app/related-actions";
-import { createRelatedPicker } from "./related-picker";
+import { createRelatedPicker, showNoMatches } from "./related-picker";
 import { localToday } from "./today";
 
 export function useRelatedPicker(source: LinkEnd) {
@@ -29,5 +29,9 @@ export function useRelatedPicker(source: LinkEnd) {
     picker.getSnapshot,
     picker.getSnapshot,
   );
-  return { ...state, dispatch: picker.dispatch };
+  return {
+    ...state,
+    noMatches: showNoMatches(state),
+    dispatch: picker.dispatch,
+  };
 }

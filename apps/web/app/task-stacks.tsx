@@ -6,6 +6,8 @@ import { Menu } from "@base-ui/react/menu";
 import Link from "next/link";
 import {
   kanbanColumns,
+  nextDatePhrase,
+  type NextDateRule,
   maxAreaNameLength,
   stackedPage,
   taskHref,
@@ -54,6 +56,7 @@ export type StackGoal = {
 };
 
 export type StackTask = {
+  rule?: NextDateRule | null;
   id: string;
   areaId: string;
   name: string;
@@ -86,6 +89,11 @@ function formatDay(iso: string) {
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+function completeTaskToday(formData: FormData) {
+  formData.set("today", localToday());
+  return completeTaskOnList(formData);
 }
 
 function addTask(formData: FormData) {
@@ -232,8 +240,9 @@ export function OpenTaskActions({
   };
   return (
     <div className="card-row">
-      <form action={completeTaskOnList}>
+      <form action={completeTaskToday}>
         <input type="hidden" name="id" value={task.id} />
+        <input type="hidden" name="today" value={today} />
         <Button
           type="submit"
           variant="outline"
@@ -305,8 +314,9 @@ function TaskLine({
       }
     >
       <div className="card-title">
-        <form action={completeTaskOnList}>
+        <form action={completeTaskToday}>
           <input type="hidden" name="id" value={task.id} />
+          <input type="hidden" name="today" value={today} />
           <Button
             type="submit"
             variant="outline"
@@ -318,6 +328,7 @@ function TaskLine({
         <span className={kanbanNext ? "card-name next-title" : "card-name"}>
           {kanbanNext ? <span className="sr-only">Next: </span> : null}
           <Link href={taskHref(task.id)}>{task.name}</Link>
+          {task.rule ? <small>{nextDatePhrase(task.rule)}</small> : null}
           {task.note ? <small>{task.note}</small> : null}
           {task.date ? <small>{formatDay(task.date)}</small> : null}
           {goalName ? <small>{goalName}</small> : null}

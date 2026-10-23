@@ -1,3 +1,5 @@
+import { logNoteOnPerson, personLinkedNotes } from './person-notes.ts';
+import { listPeople as peopleRows, setCoachPersonDay } from "./people.ts";
 import type { CoachData } from "@repo/coach";
 import { db as defaultDb } from "@repo/db";
 import { getMood, setMood as setMoodRow } from "./mood.ts";
@@ -15,6 +17,10 @@ export { coachTools, coachToolsContext, coachToolNames, freshRead, maxCreatesPer
 // The Coach's data, through the same functions the screens use.
 export function coachData(db: Db = defaultDb, today = ""): CoachData {
   return {
+    logNoteOnPerson(userId,input) {return logNoteOnPerson(userId,input,db);},
+    personLinkedNotes(userId,personId) {return personLinkedNotes(userId,personId,db);},
+    listPeople(userId) { return peopleRows(userId, db); },
+    setPersonDay(userId, input) { return setCoachPersonDay(userId, input, db); },
     async listHabits(userId, browserToday) {
       // Habits page order: Daily by position, then Weekly by position.
       // Use the requested day
@@ -40,7 +46,7 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
     async createNote(userId, input, from) {
       const note = await createNoteRow(userId, input, from, db);
       if (note.notebookId !== input.notebookId) throw new Error("Invalid Note result.");
-      return { id: note.id, notebookId: note.notebookId, title: note.title };
+      return { id: note.id, notebookId: note.notebookId, title: note.title, occasionDate: note.occasionDate };
     },
     async listOpenTasks(userId) {
       return listForCoach(userId, today, db);
@@ -48,8 +54,8 @@ export function coachData(db: Db = defaultDb, today = ""): CoachData {
     createTask(userId, input, from) {
       return addTask(userId, { ...input, from, today }, db);
     },
-    completeTask(userId, taskId) {
-      return completeTaskRow(userId, taskId, db);
+    completeTask(userId, taskId, identity) {
+      return completeTaskRow(userId, taskId, db, identity?.today ?? today, identity?.messageId);
     },
     scheduleTask(userId, taskId, date) {
       return scheduleOn(userId, taskId, date, today, db);

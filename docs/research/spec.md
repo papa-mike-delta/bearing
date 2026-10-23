@@ -179,9 +179,15 @@ Notes: no dedicated docs page in the sidebar. From marketing, shortcuts, API, an
 - Search hits note names only. Full-text and in-note search are roadmap (in-note search claimed shipped on desktop in v2.1.28).
 - Note nesting / folders is roadmap, not current.
 
+Bearing Note occasion dates (#157): a Note has one optional `occasion_date` calendar day, stored by migration `0022_note_occasion` as a nullable date column on Notes only. The browser's Today or any past real day is allowed; future days refuse the whole save and store nothing. Clearing is allowed. The field joins title, body and pin in explicit Save and the same unsaved-changes guard; mobile input is 16px and at least 40px tall. Related shows this date as the Note row's detail with exactly the Journal day row's date label. Unset detail and newest-edge-first ordering stay unchanged in both directions on all pages. Tasks have no occasion date; the Journal is unchanged and a dated Note never appears there automatically. No people or links are added by #157.
+
 ### 4.5 Relationships
 
 Source: [relationships](https://lunatask.app/docs/features/relationships).
+
+Shipped in #154: `/people` and `/people/[id]` require sign-in. #154 added only people storage (account, name, group, rule, last connected, agreed day and timestamps). The Task rule column came later in #163 and person links in #156 (below); people still have no occasion date.
+
+Related (#156): a Person is a Related endpoint like a Task, a Note or a saved Journal day, in either direction. This includes **person to person**: one person can be linked to a different person (Paul's decision, 2026-10-21: person-to-person Related links stay). A link from a person to that same person is refused. The person page shows Outgoing and Backlinks, newest edge first. Deleting a person deletes every edge that touches them and nothing else.
 
 Hierarchy. The page says seven groups and then lists eight: Family, Extended family, Intimate friends, Close friends, Casual friends, Acquaintances, Business contacts, Almost strangers. Sections collapse. Family and business can be hidden.
 
@@ -193,9 +199,13 @@ Reconnect, per person:
 - agreed date (optional; clears the red badge until that date)
 - `R` sets last connected to today
 
-Custom fields, eight types, user-named: email (mailto), phone (call or WhatsApp), link, social profile URL, date (relative), anniversary (annual), birthday (age + lead reminder), markdown text.
+#154 keeps the eight groups in the order above, hides empty groups, opens due groups initially and collapses the others. Multiple groups can open, with no remembered preference. Within a group: due people by name, future days soonest with name ties, then no day by name. The nav count includes 0 once browser Today is known.
 
-Happy memories: a timeline on the person, also shown in the journal. Year-end review is the stated use.
+A new person requires a trimmed 1–200 character name and a group with nothing preselected; duplicate names are allowed. No rule or dates initially. One explicit Save on the person page saves all fields with Notes' unsaved-changes guard. Rule controls use the shared `packages/domain/src/next-date.ts` number/unit/optional-on-day rule; turning on defaults to every month. The phrase and next reach-out are derived. Last connected cannot be future; Connected today and R fill browser Today and wait for Save. Reach-out is strictly after last connected, overridden by agreed day. An agreement needs a rule and must be today or later. A rule alone has no due day. On/after the computed day a person stays due until reach-out advances. Invalid saves store nothing. Delete asks `Delete this person?`; Cancel keeps it. All queries and writes are account-scoped.
+
+Future scope, outside #154: custom fields, eight types, user-named: email (mailto), phone (call or WhatsApp), link, social profile URL, date (relative), anniversary (annual), birthday (age + lead reminder), markdown text.
+
+Future scope: happy memories, a timeline on the person, also shown in the journal. Year-end review is the stated use.
 
 ### 4.6 Shell features
 
@@ -309,7 +319,7 @@ Read tools:
 
 - `today` — just-came-up, Now / In progress, habits due, reconnects due, today's mood if set
 - `search` — tasks, notes, journal, people, drafts. Full-text once it exists; names until then
-- `getTask`, `listArea`, `listHabits`, `journalRange`, `getPerson`
+- `getTask`, `listArea`, `listHabits`, `journalRange`, `listPeople`, `readPerson` (unshipped read tools in this outline remain future scope)
 - `listHabits(day?)`: this account's habits in Habits-page order, with the period's count, goal, done, and streak or none. Without `day` it shows only the open period (the browser's Today and the week containing it). With an optional past `day` (YYYY-MM-DD, today or earlier) it returns the period containing that day: that day for daily habits, its Monday–Sunday week for weekly ones. A future `day` is refused. A habit is due when it is not done for its period and is not Bad; daily habits are due until done that day, and weekly habits are due until done that week. (`day` ships in #141.)
 
 Write tools, same mutations the UI uses:
@@ -324,8 +334,10 @@ Write tools, same mutations the UI uses:
   - `markDone`: a habit that is not Bad goes up to its goal and is never lowered. On a Bad once-habit it records the lapse (count 1), like `did`. On a Bad many-times habit it is refused and the Coach asks how many times there were in total instead.
   - `setCount`: sets an explicit total the person stated (§4.3).
   - `undo`: restores the count from before the Coach's last write to that habit and period, including after a `setCount` total. If that write created the mark, undo deletes it. Undo is never a blind −1. If nothing can be restored, the Coach asks for the total rather than guessing. (Paul, Oct 21, 2026.) A refused undo (nothing of the Coach's to undo, or the count changed since) is a checked result, not a failure: it returns refused with the question, writes no mark and no ledger row, uses no write slot, and shows a neutral receipt ("Nothing to undo for 'Water' for today" or "'Water' has changed since (now 6)"). Later turns get refusals and No change results in a "Checked results in this thread (nothing written)" system-prompt block, capped at 10 like Applied writes, and never call them guesses or retract them.
-- `logPerson` — timeline note, optional last-connected = today
-- `createNote`
+- `setPersonLastConnected(name, day?)` — one unique case-insensitive name; browser Today or a past day.
+- `setPersonAgreedDay(name, day)` — today or later with a rule; null clears. Neither changes the rule. Both share the three-write cap, release a refused slot, and use content-matched resend identities. The existing JSON operation ledger stores these under source `coach-person`; only the people table is added in #154.
+- People ship in #154: `listPeople` returns page order, group, rule phrase, last connected, agreed day, computed next reach-out and due. `readPerson(name)` requires one match ignoring case; missing or multiple matches asks and writes nothing. People are read only when needed; the Task list is the only automatic read. Read receipts are `Read your people (N)` linked to `/people`, and `Read 'Ada'` linked to her person page. Date receipts are `Connected with 'Ada' today`, `Connected with 'Ada' on Fri, Oct 9`, `Agreed to see 'Ada' on Tue, Mar 3`, and `Cleared the agreed day for 'Ada'`. Failures have no success receipt. Paul cannot add, rename, regroup, or delete a person, set or clear a person's rule, log a note on a person, create a link, or create a recurring Task.
+- `createNote(day?)` — optional occasion day (YYYY-MM-DD), only from a day the person states on a Note they ask Paul to create; never inferred from prose. A future day is refused and creates no Note. Leaving it out creates an undated Note. The created-Note receipt names the stored day using `dayWords`/`calendarDayWords` when set, and is unchanged otherwise. Resends keep the existing Notebook/title identity and return stored values, without a second Note; failures have no success receipt. Paul still cannot attach a Note to a person.
 
 A user message that asks for a create or a field edit is the confirmation. Deletes, bulk edits, and anything that completes more than one task require a confirm card in the thread before `execute`. The model proposes; the UI commits. Log every tool call on the thread.
 
@@ -371,7 +383,7 @@ Context the panel can attach: the open task, note, or person id, passed into the
 - Step cap per turn (8 is enough). A turn that wants more should ask.
 - No tool that runs arbitrary code, sends email, or calls the public API with the user's token. Writes go through domain functions.
 - Replay identity is content-keyed, never the provider tool-call id (#140), so a resent message cannot apply a write twice. Coach-created Tasks and Notes set `source = coach` and `source_id` = the message id plus a content hash: for a Task, the first 16 hex of SHA-256 of the trimmed, lowercased name; for a Note, SHA-256 of the notebook id and the trimmed, lowercased title. Habit and Journal writes are keyed in `habit_operations` and `journal_operations` as `<message id>:<tool>:<hash>:<occurrence>`, where the hash covers the normalized arguments (resolved day; Journal text trimmed, lowercased and whitespace collapsed; habit id, action and count; for `createHabit`, name trimmed, lowercased and whitespace collapsed, and resolved defaults) and the occurrence counts the same content earlier in that reply. Old trim-only Habit/Journal hashes are not migrated; a resend whose normalization changes the hash does not match the old row and can apply again. A Daily close reply appends to the Journal at most once: the whole answer goes in as one entry with occurrence 1 (`daily-close/tools.ts`).
-- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit` and `trackHabit`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
+- Write cap per reply: at most 3 writes across `createTask`, `createNote`, `fileDraft`, `appendJournal`, `setMood`, `createHabit`, `trackHabit`, `setPersonLastConnected` and `setPersonAgreedDay`, plus separately 1 `completeTask`, 3 `updateTask` and 3 `scheduleTask`. Only applied writes count: refused, failed, not-found or unchanged writes release their slot.
 - Applied writes and never-retract (#141): normal turns and Daily close put an "Applied writes in this thread (saved receipts; these happened)" block in the system prompt, built from the reloaded thread's successful write receipts (the last 10, absolute dates). An earlier receipt is a real write; the Coach never retracts it, and only a later write receipt changes it. `listHabits` without `day` shows only the open period, so the Coach reads past periods with `day`.
 - Knowledge base is not user data and is not mixed into export.
 
@@ -470,7 +482,7 @@ notebooks(id, user_id, name, pin_hash)
 notes(id, notebook_id, name, body_md, pinned)
 journal_entries(id, user_id, day, body_md)
 day_scores(user_id, day, mood, energy, stress)
-people(id, user_id, name, group, reconnect_rule, last_connected, agreed_on)
+people(id, user_id, name, group, rule, last_connected, agreed_day, created_at, updated_at)
 person_fields(person_id, type, label, value)
 person_notes(person_id, body_md, at, is_happy_memory)
 drafts(id, user_id, body, tags, workspace, created_at)

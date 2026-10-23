@@ -55,3 +55,15 @@ Source: Wood, W., & Neal, D. T. (2007). A new look at habits and the habit–goa
 These three papers do not show that a "tiny version" of a behaviour builds a habit faster. They do not show that rewards or streaks are needed, or that willpower "runs out". (A large replication found almost no evidence for the ego-depletion effect behind that idea.) They are also not clinical advice. When something here is not enough, the Coach says so rather than guessing.
 
 Source: Wood & Neal (2007), Gollwitzer (1999) and Lally et al. (2010), above. Hagger, M. S., et al. (2016). A multilab preregistered replication of the ego-depletion effect. Perspectives on Psychological Science, 11(4), 546–573. https://doi.org/10.1177/1745691616652873
+
+## Repeating Tasks versus Habits in Bearing
+
+A Task may repeat when the person asks for a Task. A repeating Task has no streak. Its Task page has a clearable rule control: every 1–9999 days, weeks or months, optionally on a weekday for weeks or day 1–31/last for months. A new rule starts at every month. The Task row and page show the derived phrase. Changing the rule affects only the next creation, not this Task's date.
+
+Paul may give createTask an optional rule only from a stated phrase that maps to this control, such as every month on the last day or every 3 weeks on Tuesday. Otherwise ask one question and write nothing. Paul cannot change or clear the rule on an existing Task; point to its Task page. Completing a repeating Task finishes this one and creates one next Task in the same transaction, without using a create slot. A resend of that completion creates no second Task. The next date is strictly after the browser's completion day; a late completion slips and missed intervals are not created. It copies name, note, priority, Goal, Area and rule. The next Task does not inherit links (Related edges); the completed Task keeps them. Now/Later and Kanban keep the new Task in Later until its date, then Just came up. Priority List stores the date and remains a single list. Filing an Inbox draft as a Task sets no rule.
+
+The completion receipt reads Completed 'Pay rent'. Next is Tue, Mar 3, with the name linking to the completed Task and the date to the new Task. A Task without a rule still reads Completed '…' with its Task link.
+
+What this does not mean: a repeating Task is not evidence of habit formation, and it has no Habit streak or record.
+
+Source: Bearing product rule, issue #155 (epic #152), not a research finding.

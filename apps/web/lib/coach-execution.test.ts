@@ -33,7 +33,7 @@ const today = "2026-10-09";
 const journalId = (text: string, n = 1) => `${messageId}:appendJournal:${coachWriteKey("appendJournal", { text }, today)}:${n}`;
 const habitId = (tool: string, input: Record<string, unknown>, n = 1) => `${messageId}:${tool}:${coachWriteKey(tool, input, today)}:${n}`;
 const capMessage =
-  "You can make only 3 Task, Note, Journal, Mood, filing or Habit writes per reply.";
+  "You can make only 3 Task, Note, Journal, Mood, filing, Habit or Person writes per reply.";
 
 function data(overrides: Partial<CoachData> = {}): CoachData {
   return {
@@ -86,6 +86,7 @@ test("registration and context retain their distinct original key orders", () =>
     "completeTask",
     "scheduleTask",
     "updateTask",
+    "listPeople", "readPerson", "setPersonLastConnected", "setPersonAgreedDay", "logNoteOnPerson",
   ];
   assert.deepEqual(Object.keys(coachTools(data())), names);
   const contextNames = ["fileDraft", "listInboxDrafts", ...names.slice(2)];
@@ -603,7 +604,7 @@ test("habit writes reserve the shared cap alongside Note and Journal; a fourth w
     await writeAttempts[first](tools);
     await writeAttempts.createNote(tools);
     await writeAttempts.appendJournal(tools);
-    for (const attempt of Object.values(writeAttempts)) await assert.rejects(settled(attempt(tools)), /only 3 .*Habit writes/);
+    for (const attempt of Object.values(writeAttempts)) await assert.rejects(settled(attempt(tools)), /only 3 .*Person writes/);
     assert.deepEqual(committed, [first === "createHabit" ? "habit" : "track", "note", "journal"]);
     assert.deepEqual(operations, [habitId(first, first === "createHabit" ? { name: "Walk" } : { habitId: entityId, action: "did" })]);
   }
@@ -869,4 +870,84 @@ test("scripted habit design: createHabit without an explicit yes creates nothing
   await tools.readSkill.execute!({ name: "habit-design" }, call("a"));
   await assert.rejects(async () => tools.createHabit.execute!({ name: "Run" }, call("b")), /explicit yes in a later message/);
   assert.equal(create.mock.callCount(), 0);
+});
+
+test('people tools are available on request, share the three-write cap and release refused slots', async () => {
+  const person = {id:entityId,name:'Ada',group:'Family',rule:{every:1,unit:'months'} as const,lastConnected:null,agreedDay:null};
+  const operations: string[] = [];
+  const adapter = data({listPeople:async () => [person],setPersonDay:async (_user,input) => {operations.push(input.operationId);return {id:entityId,name:'Ada',day:input.day};},createTask:async () => ({id:entityId,name:'Task'})});
+  const tools = coachTools(adapter);
+  assert.ok(normalTurnToolNames.includes('listPeople'));
+  assert.ok(normalTurnToolNames.includes('readPerson'));
+  const read = await freshRead(userId,adapter);
+  assert.deepEqual(read.messages.flatMap(m => Array.isArray(m.content) ? m.content.filter(p => p.type === 'tool-call').map(p => p.toolName) : []),['listArea']);
+  const refusal = await tools.setPersonLastConnected.execute!({name:'Missing'},call());
+  assert.ok('refused' in (refusal as object));
+  await assert.rejects(async () => tools.setPersonAgreedDay.execute!({name:'Ada',day:'2026-10-08'},call()));
+  await tools.setPersonLastConnected.execute!({name:'Ada'},call('a'));
+  await tools.setPersonAgreedDay.execute!({name:'Ada',day:'2026-11-03'},call('b'));
+  await tools.createTask.execute!({name:'Task'},call('c'));
+  await assert.rejects(async () => tools.setPersonAgreedDay.execute!({name:'Ada',day:null},call('d')),/only 3/);
+  assert.equal(operations.length,2);
+  const replay = coachTools(adapter);
+  await replay.setPersonLastConnected.execute!({name:' ADA ',day:today},call('new-provider-id'));
+  assert.equal(operations[0],operations[2]);
+});
+
+test("reconnect permits only People reads for the reply and refuses late loading", async () => {
+  const tools = coachTools(data({ listPeople: async () => [] }));
+  assert.match(String(await tools.readSkill.execute!({ name: "reconnect" }, call())), /^# reconnect/);
+  await tools.listPeople.execute!({}, call());
+  await tools.readPerson.execute!({ name: "Ada" }, call());
+  for (const name of normalTurnToolNames.filter(name => !["listPeople", "readPerson"].includes(name))) {
+    const execute = tools[name].execute as unknown as (input: never, options: ReturnType<typeof call>) => Promise<unknown>;
+    await assert.rejects(async () => execute({} as never, call()), /reconnect refused/);
+  }
+  const late = coachTools(data());
+  const step = call();
+  await late.listArea.execute!({}, step);
+  await assert.rejects(async () => late.readSkill.execute!({ name: "reconnect" }, step), /before any tool outside its allow-list/);
+  await assert.rejects(async () => late.setPersonLastConnected.execute!({ name: "Ada" }, call()), /reconnect refused/);
+  const clean = coachTools(data({ listPeople: async () => [] }));
+  const allowedStep = call();
+  await clean.listPeople.execute!({}, allowedStep);
+  assert.match(String(await clean.readSkill.execute!({ name: "reconnect" }, allowedStep)), /^# reconnect/);
+});
+
+test("a later sent message can log the line and mark browser Today with existing receipts and cap", async () => {
+  const person = { id: entityId, name: "Ada", group: "Family", rule: null, lastConnected: null, agreedDay: null } as const;
+  const saved: string[] = [];
+  const adapter = data({
+    listPeople: async () => [person],
+    logNoteOnPerson: async (_user, input) => {
+      saved.push(input.text);
+      return { id: entityId, name: "Ada", title: input.text, occasionDate: null };
+    },
+    setPersonDay: async (_user, input) => {
+      assert.equal(input.day, today);
+      assert.equal(input.field, "lastConnected");
+      return { id: entityId, name: "Ada", day: input.day };
+    },
+    createTask: async () => ({ id: entityId, name: "One" }),
+  });
+  const draft = coachTools(adapter);
+  await draft.readSkill.execute!({ name: "reconnect" }, call());
+  await assert.rejects(async () => draft.logNoteOnPerson.execute!({ name: "Ada", text: "Coffee soon?" }, call()), /reconnect refused/);
+  assert.deepEqual(saved, []);
+  const sent = coachTools(adapter);
+  const note = await sent.logNoteOnPerson.execute!({ name: "Ada", text: "Coffee soon?" }, call());
+  const connected = await sent.setPersonLastConnected.execute!({ name: "Ada" }, call());
+  assert.deepEqual(saved, ["Coffee soon?"]);
+  const { shownParts } = await import("@repo/coach");
+  const parts = shownParts([
+    { type: "tool-logNoteOnPerson", state: "output-available", output: note },
+    { type: "tool-setPersonLastConnected", state: "output-available", output: connected },
+  ]);
+  assert.ok(parts[0] && "receipt" in parts[0]);
+  assert.ok(parts[1] && "receipt" in parts[1]);
+  assert.equal(parts[0].receipt, "Logged a note on 'Ada'");
+  assert.ok(parts[0].href?.includes(entityId));
+  assert.ok(parts[1].href?.includes(entityId));
+  await sent.createTask.execute!({ name: "One" }, call());
+  await assert.rejects(async () => sent.createTask.execute!({ name: "Too many" }, call()), /only 3/);
 });

@@ -2,7 +2,7 @@
 // streamed tool part; null for parts that aren't a Coach tool call.
 
 import { coachMoods } from "./moods.ts";
-import { addCalendarDays, isCalendarDay, habitPeriodDay, mondayOf, noteHref, taskHref } from "@repo/domain";
+import { addCalendarDays, calendarDayWords, dayWords, isCalendarDay, habitPeriodDay, mondayOf, noteHref, taskHref } from "@repo/domain";
 import { closeRefusalPrefix } from "./close-refusal.ts";
 
 type ToolPart = { type: string; state?: string; output?: unknown; errorText?: string };
@@ -24,7 +24,7 @@ function flag(output: unknown, key: "notFound" | "invalidId" | "refused") {
   return (output as Record<string, unknown>)[key] === true;
 }
 
-type Line = { line: string; href?: string };
+type Line = { line: string; href?: string; nextLink?: { text: string; href: string } };
 
 const utcDay = (day: string) => new Date(`${day}T00:00:00Z`);
 const weekdayMonthDay = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
@@ -51,9 +51,37 @@ function taskReceipt(line: string, output: unknown): Line {
 // Rebuild local links from validated successful outputs, including on reload.
 function show(part: ToolPart, today?: string | null): Line | null {
   if (part.state === "output-error" && part.errorText?.startsWith(closeRefusalPrefix)) return null;
+  if (part.type === "tool-listPeople") {
+    if (pending(part.state)) return { line: "Reading your people…" };
+    const rows = (part.output as { people?: unknown } | undefined)?.people;
+    return part.state === "output-available" && Array.isArray(rows) && !flag(part.output, "refused")
+      ? { line: `Read your people (${rows.length})`, href: "/people" } : { line: "Couldn't read your people" };
+  }
+  if (["tool-readPerson", "tool-setPersonLastConnected", "tool-setPersonAgreedDay"].includes(part.type)) {
+    if (pending(part.state)) return { line: part.type === "tool-readPerson" ? "Reading this person…" : "Updating this person…" };
+    const output = part.output as { id?: unknown; name?: unknown; day?: unknown } | undefined;
+    if (part.state === "output-available" && !flag(part.output, "refused") && typeof output?.id === "string" && receiptId.test(output.id) && typeof output.name === "string" && output.name) {
+      const href = `/people/${output.id}`;
+      if (part.type === "tool-readPerson") return { line: `Read '${output.name}'`, href };
+      if (part.type === "tool-setPersonAgreedDay" && output.day === null) return { line: `Cleared the agreed day for '${output.name}'`, href };
+      if (typeof output.day === "string" && isCalendarDay(output.day)) {
+        const date = weekdayMonthDay.format(utcDay(output.day));
+        return { line: part.type === "tool-setPersonLastConnected"
+          ? `Connected with '${output.name}' ${output.day === today ? "today" : `on ${date}`}`
+          : `Agreed to see '${output.name}' on ${date}`, href };
+      }
+    }
+    // A refusal asked which person (or for a rule first); nothing failed.
+    if (part.state === "output-available" && flag(part.output, "refused")) {
+      const name = (part.output as { name?: unknown }).name;
+      return { line: typeof name === "string" && name ? `No change: asked about '${name}'` : "No change: asked which person" };
+    }
+    return { line: part.type === "tool-readPerson" ? "Couldn't read that person" : "Couldn't update that person" };
+  }
   if (part.type === "tool-readSkill") {
     if (pending(part.state)) return { line: "Opening skill…" };
     if (part.state === "output-available" && typeof part.output === "string") {
+      if (part.output.startsWith("# reconnect\n")) return { line: "Opened the reconnect skill" };
       if (part.output.startsWith("# habit-design\n")) return { line: "Opened the habit-design skill" };
     }
     return { line: "Couldn't open that skill" };
@@ -67,7 +95,7 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const output = part.output as { match?: unknown; title?: unknown; heading?: unknown; href?: unknown } | undefined;
     const title = output?.title;
     const heading = output?.heading;
-    const href = title === "Habits"
+    const href = title === "People: reach-out rules" ? "/coach/knowledge/people" : title === "Notes: occasion dates" ? "/coach/knowledge/notes" : title === "Habits"
       ? "/coach/knowledge/habits"
       : title === "Journaling: evidence and limits"
         ? "/coach/knowledge/journaling"
@@ -171,14 +199,32 @@ function show(part: ToolPart, today?: string | null): Line | null {
     const books = (part.output as { notebooks?: unknown } | undefined)?.notebooks;
     return { line: part.state === "output-available" && Array.isArray(books) ? `Read your notebooks (${books.length})` : "Couldn't read your notebooks" };
   }
+  if (part.type === 'tool-logNoteOnPerson') {
+    if(pending(part.state)) return {line:'Logging a note…'};
+    const output=part.output as {id?:unknown;name?:unknown;href?:unknown;refused?:unknown}|undefined;
+    if(part.state==='output-available' && typeof output?.name==='string' && output.name) {
+      if(output.refused===true) return {line:`No change: asked about '${output.name}'`};
+      if(typeof output.id==='string' && receiptId.test(output.id) && output.href===noteHref(null,output.id)) return {line:`Logged a note on '${output.name}'`,href:output.href};
+    }
+    return {line:"Couldn't log that note"};
+  }
   if (part.type === "tool-createNote") {
     if (pending(part.state)) return { line: "Creating a Note…" };
-    const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown } | undefined;
+    const output = part.output as { id?: unknown; notebookId?: unknown; href?: unknown; day?: unknown } | undefined;
     const name = nameOf(part.output);
+    if (part.state === "output-available" && flag(part.output, "refused") && name) {
+      const reason = (part.output as { reason?: unknown }).reason;
+      if (reason === "future-day") return { line: `No change: asked about the day for Note '${name}'` };
+      if (reason === "notebook") return { line: `No change: asked which Notebook for Note '${name}'` };
+    }
     const notebookId = output?.notebookId === null || (typeof output?.notebookId === "string" && receiptId.test(output.notebookId)) ? output.notebookId : undefined;
     if (part.state === "output-available" && !flag(part.output, "refused") && name !== undefined && typeof output?.id === "string" && receiptId.test(output.id) && notebookId !== undefined) {
       const href = noteHref(notebookId, output.id);
-      if (output.href === href) return { line: `Created Note '${name}'`, href };
+      if (output.href === href) {
+        if (output.day !== undefined && (typeof output.day !== "string" || !isCalendarDay(output.day))) return { line: "Couldn't create that Note" };
+        const occasion = typeof output.day === "string" ? ` for ${today && isCalendarDay(today) ? dayWords(output.day, today) : calendarDayWords(output.day)}` : "";
+        return { line: `Created Note '${name}'${occasion}`, href };
+      }
     }
     return { line: "Couldn't create that Note" };
   }
@@ -198,7 +244,13 @@ function show(part: ToolPart, today?: string | null): Line | null {
     if (pending(part.state)) return { line: "Completing…" };
     const name = nameOf(part.output);
     if (part.state === "output-available" && name !== undefined) {
-      return taskReceipt(`Completed '${name}'`, part.output);
+      const base = taskReceipt(`Completed '${name}'`, part.output);
+      const spawned = (part.output as { spawned?: { id?: unknown; date?: unknown } }).spawned;
+      if (typeof spawned?.id === "string" && receiptId.test(spawned.id) && typeof spawned.date === "string" && isCalendarDay(spawned.date)) {
+        const text = weekdayMonthDay.format(utcDay(spawned.date));
+        return { ...base, line: `${base.line}. Next is ${text}`, nextLink: { text, href: taskHref(spawned.id) } };
+      }
+      return base;
     }
     if (part.state === "output-available" && flag(part.output, "invalidId")) {
       return { line: "That Task id isn't valid" };
@@ -235,12 +287,12 @@ type Part = ToolPart & { toolCallId?: string; text?: string };
 
 export type ShownPart =
   | { key: string; text: string }
-  | { key: string; receipt: string; calls: number; href?: string; read?: true };
+  | { key: string; receipt: string; calls: number; href?: string; nextLink?: { text: string; href: string }; read?: true };
 
 // Reads show muted and plain; only writes look like actions.
 // One list for every read tool part type, shared with the web app's Applied
 // writes block so a read can never be shown as a saved write.
-export const coachReadToolTypes: ReadonlySet<string> = new Set(["tool-readSkill", "tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
+export const coachReadToolTypes: ReadonlySet<string> = new Set(["tool-listPeople", "tool-readPerson", "tool-readSkill", "tool-listArea", "tool-listHabits", "tool-listNotebooks", "tool-listInboxDrafts", "tool-searchKnowledge", "tool-readJournalingArticle", "tool-readJournalDay", "tool-getJournalTemplate"]);
 
 // What a message shows: its text and its receipts, in order. A finished
 // listArea read with the same result as the receipt just before it (nothing
@@ -279,6 +331,7 @@ export function shownParts(parts: readonly Part[], today?: string | null): Shown
         receipt: line.line,
         calls: 1,
         ...(line.href && { href: line.href }),
+        ...(line.nextLink && { nextLink: line.nextLink }),
         ...(coachReadToolTypes.has(part.type) && { read: true as const }),
       });
     }

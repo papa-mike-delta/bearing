@@ -2,10 +2,12 @@
 // this package needs no database, no AI SDK and no key. Every call takes the
 // session user's id; a tool never gets a user id from the model.
 
-import type { FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
+import type { NextDateRule, FileDraftInput, FiledDraft, HabitTracking } from "@repo/domain";
 import type { CoachMood } from "./moods.ts";
 
 export type ListedTask = {
+  rule?: NextDateRule;
+  repeat?: string;
   id: string;
   name: string;
   priority: number;
@@ -31,6 +33,10 @@ export type HabitTrackResult = HabitWriteState & { day: string; action: HabitAct
 export type HabitUndoRefusal = { refused: true; reason: "nothingToUndo" | "changedSince"; id: string; name: string; period: "day" | "week"; day: string; action: "undo"; count: number; question: string };
 
 export type CoachData = {
+  personLinkedNotes?(userId:string,personId:string): Promise<{id:string;title:string;occasionDate:string|null;body:string}[]>;
+  logNoteOnPerson?(userId:string,input:{personId:string;text:string;occasionDate?:string|null;today:string;operationId:string}):Promise<{id:string;name:string;title:string;occasionDate:string|null}>;
+  listPeople?(userId: string): Promise<(import('@repo/domain').PersonFields & {id:string})[]>;
+  setPersonDay?(userId: string, input: {personId:string;field:'lastConnected'|'agreedDay';day:string|null;today:string;operationId:string}): Promise<{id:string;name:string;day:string|null}>;
   createHabit?(userId: string, input: HabitTracking & { name: string } & HabitOperation): Promise<HabitWriteState>;
   trackHabit?(userId: string, input: { habitId: string; day: string; action: HabitAction; count?: number } & HabitOperation): Promise<HabitTrackResult | HabitUndoRefusal>;
   listHabits?(userId: string, today: string): Promise<ListedHabit[]>;
@@ -61,9 +67,9 @@ export type CoachData = {
   listNotebooks?(userId: string): Promise<{ id: string; name: string }[]>;
   createNote?(
     userId: string,
-    input: { notebookId: string; title: string; body: string },
+    input: { notebookId: string; title: string; body: string; occasionDate?: string | null; today?: string },
     from: { source: "coach"; sourceId: string },
-  ): Promise<{ id: string; notebookId: string; title: string }>;
+  ): Promise<{ id: string; notebookId: string; title: string; occasionDate?: string | null }>;
   // Open Tasks from every Area, hidden ones included, in Area order and then
   // that Area's order. isNext is the bold Next of that Task's own Area.
   listOpenTasks(userId: string): Promise<ListedTask[]>;
@@ -72,14 +78,15 @@ export type CoachData = {
   // add is the same Task. With one Area, `area` is ignored.
   createTask(
     userId: string,
-    input: { name: string; note?: string; area?: string },
+    input: { name: string; note?: string; area?: string; rule?: NextDateRule },
     from: { source: "coach"; sourceId: string },
   ): Promise<{ id: string; name: string } | null>;
   // Null when that id is not an open Task of this user.
   completeTask(
     userId: string,
     taskId: string,
-  ): Promise<{ id: string; name: string } | null>;
+    identity?: { messageId: string; today?: string },
+  ): Promise<{ id: string; name: string; spawned?: { id: string; date: string } } | null>;
   // Null when the Task isn't an open Task of this user, or the date isn't
   // strictly after today. Same rule as the date field.
   scheduleTask(

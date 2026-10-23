@@ -1,3 +1,4 @@
+import { LogPersonNote } from "../../components/log-person-note";
 import { Button } from "@repo/ui/components/button";
 import Link from "next/link";
 import { Textarea } from "@repo/ui/components/textarea";
@@ -9,6 +10,7 @@ import { captureToInbox, fileDraft } from "../actions";
 import { Header } from "../header";
 import { BrowserToday } from "../browser-today";
 import { listNotebooks } from "../../lib/notes";
+import { listPeople } from "../../lib/people";
 import { FileNote } from "./file-note";
 import { FileJournal } from "./file-journal";
 import { isJournalDay } from "../../lib/journal-day";
@@ -25,12 +27,15 @@ export default async function Inbox({
   searchParams: Promise<{ error?: string; journalDay?: string }>;
 }) {
   const user = await requireUser();
-  const [drafts, loaded, { error, journalDay }, notebooks] = await Promise.all([
-    inboxDrafts(user.id),
-    loadAccount(user.id),
-    searchParams,
-    listNotebooks(user.id),
-  ]);
+  const [drafts, loaded, { error, journalDay }, notebooks, people] =
+    await Promise.all([
+      inboxDrafts(user.id),
+      loadAccount(user.id),
+      searchParams,
+      listNotebooks(user.id),
+      listPeople(user.id),
+    ]);
+  const personNames = [...new Set(people.map((person) => person.name))];
   const areas = orderedAreas(loaded);
 
   return (
@@ -38,7 +43,17 @@ export default async function Inbox({
       <Header email={user.email} />
       <main>
         <h1>Inbox</h1>
-        {isJournalDay(journalDay) && <p role="status">Draft appended to Journal. <Link href={`/journal/${journalDay}`} className="text-primary underline">Open Journal for {journalDay}</Link></p>}
+        {isJournalDay(journalDay) && (
+          <p role="status">
+            Draft appended to Journal.{" "}
+            <Link
+              href={`/journal/${journalDay}`}
+              className="text-primary underline"
+            >
+              Open Journal for {journalDay}
+            </Link>
+          </p>
+        )}
         <form action={captureToInbox} className="panel">
           <Textarea
             name="body"
@@ -52,7 +67,7 @@ export default async function Inbox({
           {error && Object.hasOwn(errors, error) ? (
             <p role="alert">{errors[error]}</p>
           ) : null}
-          <Button type="submit" className="self-end">
+          <Button type="submit" className="self-end min-h-11">
             Capture
           </Button>
         </form>
@@ -80,12 +95,13 @@ export default async function Inbox({
                       ))}
                     </select>
                   ) : null}
-                  <Button type="submit" variant="outline">
+                  <Button type="submit" variant="outline" className="min-h-11">
                     File as task
                   </Button>
                 </form>
                 <FileNote draft={draft} notebooks={notebooks} />
                 <FileJournal draftId={draft.id} />
+                <LogPersonNote draftId={draft.id} people={personNames} />
               </li>
             ))}
           </ul>

@@ -5,6 +5,7 @@ import {
   journalEntries,
   notebooks,
   notes,
+  people,
   tasks,
 } from "@repo/db";
 import {
@@ -61,6 +62,14 @@ async function lockOwned(tx: Db, userId: string, end: LinkEnd, today: string) {
       .select({ id: notes.id })
       .from(notes)
       .where(and(eq(notes.id, end.id), eq(notes.userId, userId)))
+      .for("update");
+    return Boolean(locked);
+  }
+  if (end.kind === "person") {
+    const [locked] = await tx
+      .select({ id: people.id })
+      .from(people)
+      .where(and(eq(people.id, end.id), eq(people.userId, userId)))
       .for("update");
     return Boolean(locked);
   }
@@ -157,10 +166,13 @@ async function showEnds(
   const noteIds = edges
     .filter((edge) => edge.kind === "note" && isUuid(edge.id))
     .map((edge) => edge.id);
+  const personIds = edges
+    .filter((edge) => edge.kind === "person" && isUuid(edge.id))
+    .map((edge) => edge.id);
   const days = edges
     .filter((edge) => edge.kind === "journal" && isCalendarDay(edge.id))
     .map((edge) => edge.id);
-  const [taskRows, noteRows, dayRows] = await Promise.all([
+  const [taskRows, noteRows, dayRows, personRows] = await Promise.all([
     taskIds.length
       ? db
           .select({
@@ -180,6 +192,7 @@ async function showEnds(
             title: notes.title,
             notebookId: notes.notebookId,
             notebookName: notebooks.name,
+            occasionDate: notes.occasionDate,
           })
           .from(notes)
           .leftJoin(notebooks, eq(notebooks.id, notes.notebookId))
@@ -196,8 +209,25 @@ async function showEnds(
             ),
           )
       : [],
+    personIds.length
+      ? db
+          .select({ id: people.id, name: people.name })
+          .from(people)
+          .where(and(eq(people.userId, userId), inArray(people.id, personIds)))
+      : [],
   ]);
   const byKey = new Map<string, RelatedItem>();
+  for (const row of personRows) {
+    byKey.set(`person:${row.id}`, {
+      edgeId: "",
+      kind: "person",
+      id: row.id,
+      label: row.name,
+      href: `/people/${row.id}`,
+      detail: null,
+      completed: false,
+    });
+  }
   for (const row of taskRows) {
     byKey.set(`task:${row.id}`, {
       edgeId: "",
@@ -216,7 +246,7 @@ async function showEnds(
       id: row.id,
       label: row.title,
       href: noteHref(row.notebookId, row.id),
-      detail: row.notebookName ?? "No notebook",
+      detail: row.occasionDate ? formatJournalDay(row.occasionDate) : row.notebookName ?? "",
       completed: false,
     });
   }
@@ -319,6 +349,12 @@ export async function searchLinkTargets(
       where notes.user_id = ${userId}::uuid
         and notes.title ilike ${pattern} escape '\\'
         and not (${exclude.kind} = 'note' and notes.id::text = ${exclude.id})
+      union all
+      select 'person'::text, people.id::text, people.name, ''::text, false
+      from people
+      where people.user_id = ${userId}::uuid
+        and people.name ilike ${pattern} escape '\\'
+        and not (${exclude.kind} = 'person' and people.id::text = ${exclude.id})
       union all
       select 'journal'::text, journal_entries.day::text, journal_entries.day::text, ''::text, false
       from journal_entries

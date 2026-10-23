@@ -35,6 +35,7 @@ import {
   addTask,
   changePriority,
   completeTask,
+  setTaskRule,
   moveTask,
   scheduleOn,
   setTaskGoal,
@@ -77,7 +78,12 @@ export async function importAccountTheme(formData: FormData) {
   const user = await requireUser();
   const input = String(formData.get("preset") ?? "");
   const code = readPreset(input);
-  if (!code) redirect(isLegacyPreset(input) ? "/account?error=theme-legacy" : "/account?error=theme");
+  if (!code)
+    redirect(
+      isLegacyPreset(input)
+        ? "/account?error=theme-legacy"
+        : "/account?error=theme",
+    );
   const blocks = expandPreset(code);
   const result = takeImport(defaultAccountTheme, input, blocks);
   if (result.error || result.account.choice !== "imported") {
@@ -147,7 +153,12 @@ export async function addTaskToList(formData: FormData) {
 export async function completeTaskOnList(formData: FormData) {
   const { id: userId } = await requireUser();
   const id = String(formData.get("id"));
-  await completeTask(userId, id);
+  await completeTask(
+    userId,
+    id,
+    undefined,
+    String(formData.get("today") ?? ""),
+  );
   revalidateTask(id);
 }
 
@@ -288,4 +299,18 @@ export async function changeAccountPassword(formData: FormData) {
   }
   if (!result.ok) redirect(`/account?error=${result.error}`);
   redirect("/account?changed=1");
+}
+
+export async function saveTaskRule(formData: FormData) {
+  const { id: userId } = await requireUser();
+  const id = String(formData.get("id"));
+  let rule: unknown;
+  try {
+    rule = JSON.parse(String(formData.get("rule")));
+  } catch {
+    return;
+  }
+  if (!(await setTaskRule(userId, id, rule)))
+    throw new Error("Could not save this rule. Reload and try again.");
+  revalidateTask(id);
 }

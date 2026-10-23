@@ -25,7 +25,7 @@
 .markdown-field {
   border: 1px solid var(--input);
   border-radius: var(--radius);
-  background: color-mix(in oklch, var(--input) 20%, transparent);
+  background: color-mix(in oklab, var(--input) 20%, transparent);
   overflow: hidden;
 }
 .dark .markdown-field {
@@ -55,9 +55,10 @@
 @media (max-width: 640px) and (min-width: 481px) { .app-header-inner { flex-wrap: wrap; height: auto; min-height: 3.5rem; padding-block: .5rem; } .app-nav { flex-wrap: wrap; } }
 @media (max-width: 480px) {
   .app-sign-out { display: none; }
-  .app-header-inner { flex-wrap: nowrap; align-items: center; gap: 0.25rem; height: 3.5rem; padding-inline: 0.5rem; }
+  /* Eight links do not fit one row at 393px: wrap beside the brand, as 481-640px does, rather than scroll and clip Account. */
+  .app-header-inner { flex-wrap: nowrap; align-items: center; gap: 0.25rem; height: auto; min-height: 3.5rem; padding: 0.25rem 0.5rem; }
   .brand { flex: none; }
-  .app-nav { flex-wrap: nowrap; gap: 0; min-width: 0; overflow-x: auto; }
+  .app-nav { flex: 1 1 0; flex-wrap: wrap; gap: 0; min-width: 0; overflow: visible; }
   .app-nav a { padding: 0.6rem 0.2rem; white-space: nowrap; font-size: 0.75rem; letter-spacing: -0.01em; }
   .app-nav .habit-count { min-width: 1rem; margin-left: 0.15rem; padding: 0 0.25rem; font-size: 0.625rem; line-height: 1rem; }
 }
@@ -310,7 +311,9 @@
 
   ul.drafts > li {
     flex-wrap: wrap;
-    padding: 0.85rem 1rem;
+    /* Same inline padding as .panel so draft content and its disclosures
+       share the Capture field's left edge. */
+    padding: 0.85rem 1.25rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--card);
@@ -564,6 +567,75 @@
     margin-left: auto;
   }
 
+  /* Add link and Remove link share one outlined 40px button. */
+  .related-button {
+    min-height: 40px;
+    border: 1px solid var(--border);
+  }
+
+  /* Note editor buttons (Save Note, Preview, Clear, Delete) share the
+     Related buttons' outlined 40px style; the action row starts at the
+     form's left edge. */
+  [data-note-editor] button[data-slot="button"],
+  [data-note-editor] .note-actions button {
+    min-height: 40px;
+    border: 1px solid var(--border);
+  }
+
+  @media (max-width: 480px) {
+    [data-note-editor] button[data-slot="button"],
+    [data-note-editor] .note-actions button {
+      min-height: 44px;
+    }
+  }
+
+  .note-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .note-occasion-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .note-field-error {
+    color: var(--destructive);
+    font-size: 14px;
+    margin: 0;
+  }
+
+  /* Equal space above and below Add link and its picker. */
+  .related-add-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-block: 1rem;
+  }
+
+  .related-picker {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    width: 100%;
+  }
+
+  .related-hits {
+    width: 100%;
+    margin: 0;
+  }
+
+  .related-empty {
+    color: var(--muted-foreground);
+    font-size: 14px;
+    margin: 0;
+  }
+
   .card-row form,
   li.card details,
   li.card details form,
@@ -799,7 +871,7 @@
 }
 
 @media (max-width: 480px) {
-  .related-remove {
+  .related-button {
     min-height: 44px;
   }
 }
@@ -1385,3 +1457,46 @@ form.flex-row {
 /* Account choices have a 40px minimum target. */
 .theme-chip { min-width: 40px; min-height: 40px; }
 main form p.hint a { color: var(--foreground); text-decoration: underline; }
+
+/* People forms (/people add form and the person page) and the shared next-date
+   rule control (Task Repeat, person Reach-out rule). Every control is a 40px
+   target, selects use the same filled field as inputs, and inputs stay 16px on
+   phones so iOS does not zoom. */
+:is(.people-form, .rule-control) .field { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; }
+:is(.people-form, .rule-control) :is(input:not([type="checkbox"]), select, button) { min-height: 2.5rem; }
+:is(.people-form, .rule-control) select,
+.rule-control input:not([type="checkbox"]) {
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md, calc(var(--radius) - 2px));
+  background: color-mix(in oklab, var(--input) 20%, transparent);
+  padding: 0 0.5rem;
+  font-size: 1rem;
+  color: inherit;
+  outline: none;
+}
+.dark :is(.people-form, .rule-control) select,
+.dark .rule-control input:not([type="checkbox"]) { background: color-mix(in oklab, var(--input) 30%, transparent); }
+:is(.people-form, .rule-control) select:focus-visible,
+.rule-control input:not([type="checkbox"]):focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent); }
+:is(.people-form, .rule-control) .check-row { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.5rem; cursor: pointer; }
+:is(.people-form, .rule-control) .check-row input { width: 1.125rem; height: 1.125rem; }
+/* Rule row: label tops line up and, when a label wraps, the controls still
+   share one top edge (Every, Unit, On day). */
+:is(.people-form, .rule-control) .rule-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.75rem; }
+:is(.people-form, .rule-control) .rule-row .field { width: auto; flex: 1 1 5.5rem; min-width: 0; justify-content: space-between; }
+:is(.people-form, .rule-control) .rule-row :is(input, select) { width: 100%; min-width: 0; }
+@media (min-width: 768px) { :is(.people-form, .rule-control) select, .rule-control input:not([type="checkbox"]) { font-size: 0.75rem; } }
+@media (max-width: 480px) {
+  :is(.people-form, .rule-control) :is(input, select) { font-size: 16px; }
+}
+
+.person-note-form { display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; padding-block: 1rem; width: 100%; }
+.person-note-form label { display: flex; flex-direction: column; gap: .4rem; width: 100%; }
+.person-note-form :is(input, textarea) { font-size: 16px; min-height: 40px; }
+.person-note-form textarea { min-height: 44px; }
+.person-note-form button { min-height: 40px; }
+@media (max-width: 480px) {
+  .person-note-form :is(input, button) { min-height: 44px; }
+}
+.person-note-form button { transition-property: color, background-color, border-color, box-shadow; }

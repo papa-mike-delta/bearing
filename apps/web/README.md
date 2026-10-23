@@ -34,3 +34,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+Notes have an optional **Occasion date** field, saved with title, body and pin by **Save Note** under the same unsaved-changes guard. The browser's Today or a past day is allowed; clearing removes it. A future date refuses the entire save. On mobile the input is 16px and at least 40px tall. Related uses the Journal day row's label for a dated Note's detail, preserving undated detail and newest-edge-first order. This does not add a Note to the Journal or give Tasks this field.
+
+Migration `0022_note_occasion` adds only nullable `notes.occasion_date`. Coach `createNote(day?)` uses the same validation, only from a stated day, and returns the stored day on resend. It never attaches a Note to a person. After editing Coach knowledge, run `node scripts/generate-knowledge.ts` from `packages/coach`.
+
+Run the Note editor browser acceptance test against a local app connected to `TEST_POSTGRES_URL`: `NOTE_TEST_BASE_URL=http://localhost:3017 node --test tests/note-occasion.browser.ts` from this directory.
