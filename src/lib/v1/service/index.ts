@@ -1284,6 +1284,203 @@ export class V1 {
       transaction,
     );
   }
+  static updateReview(
+    p: Principal,
+    id: string,
+    raw: unknown,
+    transaction?: Tx,
+  ) {
+    return write(
+      p,
+      "v1.review.update",
+      confirmed(id, raw),
+      async (tx) => {
+        const input = parse(
+          z.strictObject({ revision, data: schema.reviewInput }),
+          raw,
+        );
+        const row = await owned(tx, p.userId, "review", id);
+        if (row.revision !== input.revision)
+          throw new Fault(409, "Review changed", {
+            currentRevision: row.revision,
+          });
+        const { itemIds, ...value } = input.data;
+        for (const itemId of itemIds) await owned(tx, p.userId, "item", itemId);
+        await tx.reviewItem.deleteMany({
+          where: { userId: p.userId, reviewId: id },
+        });
+        return tx.review.update({
+          where: { userId_id: { userId: p.userId, id } },
+          data: {
+            ...value,
+            prompts: json(value.prompts),
+            revision: { increment: 1 },
+            demoBatchId: null,
+            items: {
+              create: [...new Set(itemIds)].map((itemId) => ({ itemId })),
+            },
+          },
+        });
+      },
+      transaction,
+    );
+  }
+  static deleteReview(p: Principal, id: string, raw: unknown, transaction?: Tx) {
+    return write(
+      p,
+      "v1.review.delete",
+      confirmed(id, raw),
+      async (tx) => {
+        const expected = parse(z.strictObject({ revision }), raw);
+        const row = await owned(tx, p.userId, "review", id);
+        if (row.revision !== expected.revision)
+          throw new Fault(409, "Review changed", {
+            currentRevision: row.revision,
+          });
+        await tx.review.delete({ where: { id: row.id } });
+        return { id: row.id, revision: row.revision };
+      },
+      transaction,
+    );
+  }
+  static deleteProject(p: Principal, id: string, raw: unknown) {
+    return write(p, "v1.project.delete", confirmed(id, raw), async (tx) => {
+      const expected = parse(z.strictObject({ revision }), raw);
+      const project = await owned(tx, p.userId, "project", id);
+      if (project.revision !== expected.revision)
+        throw new Fault(409, "Project changed", {
+          currentRevision: project.revision,
+        });
+      const items = await tx.item.findMany({
+        where: { userId: p.userId, projectId: id },
+        select: { id: true },
+      });
+      await guardOpen(
+        tx,
+        p,
+        items.map((item) => item.id),
+      );
+      if (items.length)
+        await tx.item.updateMany({
+          where: { userId: p.userId, projectId: id },
+          data: { projectId: null, revision: { increment: 1 } },
+        });
+      await tx.projectTag.deleteMany({
+        where: { userId: p.userId, projectId: id },
+      });
+      await tx.project.delete({
+        where: { userId_id: { userId: p.userId, id } },
+      });
+      return { id, revision: project.revision };
+    });
+  }
+  static updateTag(p: Principal, id: string, raw: unknown) {
+    return write(p, "v1.tag.update", confirmed(id, raw), async (tx) => {
+      const input = parse(
+        z.strictObject({ revision, data: schema.tagInput }),
+        raw,
+      );
+      const tag = await tx.tag.findFirst({
+        where: { id, userId: p.userId },
+      });
+      if (!tag) throw new Fault(404, "Not found");
+      if (tag.revision !== input.revision)
+        throw new Fault(409, "Label changed", { currentRevision: tag.revision });
+      if (input.data.kind !== tag.kind)
+        throw new Fault(400, "Label kind cannot change");
+      const updated = await tx.tag.update({
+        where: { userId_id: { userId: p.userId, id } },
+        data: {
+          name: input.data.name,
+          revision: { increment: 1 },
+          demoBatchId: null,
+        },
+      });
+      await V1.bumpTaggedItems(tx, p, id);
+      return updated;
+    });
+  }
+  static deleteTag(p: Principal, id: string, raw: unknown) {
+    return write(p, "v1.tag.delete", confirmed(id, raw), async (tx) => {
+      const expected = parse(z.strictObject({ revision }), raw);
+      const tag = await tx.tag.findFirst({
+        where: { id, userId: p.userId },
+      });
+      if (!tag) throw new Fault(404, "Not found");
+      if (tag.revision !== expected.revision)
+        throw new Fault(409, "Label changed", { currentRevision: tag.revision });
+      await V1.bumpTaggedItems(tx, p, id);
+      await tx.itemTag.deleteMany({ where: { userId: p.userId, tagId: id } });
+      await tx.projectTag.deleteMany({
+        where: { userId: p.userId, tagId: id },
+      });
+      await tx.tag.delete({ where: { userId_id: { userId: p.userId, id } } });
+      return { id, revision: tag.revision };
+    });
+  }
+  static updateRecurrence(p: Principal, id: string, raw: unknown) {
+    return write(p, "v1.recurrence.update", confirmed(id, raw), async (tx) => {
+      const input = parse(
+        z.strictObject({
+          revision,
+          active: z.boolean().optional(),
+          rule: schema.recurrenceRule.optional(),
+        }),
+        raw,
+      );
+      if (input.active === undefined && input.rule === undefined)
+        throw new Fault(400, "Choose a repeat rule or stop repeating");
+      const row = await tx.recurrence.findFirst({
+        where: { id, userId: p.userId },
+      });
+      if (!row) throw new Fault(404, "Not found");
+      if (row.revision !== input.revision)
+        throw new Fault(409, "Repeat rule changed", {
+          currentRevision: row.revision,
+        });
+      await guardOpen(tx, p, [row.itemId]);
+      return tx.recurrence.update({
+        where: { userId_id: { userId: p.userId, id } },
+        data: {
+          ...(input.rule ? { rule: json(input.rule) } : {}),
+          ...(input.active === undefined ? {} : { active: input.active }),
+          revision: { increment: 1 },
+          demoBatchId: null,
+        },
+      });
+    });
+  }
+  private static async bumpTaggedItems(tx: Tx, p: Principal, tagId: string) {
+    const links = await tx.itemTag.findMany({
+      where: { userId: p.userId, tagId },
+      select: { itemId: true },
+    });
+    const projects = await tx.projectTag.findMany({
+      where: { userId: p.userId, tagId },
+      select: { projectId: true },
+    });
+    const projectItems = projects.length
+      ? await tx.item.findMany({
+          where: {
+            userId: p.userId,
+            projectId: { in: projects.map((row) => row.projectId) },
+          },
+          select: { id: true },
+        })
+      : [];
+    const ids = [
+      ...new Set([
+        ...links.map((row) => row.itemId),
+        ...projectItems.map((row) => row.id),
+      ]),
+    ];
+    await guardOpen(tx, p, ids);
+    if (ids.length)
+      await tx.item.updateMany({
+        where: { userId: p.userId, id: { in: ids } },
+        data: { revision: { increment: 1 } },
+      });
+  }
   static setLease(p: Principal, itemId: string, token: string, open: boolean) {
     return write(p, "v1.item.lease", { itemId, token, open }, async (tx) => {
       if (p.actor !== `user:${p.userId}`)

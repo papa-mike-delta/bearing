@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DraftNotice, useItemDraft } from "../item-draft-session";
 import { SectionCard } from "../layout";
 import { dateInZone } from "@/lib/v1/dates";
+import type { ReviewRecord } from "@/lib/v1/client-model";
 import { reviewInput } from "@/lib/v1/contracts";
 import { fieldClass, useWorkspace } from "./context";
 const prompts = [
@@ -15,31 +16,46 @@ const prompts = [
   ["gratitude", "Gratitude", "What are you grateful for?"],
   ["notes", "Notes", "Anything else on your mind?"],
 ] as const;
-export function ReviewComposer() {
+function reviewSeed(review: ReviewRecord | undefined, timezone: string) {
+  const prompts = review?.prompts ?? {};
+  return {
+    id: review?.id,
+    revision: review?.revision ?? 0,
+    period: review?.period ?? "daily",
+    localDate: review?.localDate ?? dateInZone(new Date(), timezone),
+    wins: prompts.wins ?? "",
+    challenges: prompts.challenges ?? "",
+    learnings: prompts.learnings ?? "",
+    gratitude: prompts.gratitude ?? "",
+    notes: prompts.notes ?? "",
+    priorities: Array.isArray(prompts.priorities)
+      ? prompts.priorities.join("\n")
+      : "",
+    itemIds: review?.items?.map((item) => item.itemId) ?? [],
+  };
+}
+export function ReviewComposer({ review }: { review?: ReviewRecord }) {
   const { data: workspace, timezone, mutate } = useWorkspace(),
     router = useRouter();
   const seed = useMemo(
-    () => ({
-      period: "daily",
-      localDate: dateInZone(new Date(), timezone),
-      wins: "",
-      challenges: "",
-      learnings: "",
-      gratitude: "",
-      notes: "",
-      priorities: "",
-      itemIds: [] as string[],
-    }),
-    [timezone],
+    () => reviewSeed(review, timezone),
+    [review, timezone],
   );
-  const key = "review:new";
+  const key = review ? `review:${review.id}` : "review:new";
   const { owner, draft, data } = useItemDraft(key, seed);
-  const existing = workspace.reviews.find(
-    (r) => r.period === data.period && r.localDate === data.localDate,
-  );
+  const existing =
+    review ??
+    workspace.reviews.find(
+      (r) => r.period === data.period && r.localDate === data.localDate,
+    );
+  useEffect(() => {
+    if (!existing || review) return;
+    if (data.id === existing.id && data.revision === (existing.revision ?? 0))
+      return;
+    owner.change(key, reviewSeed(existing, timezone));
+  }, [existing, review, data.id, data.revision, key, owner, timezone]);
   const change = (patch: Record<string, unknown>) => owner.change(key, patch);
   async function save() {
-    if (existing) return;
     const ticket = owner.beginSave(key);
     if (!ticket) return;
     try {
@@ -57,9 +73,15 @@ export function ReviewComposer() {
         },
         itemIds: value.itemIds,
       });
-      const result = await mutate("reviews", input);
+      const result = existing
+        ? await mutate(
+            `reviews/${existing.id}`,
+            { revision: existing.revision ?? 0, data: input },
+            "PUT",
+          )
+        : await mutate("reviews", input);
       owner.completeTransient(ticket, seed);
-      router.push(`/app/reviews/${result.value.id}`);
+      if (!review) router.push(`/app/reviews/${result.value.id}`);
     } catch (error) {
       owner.fail(ticket, error);
     }
@@ -114,6 +136,7 @@ export function ReviewComposer() {
               {label}
               <textarea
                 className={`${fieldClass} mt-1 min-h-24`}
+                aria-label={label}
                 value={data[name]}
                 placeholder={placeholder}
                 onChange={(e) => change({ [name]: e.target.value })}
@@ -153,17 +176,42 @@ export function ReviewComposer() {
             ))}
           </div>
         </fieldset>
-        {existing && (
+        {existing && !review && (
           <p role="status" className="text-sm">
-            A Review already exists for this period and date.{" "}
+            This period already has a reflection. The form opens it.{" "}
             <Link className="underline" href={`/app/reviews/${existing.id}`}>
               Read saved Review
             </Link>
           </p>
         )}
-        <Button disabled={!!draft?.pending || !!existing}>
-          {draft?.pending ? "Saving reflection…" : "Save reflection"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!!draft?.pending}>
+            {draft?.pending
+              ? "Saving reflection…"
+              : existing
+                ? "Update reflection"
+                : "Save reflection"}
+          </Button>
+          {existing && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!!draft?.pending}
+              onClick={() => {
+                if (!window.confirm("Delete this reflection?")) return;
+                void mutate(
+                  `reviews/${existing.id}`,
+                  { revision: existing.revision ?? 0 },
+                  "DELETE",
+                ).then(() => {
+                  if (!review) router.push("/app/reviews");
+                });
+              }}
+            >
+              Delete reflection
+            </Button>
+          )}
+        </div>
       </form>
     </SectionCard>
   );

@@ -51,7 +51,7 @@ export class Workflow {
         where: { userId },
         orderBy: { occurredAt: "desc" },
       }),
-      db.review.findMany({ where: { userId } }),
+      db.review.findMany({ where: { userId }, include: { items: true } }),
       Workflow.preferences(userId),
       db.link.findMany({ where: { userId } }),
       db.preference.findMany({

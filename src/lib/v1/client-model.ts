@@ -1,5 +1,10 @@
 import type { CanonicalItem, ItemInput } from "./contracts";
-export type TagRecord = { id: string; name: string; kind: "area" | "tag" };
+export type TagRecord = {
+  id: string;
+  name: string;
+  kind: "area" | "tag";
+  revision?: number;
+};
 export type ProjectRecord = {
   id: string;
   name: string;
@@ -47,7 +52,9 @@ export type ReviewRecord = {
   id: string;
   period: string;
   localDate: string;
+  revision?: number;
   prompts: Record<string, any>;
+  items?: { itemId: string }[];
 };
 export type Workspace = {
   items: ItemRecord[];
