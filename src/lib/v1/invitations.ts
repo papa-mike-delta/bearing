@@ -3,6 +3,29 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { invitationInput } from "./contracts";
 import { parse, Fault } from "./service";
+export class Invitations {
+  static list() {
+    return db.invitation.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        email: true,
+        expiresAt: true,
+        consumedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+  static async revoke(target: string) {
+    const value = target.trim().toLowerCase();
+    const where = value.includes("@")
+      ? { email: value, consumedAt: null }
+      : { id: target.trim(), consumedAt: null };
+    const result = await db.invitation.deleteMany({ where });
+    if (!result.count) throw new Fault(404, "No open invitation matched");
+    return { revoked: result.count };
+  }
+}
 export const invitationHash = (token: string) =>
   crypto.createHash("sha256").update(token).digest("hex");
 export async function registerInvited(raw: unknown) {

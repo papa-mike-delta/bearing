@@ -54,6 +54,26 @@ it("discloses provider host and never returns credentials", () => {
   expect(JSON.stringify(value)).not.toContain("apiKey");
 });
 import { guardedTool } from "./model";
+it("keeps Coach archive-only with no hard delete tool", () => {
+  const ops = [
+    "delete_item",
+    "delete_project",
+    "delete_tag",
+    "delete_review",
+    "delete_moment",
+    "delete_activity",
+    "delete_account",
+  ];
+  for (const op of ops)
+    expect(operationsInput.safeParse([{ op, id: "item", revision: 0 }]).success).toBe(
+      false,
+    );
+  expect(
+    operationsInput.safeParse([
+      { op: "archive_item", id: "item", revision: 0 },
+    ]).success,
+  ).toBe(true);
+});
 it("does not forward raw internal error details to the external model", async () => {
   await expect(
     guardedTool(async () => {

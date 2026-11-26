@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { ConnectedFocus, ConnectedGraph } from "./perspectives";
 import { ConversationalCoach } from "./coach";
+import { AccountSettings } from "./account-settings";
 import { DataSettings } from "./data-settings";
 import { Appearance } from "./appearance";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -881,6 +882,7 @@ function Settings({ onSignOut }: { onSignOut(): void }) {
         </ul>
       </SectionCard>
       <CoachTrustSettings />
+      <AccountSettings />
       <DataSettings />
       {error && (
         <p role="alert" className="text-destructive">
