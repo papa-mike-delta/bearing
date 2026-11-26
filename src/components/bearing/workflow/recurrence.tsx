@@ -9,6 +9,8 @@ import type { ItemRecord } from "@/lib/v1/client-model";
 import type { RecurrenceRule } from "@/lib/v1/dates";
 type Series = {
   id: string;
+  revision: number;
+  active: boolean;
   rule: RecurrenceRule;
   occurrences: {
     itemId: string;
@@ -61,7 +63,8 @@ export function TaskRecurrence({
       ) : series ? (
         <div className="space-y-3">
           <p role="status">
-            Repeats every {series.rule.interval} {series.rule.unit}(s),{" "}
+            {series.active ? "Repeats" : "Stopped"} every {series.rule.interval}{" "}
+            {series.rule.unit}(s),{" "}
             {series.rule.mode === "calendar"
               ? `on the calendar at ${series.rule.localTime}`
               : "after completion"}{" "}
@@ -83,6 +86,112 @@ export function TaskRecurrence({
               </li>
             ))}
           </ul>
+          <form
+            className="space-y-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (busy) return;
+              setBusy(true);
+              setError("");
+              try {
+                await mutate(
+                  `recurrences/${series.id}`,
+                  {
+                    revision: series.revision,
+                    rule: {
+                      mode,
+                      unit,
+                      interval,
+                      timezone: item.timezone,
+                      ...(mode === "calendar" ? { localTime: time } : {}),
+                    },
+                  },
+                  "PUT",
+                );
+                await client.invalidateQueries({ queryKey: key });
+              } catch (err) {
+                setError((err as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <label className="block text-sm">
+              Repeat from
+              <select
+                className={`${fieldClass} mt-1`}
+                value={mode}
+                onChange={(e) => setMode(e.target.value as typeof mode)}
+              >
+                <option value="calendar">Fixed calendar schedule</option>
+                <option value="completion">Completion time</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              Repeat interval
+              <input
+                type="number"
+                min={1}
+                max={365}
+                required
+                className={`${fieldClass} mt-1`}
+                value={interval}
+                onChange={(e) => setInterval(Number(e.target.value))}
+              />
+            </label>
+            <label className="block text-sm">
+              Repeat unit
+              <select
+                className={`${fieldClass} mt-1`}
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as typeof unit)}
+              >
+                <option value="day">Days</option>
+                <option value="week">Weeks</option>
+                <option value="month">Months</option>
+              </select>
+            </label>
+            {mode === "calendar" && (
+              <label className="block text-sm">
+                Repeat local time
+                <input
+                  type="time"
+                  required
+                  className={`${fieldClass} mt-1`}
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                />
+              </label>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={busy}>{busy ? "Saving…" : "Save repeat rule"}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || !series.active}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await mutate(
+                        `recurrences/${series.id}`,
+                        { revision: series.revision, active: false },
+                        "PUT",
+                      );
+                      await client.invalidateQueries({ queryKey: key });
+                    } catch (err) {
+                      setError((err as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                Stop repeating
+              </Button>
+            </div>
+          </form>
         </div>
       ) : (
         <form

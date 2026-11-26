@@ -208,8 +208,14 @@ async function handle(
     ) {
       const value = parse(edit, body);
       result = await V1.updateProject(p, recordId, value.revision, value.data);
-    } else if (resource === "tags" && !recordId && method === "POST")
+    } else if (resource === "projects" && recordId && !action && method === "DELETE")
+      result = await V1.deleteProject(p, recordId, body);
+    else if (resource === "tags" && !recordId && method === "POST")
       result = await V1.createTag(p, body);
+    else if (resource === "tags" && recordId && !action && method === "PUT")
+      result = await V1.updateTag(p, recordId, body);
+    else if (resource === "tags" && recordId && !action && method === "DELETE")
+      result = await V1.deleteTag(p, recordId, body);
     else if (resource === "links" && !recordId && method === "POST")
       result = await V1.createLink(p, body);
     else if (resource === "links" && recordId && method === "DELETE")
@@ -229,6 +235,12 @@ async function handle(
       result = await V1.deleteActivity(p, recordId, body);
     else if (resource === "reviews" && !recordId && method === "POST")
       result = await V1.createReview(p, body);
+    else if (resource === "reviews" && recordId && !action && method === "PUT")
+      result = await V1.updateReview(p, recordId, body);
+    else if (resource === "reviews" && recordId && !action && method === "DELETE")
+      result = await V1.deleteReview(p, recordId, body);
+    else if (resource === "recurrences" && recordId && !action && method === "PUT")
+      result = await V1.updateRecurrence(p, recordId, body);
     else if (resource === "backup" && !recordId && method === "GET")
       result = await V1Backup.export(p.userId);
     else if (resource === "backup" && !recordId && method === "POST") {

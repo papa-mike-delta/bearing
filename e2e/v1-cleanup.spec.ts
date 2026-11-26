@@ -142,9 +142,12 @@ test("daily weekly and monthly reflections are written through the UI and stay s
     .getByRole("combobox", { name: "Review period", exact: true })
     .selectOption("daily");
   await page.getByLabel("Review date", { exact: true }).fill("2026-10-24");
+  await expect(page.getByLabel("Wins", { exact: true })).toHaveValue(
+    "A daily pause to notice progress.",
+  );
   await expect(
-    page.getByRole("button", { name: "Save reflection", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Update reflection", exact: true }),
+  ).toBeEnabled();
   await expect(
     page.getByRole("link", { name: "Read saved Review", exact: true }),
   ).toBeVisible();

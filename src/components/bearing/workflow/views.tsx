@@ -1153,6 +1153,7 @@ function ProjectForm({
   const { mutate } = useWorkspace(),
     [name, setName] = useState(project?.name || ""),
     [description, setDescription] = useState(project?.description || ""),
+    [status, setStatus] = useState(project?.status || "active"),
     [tags, setTags] = useState(project?.tags.map((t) => t.tagId) || []),
     [error, setError] = useState("");
   return (
@@ -1165,7 +1166,7 @@ function ProjectForm({
             name,
             description,
             tagIds: tags,
-            status: project?.status || "active",
+            status,
           };
           await mutate(
             project ? `projects/${project.id}` : "projects",
@@ -1188,6 +1189,20 @@ function ProjectForm({
         />
       </label>
       <label className="block text-sm">
+        Status
+        <select
+          aria-label="Status"
+          className={`${fieldClass} mt-1`}
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="active">Active</option>
+          <option value="paused">Paused</option>
+          <option value="completed">Completed</option>
+          <option value="archived">Archived</option>
+        </select>
+      </label>
+      <label className="block text-sm">
         Description
         <textarea
           className={`${fieldClass} mt-1`}
@@ -1203,6 +1218,31 @@ function ProjectForm({
       <Button type="button" variant="ghost" onClick={onDone}>
         Close
       </Button>
+      {project && (
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => {
+            if (
+              !window.confirm(
+                "Delete this project? Its items stay in your library and lose this project.",
+              )
+            )
+              return;
+            void mutate(
+              `projects/${project.id}`,
+              { revision: project.revision },
+              "DELETE",
+            )
+              .then(onDone)
+              .catch((err: unknown) =>
+                setError(err instanceof Error ? err.message : "Could not delete"),
+              );
+          }}
+        >
+          Delete project
+        </Button>
+      )}
     </form>
   );
 }
@@ -1646,12 +1686,15 @@ export function Reviews({ recordId }: { recordId?: string }) {
         <Metric label="Monthly" value={counts.monthly} icon="Calendar" />
       </MetricRow>
       {recordId ? (
-        <Link
-          className="inline-flex min-h-11 items-center underline"
-          href="/app/reviews"
-        >
-          All Reviews · write a reflection
-        </Link>
+        <>
+          <Link
+            className="inline-flex min-h-11 items-center underline"
+            href="/app/reviews"
+          >
+            All Reviews · write a reflection
+          </Link>
+          {reviews[0] && <ReviewComposer review={reviews[0]} />}
+        </>
       ) : (
         <SurfaceGrid variant="main">
           <ReviewComposer />
@@ -1691,12 +1734,6 @@ export function Reviews({ recordId }: { recordId?: string }) {
           </SectionCard>
         </SurfaceGrid>
       )}
-      {recordId &&
-        reviews.map((r) => (
-          <SectionCard key={r.id} title={`${r.period} · ${r.localDate}`}>
-            <ReviewBody review={r} />
-          </SectionCard>
-        ))}
       {recordId && !reviews.length && (
         <Empty>No matching Review in this account.</Empty>
       )}

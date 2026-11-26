@@ -801,6 +801,7 @@ function Settings({ onSignOut }: { onSignOut(): void }) {
             <label className="block text-sm text-muted-foreground">
               Name
               <input
+                aria-label="Name"
                 className={`${fieldClass} mt-1`}
                 required
                 value={name}
@@ -810,6 +811,7 @@ function Settings({ onSignOut }: { onSignOut(): void }) {
             <label className="block text-sm text-muted-foreground">
               Kind
               <select
+                aria-label="Kind"
                 className={`${fieldClass} mt-1`}
                 value={kind}
                 onChange={(e) => setKind(e.target.value)}
@@ -821,6 +823,62 @@ function Settings({ onSignOut }: { onSignOut(): void }) {
           </div>
           <Button>Create label</Button>
         </form>
+        <ul className="mt-4 space-y-3">
+          {data.tags.map((tag) => (
+            <li key={tag.id} className="flex flex-wrap items-end gap-2">
+              <form
+                className="flex min-w-0 flex-1 flex-wrap items-end gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const input = new FormData(e.currentTarget);
+                  void action(() =>
+                    mutate(
+                      `tags/${tag.id}`,
+                      {
+                        revision: tag.revision ?? 0,
+                        data: { name: String(input.get("name") || ""), kind: tag.kind },
+                      },
+                      "PUT",
+                    ),
+                  );
+                }}
+              >
+                <label className="block min-w-0 flex-1 text-sm text-muted-foreground">
+                  Rename {tag.kind} {tag.name}
+                  <input
+                    aria-label={`Rename ${tag.kind} ${tag.name}`}
+                    name="name"
+                    required
+                    defaultValue={tag.name}
+                    className={`${fieldClass} mt-1`}
+                  />
+                </label>
+                <Button type="submit">Rename</Button>
+              </form>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      `Delete ${tag.name}? Items that use it stay, and an open editor will see a conflict.`,
+                    )
+                  )
+                    return;
+                  void action(() =>
+                    mutate(
+                      `tags/${tag.id}`,
+                      { revision: tag.revision ?? 0 },
+                      "DELETE",
+                    ),
+                  );
+                }}
+              >
+                Delete {tag.name}
+              </Button>
+            </li>
+          ))}
+        </ul>
       </SectionCard>
       <CoachTrustSettings />
       <DataSettings />
