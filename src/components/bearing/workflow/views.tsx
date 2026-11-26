@@ -13,6 +13,7 @@ import {
   itemSeed,
   statusNames,
   typeIcons,
+  type ActivityRecord,
   type ItemRecord,
   type MomentRecord,
   type ProjectRecord,
@@ -357,11 +358,10 @@ export function MomentCard({
     draft,
     data: edit,
   } = useItemDraft(`moment:${moment.id}`, seed);
-  const refs = [
-    ...new Map(moment.items.map((ref) => [ref.itemId, ref])).values(),
-  ]
-    .map((ref) => data.items.find((item) => item.id === ref.itemId))
-    .filter((item): item is ItemRecord => !!item);
+  const refs = moment.items.flatMap((ref) => {
+    const item = data.items.find((row) => row.id === ref.itemId);
+    return item ? [{ ...ref, item }] : [];
+  });
   async function classify(item = false) {
     setBusy(true);
     setError("");
@@ -499,10 +499,60 @@ export function MomentCard({
           <Button variant="ghost" onClick={() => setEditing(true)}>
             Edit Journal text
           </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm("Delete this journal entry? A later sync cannot bring it back."))
+                return;
+              setBusy(true);
+              setError("");
+              void mutate(
+                `journal/${moment.id}`,
+                { revision: moment.revision },
+                "DELETE",
+              )
+                .catch((e: unknown) =>
+                  setError(e instanceof Error ? e.message : "Could not delete"),
+                )
+                .finally(() => setBusy(false));
+            }}
+          >
+            Delete entry
+          </Button>
         </>
       )}
-      {refs.map((i) => (
-        <ItemCard key={i.id} item={i} context="Linked Item" />
+      {refs.map((ref) => (
+        <div key={`${ref.relation}:${ref.itemId}`} className="space-y-2">
+          <ItemCard item={ref.item} context={ref.relation} />
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError("");
+              void mutate(
+                `journal/${moment.id}/mention`,
+                {
+                  revision: moment.revision,
+                  itemId: ref.itemId,
+                  relation: ref.relation,
+                },
+                "DELETE",
+              )
+                .catch((e: unknown) =>
+                  setError(
+                    e instanceof Error ? e.message : "Could not remove the link",
+                  ),
+                )
+                .finally(() => setBusy(false));
+            }}
+          >
+            Remove {ref.relation}
+          </Button>
+        </div>
       ))}
       <LinkProposalCards momentId={moment.id} faded />
       <RelationshipPrompts scope={{ momentIds: [moment.id] }} proposals={false} />
@@ -552,6 +602,180 @@ export function MomentCard({
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </article>
+  );
+}
+function ActivityCard({ activity }: { activity: ActivityRecord }) {
+  const { data, mutate } = useWorkspace();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(activity.data);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const item = activity.itemId
+    ? data.items.find((row) => row.id === activity.itemId)
+    : undefined;
+  const editable = activity.kind !== "task_completion";
+  async function save() {
+    setBusy(true);
+    setError("");
+    try {
+      await mutate(
+        `activities/${activity.id}`,
+        {
+          revision: activity.revision,
+          data: {
+            clientId: activity.clientId,
+            kind: activity.kind,
+            itemId: activity.itemId,
+            occurredAt: activity.occurredAt,
+            timezone: activity.timezone,
+            data: draft,
+          },
+        },
+        "PUT",
+      );
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <article
+      id={`activity-${activity.id}`}
+      className="space-y-2 rounded-xl border border-border p-4 text-sm"
+    >
+      <strong className="capitalize">
+        {activity.kind.replaceAll("_", " ")}
+      </strong>
+      <time className="ml-2 text-xs">
+        {new Date(activity.occurredAt).toLocaleTimeString(undefined, {
+          timeZone: activity.timezone,
+        })}
+      </time>
+      {editing ? (
+        <div className="space-y-2">
+          {activity.kind === "check_in" && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-sm">
+                Mood
+                <input
+                  className={fieldClass}
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={draft.mood ?? ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, mood: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label className="text-sm">
+                Energy
+                <input
+                  className={fieldClass}
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={draft.energy ?? ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, energy: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
+          )}
+          {activity.kind === "focus" && (
+            <label className="text-sm">
+              Minutes
+              <input
+                className={fieldClass}
+                type="number"
+                min={1}
+                max={1440}
+                value={draft.minutes ?? ""}
+                onChange={(e) =>
+                  setDraft({ ...draft, minutes: Number(e.target.value) })
+                }
+              />
+            </label>
+          )}
+          {(activity.kind === "observation" || activity.kind === "interaction") && (
+            <label className="text-sm">
+              {activity.kind === "observation" ? "Note" : "Interaction note"}
+              <textarea
+                className={`${fieldClass} mt-1`}
+                value={draft.text || draft.note || ""}
+                onChange={(e) =>
+                  setDraft(
+                    activity.kind === "observation"
+                      ? { text: e.target.value }
+                      : { note: e.target.value },
+                  )
+                }
+              />
+            </label>
+          )}
+          {activity.kind === "habit_completion" && (
+            <label className="text-sm">
+              Value
+              <input
+                className={fieldClass}
+                type="number"
+                min={0}
+                value={draft.value ?? 1}
+                onChange={(e) =>
+                  setDraft({ ...draft, value: Number(e.target.value) })
+                }
+              />
+            </label>
+          )}
+          <Button type="button" disabled={busy} onClick={() => void save()}>
+            Save activity
+          </Button>
+        </div>
+      ) : (
+        <p>{activitySummary(activity)}</p>
+      )}
+      {item && <ItemCard item={item} />}
+      <div className="flex flex-wrap gap-2">
+        {editable && !editing && (
+          <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+            Edit activity
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={busy}
+          onClick={() => {
+            if (
+              !window.confirm(
+                "Delete this activity? A completed habit day is undone.",
+              )
+            )
+              return;
+            setBusy(true);
+            setError("");
+            void mutate(
+              `activities/${activity.id}`,
+              { revision: activity.revision },
+              "DELETE",
+            ).catch((e: unknown) => {
+              setBusy(false);
+              setError(e instanceof Error ? e.message : "Could not delete");
+            });
+          }}
+        >
+          Delete activity
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="text-destructive">
           {error}
         </p>
       )}
@@ -631,29 +855,7 @@ export function Journal({ date }: { date: string }) {
               entry.kind === "moment" ? (
                 <MomentCard key={entry.id} moment={entry.moment} />
               ) : (
-                <article
-                  id={`activity-${entry.id}`}
-                  key={entry.id}
-                  className="rounded-xl border border-border p-4 text-sm"
-                >
-                  <strong className="capitalize">
-                    {entry.activity.kind.replaceAll("_", " ")}
-                  </strong>
-                  <time className="ml-2 text-xs">
-                    {new Date(entry.time).toLocaleTimeString(undefined, {
-                      timeZone: entry.activity.timezone || timezone,
-                    })}
-                  </time>
-                  <p>{activitySummary(entry.activity)}</p>
-                  {entry.activity.itemId &&
-                    data.items.find((i) => i.id === entry.activity.itemId) && (
-                      <ItemCard
-                        item={data.items.find(
-                          (i) => i.id === entry.activity.itemId,
-                        )!}
-                      />
-                    )}
-                </article>
+                <ActivityCard key={entry.id} activity={entry.activity} />
               ),
             )}
             {!day.timeline.length && (

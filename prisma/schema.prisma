@@ -40,6 +40,7 @@ model Account {
   proposals     Proposal[]
   preferences   Preference[]
   leases        Lease[]
+  tombstones    MomentTombstone[]
 
   @@map("User")
 }
@@ -397,6 +398,17 @@ model Lease {
 
   @@id([userId, itemId, token])
   @@map("V1Lease")
+}
+
+model MomentTombstone {
+  userId   String
+  account  Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1MomentTombstone_owner_fkey")
+  clientId String
+  momentId String
+  revision Int
+
+  @@id([userId, clientId])
+  @@map("V1MomentTombstone")
 }
 
 model Invitation {

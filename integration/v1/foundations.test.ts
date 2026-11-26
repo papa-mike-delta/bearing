@@ -582,13 +582,20 @@ it("invalid, foreign and colliding backups roll back without deleting existing d
   expect((await V1.item(owner, local.id)).title).toBe("Keep");
   expect((await V1.item(other, foreign.id)).title).toBe("Foreign");
 });
-it("removes opt-in demo data only, refuses removal if personal data references it", async () => {
+it("removes opt-in demo data and clears personal references to it", async () => {
   const personal = (await V1.createItem(p, note("Real"))).value;
   await V1Demo.seed(p);
   await V1Demo.seed(p);
   expect(await db.item.count({ where: { userId: owner } })).toBe(9);
   const demo = await db.item.findFirstOrThrow({
     where: { userId: owner, demoBatchId: { not: null } },
+  });
+  const project = await db.project.findFirstOrThrow({
+    where: { userId: owner, demoBatchId: { not: null } },
+  });
+  await V1.updateItem(p, personal.id, personal.revision, {
+    ...(await payload(personal.id)),
+    projectId: project.id,
   });
   await V1.createMoment(p, {
     clientId: ids(),
@@ -597,14 +604,15 @@ it("removes opt-in demo data only, refuses removal if personal data references i
     timezone: "UTC",
     items: [{ itemId: demo.id }],
   });
-  await expect(V1Demo.remove(p, "REMOVE DEMO DATA")).rejects.toMatchObject({
-    status: 409,
-  });
-  await db.journalMoment.deleteMany({
-    where: { userId: owner, demoBatchId: null },
-  });
   await V1Demo.remove(p, "REMOVE DEMO DATA");
   expect((await V1.item(owner, personal.id)).title).toBe("Real");
+  expect((await V1.item(owner, personal.id)).projectId).toBeNull();
+  const moment = await db.journalMoment.findFirst({
+    where: { userId: owner, text: "My real mention" },
+    include: { items: true },
+  });
+  expect(moment?.items).toEqual([]);
+  expect(await db.item.count({ where: { userId: owner, demoBatchId: { not: null } } })).toBe(0);
   expect(await db.item.count({ where: { userId: owner } })).toBe(2);
 });
 it("enforces invite email, expiry, single-use consumption and canonical Me creation", async () => {

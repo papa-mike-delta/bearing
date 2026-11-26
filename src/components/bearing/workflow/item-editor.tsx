@@ -9,7 +9,7 @@ import { DraftNotice, useItemDraft } from "../item-draft-session";
 import { useOpenItem } from "@/hooks/use-open-item";
 import { StructuredFields, newItemSeed, typeNames } from "./structured-fields";
 import type { CanonicalItem } from "@/lib/v1/contracts";
-import { itemInput } from "@/lib/v1/contracts";
+import { deleteItemConfirmation, itemInput } from "@/lib/v1/contracts";
 import {
   itemDto,
   itemSeed,
@@ -366,6 +366,35 @@ export function ItemEditor({
               : `Create ${typeNames[type]}`}
         </Button>
       </form>
+      {item && !item.selfProfile && (
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={!!draft?.dirtyFields.length || !!draft?.pending}
+          onClick={() => {
+            if (
+              !window.confirm(
+                "Delete this item permanently? Archive remains available from Status. Linked activity, mentions, and an anchored repeat series are removed. Delegated tasks return to To do.",
+              )
+            )
+              return;
+            setActionError("");
+            void mutate(
+              `items/${item.id}`,
+              { revision: item.revision, confirmation: deleteItemConfirmation },
+              "DELETE",
+            )
+              .then(() => router.push("/app/library"))
+              .catch((error: unknown) =>
+                setActionError(
+                  error instanceof Error ? error.message : "Could not delete",
+                ),
+              );
+          }}
+        >
+          Delete permanently
+        </Button>
+      )}
       {item?.type === "task" && <TaskRecurrence item={item} unsaved={!!draft?.dirtyFields.length || !!draft?.pending} />}
       {item && (
         <details>

@@ -102,6 +102,15 @@ async function handle(
       result = await V1.relateMoment(p, recordId, body);
     else if (resource === "journal" && recordId && !action && method === "PUT")
       result = await V1.editMoment(p, recordId, body);
+    else if (resource === "journal" && recordId && !action && method === "DELETE")
+      result = await V1.deleteMoment(p, recordId, body);
+    else if (
+      resource === "journal" &&
+      recordId &&
+      action === "mention" &&
+      method === "DELETE"
+    )
+      result = await V1.detachMoment(p, recordId, body);
     else if (
       resource === "items" &&
       recordId &&
@@ -109,6 +118,13 @@ async function handle(
       method === "PUT"
     )
       result = await V1.habit(p, recordId, body);
+    else if (
+      resource === "items" &&
+      recordId &&
+      action === "undo" &&
+      method === "POST"
+    )
+      result = await V1.undoHabit(p, recordId, body);
     else if (resource === "items" && !action) {
       if (method === "GET") {
         if (recordId) result = await V1.item(p.userId, recordId);
@@ -148,7 +164,9 @@ async function handle(
       else if (method === "PUT" && recordId) {
         const value = parse(edit, body);
         result = await V1.updateItem(p, recordId, value.revision, value.data);
-      } else throw new Fault(405, "Method not allowed");
+      } else if (method === "DELETE" && recordId)
+        result = await V1.deleteItem(p, recordId, body);
+      else throw new Fault(405, "Method not allowed");
     } else if (
       resource === "items" &&
       recordId &&
@@ -200,6 +218,15 @@ async function handle(
       result = await V1.createMoment(p, body);
     else if (resource === "activities" && !recordId && method === "POST")
       result = await V1.createActivity(p, body);
+    else if (resource === "activities" && recordId && !action && method === "PUT")
+      result = await V1.updateActivity(p, recordId, body);
+    else if (
+      resource === "activities" &&
+      recordId &&
+      !action &&
+      method === "DELETE"
+    )
+      result = await V1.deleteActivity(p, recordId, body);
     else if (resource === "reviews" && !recordId && method === "POST")
       result = await V1.createReview(p, body);
     else if (resource === "backup" && !recordId && method === "GET")

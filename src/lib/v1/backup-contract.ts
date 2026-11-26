@@ -151,6 +151,11 @@ export const tableSchemas = {
     ...demo,
     ...stamp,
   }),
+  tombstones: z.strictObject({
+    clientId: id,
+    momentId: id,
+    revision,
+  }),
   preferences: z.strictObject({
     key: z.string().min(1).max(160),
     value: z.json(),
@@ -202,6 +207,7 @@ export const delegates = {
   messages: "message",
   proposals: "proposal",
   preferences: "preference",
+  tombstones: "momentTombstone",
   ledger: "ledger",
 } as const;
 export function validateRows(data: Backup) {

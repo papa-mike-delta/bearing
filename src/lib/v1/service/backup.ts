@@ -65,6 +65,7 @@ export async function clearData(tx: Tx, userId: string) {
     "proposals",
     "conversations",
     "preferences",
+    "tombstones",
   ] as const)
     await table(tx, name).deleteMany({ where: { userId } });
   await tx.item.updateMany({
