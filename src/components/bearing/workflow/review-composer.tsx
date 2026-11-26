@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DraftNotice, useItemDraft } from "../item-draft-session";
@@ -48,13 +48,15 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
     workspace.reviews.find(
       (r) => r.period === data.period && r.localDate === data.localDate,
     );
-  useEffect(() => {
-    if (!existing || review) return;
-    if (data.id === existing.id && data.revision === (existing.revision ?? 0))
-      return;
-    owner.change(key, reviewSeed(existing, timezone));
-  }, [existing, review, data.id, data.revision, key, owner, timezone]);
   const change = (patch: Record<string, unknown>) => owner.change(key, patch);
+  function choose(patch: { period?: string; localDate?: string }) {
+    const next = { period: data.period, localDate: data.localDate, ...patch };
+    const match = workspace.reviews.find(
+      (r) => r.period === next.period && r.localDate === next.localDate,
+    );
+    if (match && !review) owner.change(key, reviewSeed(match, timezone));
+    else change(patch);
+  }
   async function save() {
     const ticket = owner.beginSave(key);
     if (!ticket) return;
@@ -105,9 +107,10 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
           <label className="block text-sm">
             Review period
             <select
+              aria-label="Review period"
               className={fieldClass}
               value={data.period}
-              onChange={(e) => change({ period: e.target.value })}
+              onChange={(e) => choose({ period: e.target.value })}
             >
               {["daily", "weekly", "monthly"].map((period) => (
                 <option key={period} value={period}>
@@ -119,11 +122,12 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
           <label className="block text-sm">
             Review date
             <input
+              aria-label="Review date"
               className={fieldClass}
               type="date"
               required
               value={data.localDate}
-              onChange={(e) => change({ localDate: e.target.value })}
+              onChange={(e) => choose({ localDate: e.target.value })}
             />
           </label>
         </div>
@@ -147,6 +151,7 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
         <label className="block text-sm">
           Priorities · one per line
           <textarea
+            aria-label="Priorities · one per line"
             className={`${fieldClass} mt-1 min-h-24`}
             value={data.priorities}
             onChange={(e) => change({ priorities: e.target.value })}
