@@ -35,6 +35,7 @@ export type MomentRecord = {
 export type ActivityRecord = {
   timezone: string;
   id: string;
+  revision: number;
   clientId: string;
   kind: string;
   localDate: string;

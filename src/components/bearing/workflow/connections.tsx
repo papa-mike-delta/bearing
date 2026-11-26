@@ -544,7 +544,41 @@ function OccurrenceForm({
           />
         </label>
         {saved?.completed ? (
-          <p role="status">Completed · saved in Activity</p>
+          <div className="space-y-2">
+            <p role="status">Completed · saved in Activity</p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                if (!window.confirm("Undo this completed habit day?")) return;
+                void (async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await mutate(
+                      `items/${item.id}/undo`,
+                      {
+                        revision: saved.revision,
+                        occurredAt: instantFromInput(
+                          `${date}T12:00`,
+                          item.timezone,
+                        ),
+                        timezone: item.timezone,
+                      },
+                      "POST",
+                    );
+                  } catch (e) {
+                    setError(errorText(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              Undo completed day
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-wrap gap-2">
             <Button

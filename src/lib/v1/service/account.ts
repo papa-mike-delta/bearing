@@ -33,6 +33,7 @@ export class V1Account {
     "V1Link",
     "V1Message",
     "V1MomentItem",
+    "V1MomentTombstone",
     "V1Preference",
     "V1Project",
     "V1ProjectTag",

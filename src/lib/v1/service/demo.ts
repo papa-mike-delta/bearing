@@ -187,51 +187,114 @@ export class V1Demo {
         where: { userId_key: { userId: p.userId, key: marker } },
       });
       if (!entry) return { removed: true };
-      const { demoBatchId, ids } = entry.value as {
-          demoBatchId: string;
-          ids: string[];
-        },
-        data = await snapshot(tx, p.userId),
-        demoIds = new Set(ids);
-      for (const [name, rows] of Object.entries(data.tables)) {
-        if (name === "ledger" || name === "preferences") continue;
-        for (const row of rows) {
-          if (
-            "id" in row &&
-            demoIds.has(row.id as string) &&
-            (!("demoBatchId" in row) || row.demoBatchId !== demoBatchId)
-          )
-            throw new Fault(
-              409,
-              "Edited demo data is now personal data; remove its references explicitly",
-            );
-          if ("demoBatchId" in row && row.demoBatchId === demoBatchId) continue;
-          // Seed-created join rows are identified by their owning demo record.
-          const joinOwner = {
-            itemTags: "itemId",
-            projectTags: "projectId",
-            momentItems: "momentId",
-            reviewItems: "reviewId",
-          }[name as string];
-          if (
-            joinOwner &&
-            demoIds.has((row as Record<string, unknown>)[joinOwner] as string)
-          )
-            continue;
-          if (
-            Object.entries(row).some(
-              ([key, value]) =>
-                key.endsWith("Id") && demoIds.has(value as string),
-            )
-          )
-            throw new Fault(
-              409,
-              "Personal data references this demo; remove those references first",
-            );
-        }
-      }
-      // Join rows owned by demo entities cascade, other data never participates.
+      const { demoBatchId } = entry.value as { demoBatchId: string };
       const where = { userId: p.userId, demoBatchId };
+      const [demoItems, demoProjects, demoTags, demoMoments, demoReviews] =
+        await Promise.all([
+          tx.item.findMany({ where, select: { id: true } }),
+          tx.project.findMany({ where, select: { id: true } }),
+          tx.tag.findMany({ where, select: { id: true } }),
+          tx.journalMoment.findMany({ where, select: { id: true } }),
+          tx.review.findMany({ where, select: { id: true } }),
+        ]);
+      const demoItemIds = demoItems.map((row) => row.id);
+      const demoProjectIds = demoProjects.map((row) => row.id);
+      const demoTagIds = demoTags.map((row) => row.id);
+      // Personal rows keep their content. References into the demo batch are cleared.
+      if (demoProjectIds.length)
+        await tx.item.updateMany({
+          where: {
+            userId: p.userId,
+            projectId: { in: demoProjectIds },
+            OR: [{ demoBatchId: null }, { demoBatchId: { not: demoBatchId } }],
+          },
+          data: { projectId: null, revision: { increment: 1 } },
+        });
+      if (demoItemIds.length) {
+        const delegated = await tx.item.findMany({
+          where: {
+            userId: p.userId,
+            delegateId: { in: demoItemIds },
+            OR: [{ demoBatchId: null }, { demoBatchId: { not: demoBatchId } }],
+          },
+        });
+        for (const task of delegated)
+          await tx.item.update({
+            where: { userId_id: { userId: p.userId, id: task.id } },
+            data: {
+              delegateId: null,
+              status: task.status === "delegated" ? "todo" : task.status,
+              revision: { increment: 1 },
+            },
+          });
+        await tx.momentItem.deleteMany({
+          where: { userId: p.userId, itemId: { in: demoItemIds } },
+        });
+        await tx.reviewItem.deleteMany({
+          where: { userId: p.userId, itemId: { in: demoItemIds } },
+        });
+        await tx.link.deleteMany({
+          where: {
+            userId: p.userId,
+            OR: [
+              { fromId: { in: demoItemIds } },
+              { toId: { in: demoItemIds } },
+            ],
+          },
+        });
+        await tx.activity.updateMany({
+          where: {
+            userId: p.userId,
+            itemId: { in: demoItemIds },
+            OR: [{ demoBatchId: null }, { demoBatchId: { not: demoBatchId } }],
+          },
+          data: { itemId: null, revision: { increment: 1 } },
+        });
+        await tx.taskOccurrence.updateMany({
+          where: { userId: p.userId, nextItemId: { in: demoItemIds } },
+          data: { nextItemId: null },
+        });
+        const series = await tx.recurrence.findMany({
+          where: { userId: p.userId, itemId: { in: demoItemIds } },
+          select: { id: true },
+        });
+        if (series.length) {
+          await tx.taskOccurrence.deleteMany({
+            where: {
+              userId: p.userId,
+              recurrenceId: { in: series.map((row) => row.id) },
+            },
+          });
+          await tx.recurrence.deleteMany({
+            where: { userId: p.userId, id: { in: series.map((row) => row.id) } },
+          });
+        }
+        await tx.taskOccurrence.deleteMany({
+          where: { userId: p.userId, itemId: { in: demoItemIds } },
+        });
+      }
+      if (demoTagIds.length) {
+        await tx.itemTag.deleteMany({
+          where: { userId: p.userId, tagId: { in: demoTagIds } },
+        });
+        await tx.projectTag.deleteMany({
+          where: { userId: p.userId, tagId: { in: demoTagIds } },
+        });
+      }
+      if (demoMoments.length)
+        await tx.momentItem.deleteMany({
+          where: {
+            userId: p.userId,
+            momentId: { in: demoMoments.map((row) => row.id) },
+          },
+        });
+      if (demoReviews.length)
+        await tx.reviewItem.deleteMany({
+          where: {
+            userId: p.userId,
+            reviewId: { in: demoReviews.map((row) => row.id) },
+          },
+        });
       await tx.activity.deleteMany({ where });
       await tx.journalMoment.deleteMany({ where });
       await tx.review.deleteMany({ where });

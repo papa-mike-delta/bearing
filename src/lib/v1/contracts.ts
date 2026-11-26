@@ -315,6 +315,7 @@ export const recurrenceRule = z.discriminatedUnion("mode", [
 ]);
 export const revision = z.number().int().nonnegative();
 export const deleteAccountConfirmation = "DELETE MY ACCOUNT";
+export const deleteItemConfirmation = "DELETE ITEM";
 export const invitationInput = z.strictObject({
   email: z.email().transform((s) => s.toLowerCase()),
   token: z.string().min(32).max(200),

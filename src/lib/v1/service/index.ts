@@ -54,6 +54,12 @@ export function parse<T>(contract: z.ZodType<T>, raw: unknown): T {
 }
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+function confirmed(id: string, raw: unknown) {
+  const revision = z
+    .object({ revision: z.number().int().nonnegative() })
+    .safeParse(raw);
+  return { id, revision: revision.success ? revision.data.revision : 0 };
+}
 /** A revisioned retry of an existing Link. Caught inside the write transaction so it commits no new success receipt. */
 class LinkReplay<T> extends Error {
   constructor(
@@ -487,6 +493,30 @@ export class V1 {
           .createHash("sha256")
           .update(JSON.stringify(value))
           .digest("hex");
+      const buried = await tx.momentTombstone.findUnique({
+        where: {
+          userId_clientId: { userId: p.userId, clientId: value.clientId },
+        },
+      });
+      if (buried)
+        return {
+          id: buried.momentId,
+          userId: p.userId,
+          clientId: value.clientId,
+          revision: buried.revision,
+          text: "",
+          occurredAt: new Date(value.occurredAt),
+          capturedAt: new Date(value.capturedAt),
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+          localDate: dateInZone(value.occurredAt, value.timezone),
+          timezone: value.timezone,
+          needsOrganization: false,
+          intendedType: null,
+          ingestHash: hash,
+          demoBatchId: null,
+          items: [],
+        } as Prisma.JournalMomentGetPayload<{ include: typeof includeMoment }>;
       const previous = await tx.journalMoment.findUnique({
         where: {
           userId_clientId: { userId: p.userId, clientId: value.clientId },
@@ -1137,7 +1167,13 @@ export class V1 {
       raw,
       async (tx) => {
         const value = parse(schema.momentInput, raw),
-          existing = await tx.journalMoment.findUnique({
+          buried = await tx.momentTombstone.findUnique({
+            where: {
+              userId_clientId: { userId: p.userId, clientId: value.clientId },
+            },
+          });
+        if (buried) throw new Fault(409, "Journal entry was deleted");
+        const existing = await tx.journalMoment.findUnique({
             where: {
               userId_clientId: { userId: p.userId, clientId: value.clientId },
             },
@@ -1307,6 +1343,377 @@ export class V1 {
         return recurrence;
       },
     );
+  }
+  static deleteItem(p: Principal, id: string, raw: unknown, transaction?: Tx) {
+    return write(
+      p,
+      "v1.item.delete",
+      confirmed(id, raw),
+      async (tx) => {
+        const expected = parse(
+          z.strictObject({
+            revision,
+            confirmation: z.literal(schema.deleteItemConfirmation),
+          }),
+          raw,
+        );
+        const item = await owned(tx, p.userId, "item", id);
+        if (item.revision !== expected.revision)
+          throw new Fault(409, "Item changed", {
+            currentRevision: item.revision,
+          });
+        const me = await tx.selfProfile.findUnique({
+          where: { userId: p.userId },
+        });
+        if (me?.itemId === id) throw new Fault(400, "Me cannot be deleted");
+        await guardOpen(tx, p, [id]);
+        const activities = await tx.activity.findMany({
+          where: { userId: p.userId, itemId: id },
+        });
+        for (const activity of activities)
+          await V1.deleteActivity(
+            p,
+            activity.id,
+            { revision: activity.revision },
+            tx,
+          );
+        const mentions = await tx.momentItem.findMany({
+          where: { userId: p.userId, itemId: id },
+        });
+        for (const mention of mentions) {
+          await tx.momentItem.delete({
+            where: {
+              userId_momentId_itemId_relation: {
+                userId: p.userId,
+                momentId: mention.momentId,
+                itemId: id,
+                relation: mention.relation,
+              },
+            },
+          });
+          await tx.journalMoment.update({
+            where: { userId_id: { userId: p.userId, id: mention.momentId } },
+            data: { revision: { increment: 1 }, demoBatchId: null },
+          });
+        }
+        const reviews = await tx.reviewItem.findMany({
+          where: { userId: p.userId, itemId: id },
+        });
+        if (reviews.length) {
+          await tx.reviewItem.deleteMany({
+            where: { userId: p.userId, itemId: id },
+          });
+          await tx.review.updateMany({
+            where: {
+              userId: p.userId,
+              id: { in: [...new Set(reviews.map((row) => row.reviewId))] },
+            },
+            data: { revision: { increment: 1 } },
+          });
+        }
+        const delegated = await tx.item.findMany({
+          where: { userId: p.userId, delegateId: id },
+        });
+        for (const task of delegated) {
+          const tags = await tx.itemTag.findMany({
+            where: { userId: p.userId, itemId: task.id },
+          });
+          await V1.updateItem(
+            p,
+            task.id,
+            task.revision,
+            {
+              ...itemDto({
+                ...JSON.parse(JSON.stringify(task)),
+                tagIds: tags.map((tag) => tag.tagId),
+              }),
+              delegateId: null,
+              status: task.status === "delegated" ? "todo" : task.status,
+            },
+            tx,
+          );
+        }
+        const anchored = await tx.recurrence.findUnique({
+          where: { userId_itemId: { userId: p.userId, itemId: id } },
+        });
+        if (anchored) {
+          await tx.taskOccurrence.deleteMany({
+            where: { userId: p.userId, recurrenceId: anchored.id },
+          });
+          await tx.recurrence.delete({ where: { id: anchored.id } });
+        }
+        await tx.taskOccurrence.updateMany({
+          where: { userId: p.userId, nextItemId: id },
+          data: { nextItemId: null },
+        });
+        await tx.taskOccurrence.deleteMany({
+          where: { userId: p.userId, itemId: id },
+        });
+        const links = await tx.link.findMany({
+          where: { userId: p.userId, OR: [{ fromId: id }, { toId: id }] },
+        });
+        for (const link of links) await V1.deleteLink(p, link.id, tx);
+        await tx.item.delete({
+          where: { userId_id: { userId: p.userId, id } },
+        });
+        return { id, revision: item.revision };
+      },
+      transaction,
+    );
+  }
+  static deleteMoment(p: Principal, id: string, raw: unknown, transaction?: Tx) {
+    return write(
+      p,
+      "v1.moment.delete",
+      confirmed(id, raw),
+      async (tx) => {
+        const expected = parse(z.strictObject({ revision }), raw);
+        const row = await tx.journalMoment.findFirst({
+          where: { id, userId: p.userId },
+        });
+        if (!row) throw new Fault(404, "Not found");
+        if (row.revision !== expected.revision)
+          throw new Fault(409, "Journal entry changed", {
+            currentRevision: row.revision,
+          });
+        await tx.momentTombstone.upsert({
+          where: {
+            userId_clientId: { userId: p.userId, clientId: row.clientId },
+          },
+          create: {
+            userId: p.userId,
+            clientId: row.clientId,
+            momentId: row.id,
+            revision: row.revision,
+          },
+          update: { momentId: row.id, revision: row.revision },
+        });
+        await tx.journalMoment.delete({ where: { id: row.id } });
+        return { id: row.id, revision: row.revision };
+      },
+      transaction,
+    );
+  }
+  static detachMoment(p: Principal, momentId: string, raw: unknown) {
+    return write(
+      p,
+      "v1.moment.detach",
+      confirmed(momentId, raw),
+      async (tx) => {
+        const value = parse(
+          z.strictObject({
+            itemId: schema.id,
+            relation: z.enum(["mention", "reference", "located_at"]),
+            revision,
+          }),
+          raw,
+        );
+        const moment = await owned(tx, p.userId, "journalMoment", momentId);
+        if (moment.revision !== value.revision)
+          throw new Fault(409, "Journal entry changed", {
+            currentRevision: moment.revision,
+          });
+        const existing = await tx.momentItem.findUnique({
+          where: {
+            userId_momentId_itemId_relation: {
+              userId: p.userId,
+              momentId,
+              itemId: value.itemId,
+              relation: value.relation,
+            },
+          },
+        });
+        if (!existing) throw new Fault(404, "Not found");
+        await tx.momentItem.delete({
+          where: {
+            userId_momentId_itemId_relation: {
+              userId: p.userId,
+              momentId,
+              itemId: value.itemId,
+              relation: value.relation,
+            },
+          },
+        });
+        await tx.journalMoment.update({
+          where: { userId_id: { userId: p.userId, id: momentId } },
+          data: { revision: { increment: 1 }, demoBatchId: null },
+        });
+        return { id: momentId, revision: moment.revision };
+      },
+    );
+  }
+  static updateActivity(
+    p: Principal,
+    id: string,
+    raw: unknown,
+    transaction?: Tx,
+  ) {
+    return write(
+      p,
+      "v1.activity.update",
+      confirmed(id, raw),
+      async (tx) => {
+        const input = parse(
+          z.strictObject({ revision, data: schema.activityInput }),
+          raw,
+        );
+        const row = await tx.activity.findFirst({
+          where: { id, userId: p.userId },
+        });
+        if (!row) throw new Fault(404, "Not found");
+        if (row.revision !== input.revision)
+          throw new Fault(409, "Activity changed", {
+            currentRevision: row.revision,
+          });
+        if (input.data.clientId !== row.clientId)
+          throw new Fault(400, "Activity identity cannot change");
+        if (
+          input.data.kind === "task_completion" ||
+          row.kind === "task_completion"
+        )
+          throw new Fault(
+            400,
+            "Task completion is recorded by saving the Task",
+          );
+        await V1.assertActivityItem(tx, p.userId, input.data);
+        return tx.activity.update({
+          where: { userId_id: { userId: p.userId, id } },
+          data: {
+            kind: input.data.kind,
+            itemId: input.data.itemId,
+            occurredAt: new Date(input.data.occurredAt),
+            timezone: input.data.timezone,
+            localDate: dateInZone(input.data.occurredAt, input.data.timezone),
+            data: json(input.data.data),
+            revision: { increment: 1 },
+            demoBatchId: null,
+          },
+        });
+      },
+      transaction,
+    );
+  }
+  static deleteActivity(
+    p: Principal,
+    id: string,
+    raw: unknown,
+    transaction?: Tx,
+  ) {
+    return write(
+      p,
+      "v1.activity.delete",
+      confirmed(id, raw),
+      async (tx) => {
+        const expected = parse(z.strictObject({ revision }), raw);
+        const row = await tx.activity.findFirst({
+          where: { id, userId: p.userId },
+        });
+        if (!row) throw new Fault(404, "Not found");
+        if (row.revision !== expected.revision)
+          throw new Fault(409, "Activity changed", {
+            currentRevision: row.revision,
+          });
+        if (row.kind === "habit_completion" && row.itemId)
+          await V1.reopenHabit(tx, p.userId, row);
+        await tx.activity.delete({ where: { id: row.id } });
+        return { id: row.id, revision: row.revision };
+      },
+      transaction,
+    );
+  }
+  static undoHabit(p: Principal, itemId: string, raw: unknown) {
+    return write(
+      p,
+      "v1.habit.undo",
+      confirmed(itemId, raw),
+      async (tx) => {
+        const input = parse(
+          z.strictObject({ revision, occurredAt: instant, timezone }),
+          raw,
+        );
+        const item = await owned(tx, p.userId, "item", itemId);
+        if (item.type !== "habit") throw new Fault(400, "Choose a Habit");
+        const cadence =
+          (item.metadata as { cadence?: string }).cadence || "daily";
+        const period = habitPeriod(input.occurredAt, item.timezone, cadence);
+        const key = `habit.${itemId}.${cadence}.${period}`;
+        const previous = await tx.preference.findUnique({
+          where: { userId_key: { userId: p.userId, key } },
+        });
+        const saved = previous?.value as HabitOccurrence | undefined;
+        if (!saved?.completed)
+          throw new Fault(400, "This occurrence is not complete");
+        if ((saved.revision || 0) !== input.revision)
+          throw new Fault(409, "Habit occurrence changed", {
+            currentRevision: saved.revision || 0,
+          });
+        const activity = await tx.activity.findUnique({
+          where: {
+            userId_clientId: {
+              userId: p.userId,
+              clientId: `habit_${itemId}_${cadence}_${period}`,
+            },
+          },
+        });
+        if (activity)
+          await V1.deleteActivity(
+            p,
+            activity.id,
+            { revision: activity.revision },
+            tx,
+          );
+        else await V1.reopenHabit(tx, p.userId, { itemId, data: { period } });
+        return { id: itemId, revision: input.revision };
+      },
+    );
+  }
+  private static async assertActivityItem(
+    tx: Tx,
+    userId: string,
+    value: { kind: string; itemId: string | null },
+  ) {
+    if (!value.itemId) return;
+    const item = await owned(tx, userId, "item", value.itemId);
+    if (value.kind === "focus" && !["task", "habit"].includes(item.type))
+      throw new Fault(400, "Focus can reference a Task or Habit");
+    const required = {
+      habit_completion: "habit",
+      task_completion: "task",
+      interaction: "person",
+    }[value.kind];
+    if (required && item.type !== required)
+      throw new Fault(400, "Activity has incompatible Item type");
+  }
+  private static async reopenHabit(
+    tx: Tx,
+    userId: string,
+    row: { itemId: string | null; data: unknown },
+  ) {
+    if (!row.itemId) return;
+    const item = await tx.item.findFirst({
+      where: { id: row.itemId, userId },
+    });
+    if (!item || item.type !== "habit") return;
+    const cadence = (item.metadata as { cadence?: string }).cadence || "daily";
+    const period =
+      (row.data as { period?: string }).period ||
+      habitPeriod(new Date().toISOString(), item.timezone, cadence);
+    const key = `habit.${item.id}.${cadence}.${period}`;
+    const previous = await tx.preference.findUnique({
+      where: { userId_key: { userId, key } },
+    });
+    const saved = previous?.value as HabitOccurrence | undefined;
+    if (!saved?.completed) return;
+    await tx.preference.update({
+      where: { userId_key: { userId, key } },
+      data: {
+        value: {
+          ...saved,
+          completed: false,
+          revision: (saved.revision || 0) + 1,
+        },
+      },
+    });
   }
   private static async completeOccurrence(tx: Tx, p: Principal, item: Item) {
     const occurrence = await tx.taskOccurrence.findUnique({
