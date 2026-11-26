@@ -19,8 +19,27 @@ model Account {
   totpVerified Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  settings     Setting[]
-  ledger       Ledger[]
+  settings      Setting[]
+  ledger        Ledger[]
+  items         Item[]
+  selfProfile   SelfProfile?
+  projects      Project[]
+  tags          Tag[]
+  itemTags      ItemTag[]
+  projectTags   ProjectTag[]
+  links         Link[]
+  activities    Activity[]
+  moments       JournalMoment[]
+  momentItems   MomentItem[]
+  reviews       Review[]
+  reviewItems   ReviewItem[]
+  recurrences   Recurrence[]
+  occurrences   TaskOccurrence[]
+  conversations Conversation[]
+  messages      Message[]
+  proposals     Proposal[]
+  preferences   Preference[]
+  leases        Lease[]
 
   @@map("User")
 }
@@ -53,6 +72,7 @@ model Ledger {
 model Item {
   id             String           @id @default(cuid())
   userId         String
+  account        Account          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Item_owner_fkey")
   revision       Int              @default(0)
   type           String
   template       String
@@ -85,7 +105,8 @@ model Item {
   moments        MomentItem[]
   reviews        ReviewItem[]
   recurrences    Recurrence[]
-  occurrences    TaskOccurrence[]
+  occurrences    TaskOccurrence[] @relation("OccurrenceItem")
+  followedBy     TaskOccurrence[] @relation("OccurrenceNext")
   leases         Lease[]
 
   @@unique([userId, id])
@@ -99,9 +120,10 @@ model Item {
 }
 
 model SelfProfile {
-  userId String @id
-  itemId String @unique
-  item   Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+  userId  String  @id
+  account Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1SelfProfile_owner_fkey")
+  itemId  String  @unique
+  item    Item    @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
 
   @@unique([userId, itemId])
   @@map("V1SelfProfile")
@@ -110,6 +132,7 @@ model SelfProfile {
 model Project {
   id          String       @id @default(cuid())
   userId      String
+  account     Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Project_owner_fkey")
   revision    Int          @default(0)
   name        String
   description String       @default("")
@@ -127,6 +150,8 @@ model Project {
 model Tag {
   id          String       @id @default(cuid())
   userId      String
+  account     Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Tag_owner_fkey")
+  revision    Int          @default(0)
   name        String
   kind        String       @default("tag")
   demoBatchId String?
@@ -140,10 +165,11 @@ model Tag {
 }
 
 model ItemTag {
-  userId String
-  itemId String
-  tagId  String
-  item   Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Cascade)
+  userId  String
+  account Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1ItemTag_owner_fkey")
+  itemId  String
+  tagId   String
+  item    Item    @relation(fields: [userId, itemId], references: [userId, id], onDelete: Cascade)
   tag    Tag    @relation(fields: [userId, tagId], references: [userId, id], onDelete: Restrict)
 
   @@id([userId, itemId, tagId])
@@ -152,6 +178,7 @@ model ItemTag {
 
 model ProjectTag {
   userId    String
+  account   Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1ProjectTag_owner_fkey")
   projectId String
   tagId     String
   project   Project @relation(fields: [userId, projectId], references: [userId, id], onDelete: Cascade)
@@ -164,6 +191,7 @@ model ProjectTag {
 model Link {
   id          String   @id @default(cuid())
   userId      String
+  account     Account  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Link_owner_fkey")
   fromId      String
   toId        String
   type        String
@@ -181,6 +209,8 @@ model Link {
 model Activity {
   id          String   @id @default(cuid())
   userId      String
+  account     Account  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Activity_owner_fkey")
+  revision    Int      @default(0)
   clientId    String
   kind        String
   itemId      String?
@@ -203,6 +233,7 @@ model JournalMoment {
   ingestHash        String?
   id                String       @id @default(cuid())
   userId            String
+  account           Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1JournalMoment_owner_fkey")
   clientId          String
   revision          Int          @default(0)
   text              String
@@ -224,6 +255,7 @@ model JournalMoment {
 
 model MomentItem {
   userId   String
+  account  Account       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1MomentItem_owner_fkey")
   momentId String
   itemId   String
   relation String        @default("mention")
@@ -237,6 +269,7 @@ model MomentItem {
 model Review {
   id          String       @id @default(cuid())
   userId      String
+  account     Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Review_owner_fkey")
   revision    Int          @default(0)
   period      String
   localDate   String
@@ -254,9 +287,10 @@ model Review {
 
 model ReviewItem {
   userId   String
+  account  Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1ReviewItem_owner_fkey")
   reviewId String
   itemId   String
-  review   Review @relation(fields: [userId, reviewId], references: [userId, id], onDelete: Cascade)
+  review   Review  @relation(fields: [userId, reviewId], references: [userId, id], onDelete: Cascade)
   item     Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
 
   @@id([userId, reviewId, itemId])
@@ -266,6 +300,7 @@ model ReviewItem {
 model Recurrence {
   id          String           @id @default(cuid())
   userId      String
+  account     Account          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Recurrence_owner_fkey")
   itemId      String
   revision    Int              @default(0)
   rule        Json             @db.JsonB
@@ -282,6 +317,7 @@ model Recurrence {
 model TaskOccurrence {
   id           String     @id @default(cuid())
   userId       String
+  account      Account    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1TaskOccurrence_owner_fkey")
   recurrenceId String
   itemId       String
   scheduledAt  DateTime   @db.Timestamptz(3)
@@ -289,7 +325,8 @@ model TaskOccurrence {
   nextItemId   String?    @unique
   demoBatchId  String?
   recurrence   Recurrence @relation(fields: [userId, recurrenceId], references: [userId, id], onDelete: Cascade)
-  item         Item       @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+  item         Item       @relation("OccurrenceItem", fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+  nextItem     Item?      @relation("OccurrenceNext", fields: [userId, nextItemId], references: [userId, id], onDelete: Restrict, onUpdate: NoAction, map: "V1TaskOccurrence_next_owner")
 
   @@unique([userId, id])
   @@unique([userId, itemId])
@@ -300,6 +337,7 @@ model TaskOccurrence {
 model Conversation {
   id          String     @id @default(cuid())
   userId      String
+  account     Account    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Conversation_owner_fkey")
   title       String
   demoBatchId String?
   createdAt   DateTime   @default(now()) @db.Timestamptz(3)
@@ -313,6 +351,7 @@ model Conversation {
 model Message {
   id             String       @id @default(cuid())
   userId         String
+  account        Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Message_owner_fkey")
   conversationId String
   role           String
   content        String
@@ -326,6 +365,7 @@ model Message {
 model Proposal {
   id             String       @id @default(cuid())
   userId         String
+  account        Account      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Proposal_owner_fkey")
   conversationId String
   revision       Int          @default(0)
   status         String       @default("pending")
@@ -338,9 +378,10 @@ model Proposal {
 }
 
 model Preference {
-  userId String
-  key    String
-  value  Json   @db.JsonB
+  userId  String
+  account Account @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Preference_owner_fkey")
+  key     String
+  value   Json    @db.JsonB
 
   @@id([userId, key])
   @@map("V1Preference")
@@ -348,6 +389,7 @@ model Preference {
 
 model Lease {
   userId    String
+  account   Account  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "V1Lease_owner_fkey")
   itemId    String
   token     String
   expiresAt DateTime @db.Timestamptz(3)

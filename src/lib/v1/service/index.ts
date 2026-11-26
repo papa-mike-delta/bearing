@@ -69,6 +69,8 @@ export async function write<T>(
   payload: unknown,
   work: (tx: Tx) => Promise<T>,
   transaction?: Tx,
+  // Runs after the success receipt is inserted, still inside the same transaction.
+  finalize?: (tx: Tx) => Promise<void>,
 ) {
   const { userId, actor } = principal;
   const run = async (tx: Tx) => {
@@ -89,6 +91,7 @@ export async function write<T>(
           receipt: JSON.stringify({ ok: true, value }),
         },
       });
+      if (finalize) await finalize(tx);
       return { ok: true as const, value, receiptId: receipt.id };
     } catch (error) {
       if (error instanceof LinkReplay)

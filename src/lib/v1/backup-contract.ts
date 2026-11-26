@@ -26,7 +26,13 @@ export const tableSchemas = {
     ...demo,
     ...updated,
   }),
-  tags: z.strictObject({ id, ...tagInput.shape, ...demo, ...stamp }),
+  tags: z.strictObject({
+    id,
+    revision,
+    ...tagInput.shape,
+    ...demo,
+    ...stamp,
+  }),
   items: z.strictObject({
     id,
     revision,
@@ -63,6 +69,7 @@ export const tableSchemas = {
   }),
   activities: z.strictObject({
     id,
+    revision,
     clientId: id,
     kind: z.string(),
     itemId: id.nullable(),
