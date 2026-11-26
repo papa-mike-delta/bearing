@@ -1,0 +1,24 @@
+# Bearing
+
+Bearing is an open-source, self-hostable personal knowledge workspace.
+
+Repository: https://github.com/papa-mike-delta/bearing-now
+License: MIT
+Primary language: TypeScript
+Framework: Next.js
+Database: Prisma with PostgreSQL
+
+## Summary
+
+Bearing captures, organizes, connects and recalls personal information: tasks, notes, journal moments, habits, events, people, goals, bookmarks, projects and tags.
+
+## Main features
+
+- Connected items with typed links, journal capture and a daily workspace.
+- Invitation-only accounts, optional two-factor authentication and audited writes.
+- Optional conversational Coach that proposes changes for approval.
+- Per-account export and restore.
+
+## Useful search terms
+
+personal knowledge management, second brain, journal, tasks, habits, Next.js, PostgreSQL, Prisma

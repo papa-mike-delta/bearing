@@ -1,0 +1,368 @@
+.page {
+  --ink: #f5f1e7;
+  --quiet: #bac9c5;
+  --accent: #f0c779;
+  color: var(--ink);
+  background: #101e20;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+.page a:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 5px;
+}
+.nav {
+  border-bottom: 1px solid #ffffff15;
+}
+.wrap {
+  max-width: 1200px;
+  margin: auto;
+  padding-left: clamp(20px, 5vw, 64px);
+  padding-right: clamp(20px, 5vw, 64px);
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-size: 22px;
+}
+.logo svg {
+  background: var(--accent);
+  color: #263a35;
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border-radius: 12px;
+}
+.eyebrow {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+.hero {
+  overflow: hidden;
+  position: relative;
+  background: radial-gradient(ellipse at 90% 35%, #264b44 0, transparent 60%);
+}
+.heroGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 48px;
+  padding-top: 88px;
+  padding-bottom: 90px;
+}
+.hero h1 {
+  font-size: clamp(44px, 5.3vw, 74px);
+  line-height: 1.06;
+  font-weight: 500;
+  letter-spacing: -0.055em;
+}
+.hero h1 em {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  color: var(--accent);
+}
+.intro {
+  font-size: 18px;
+  line-height: 1.7;
+  color: var(--quiet);
+  margin: 28px 0;
+  max-width: 33rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.primary {
+  background: var(--accent);
+  color: #172c28;
+  box-shadow: 0 6px 25px #f0c77912;
+}
+.primary:hover {
+  background: #ffdb95;
+}
+.secondary {
+  border: 1px solid #ffffff35;
+}
+.secondary:hover {
+  background: #ffffff0a;
+}
+.fine {
+  color: var(--quiet);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 18px;
+}
+.product {
+  position: relative;
+}
+.product::before {
+  content: "";
+  position: absolute;
+  inset: -22px;
+  border: 1px solid #e9cf8b30;
+  border-radius: 35px;
+  transform: rotate(-4deg);
+  pointer-events: none;
+}
+.window {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid #ffffff35;
+  background: #142523;
+  box-shadow: 0 30px 60px #0005;
+}
+.windowBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px;
+  font-size: 11px;
+  color: var(--quiet);
+  border-bottom: 1px solid #ffffff15;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 100%;
+  background: #a3bcb5;
+}
+.window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.caption {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--quiet);
+  margin-top: 22px;
+}
+.ribbon {
+  border-top: 1px solid #ffffff15;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding-top: 22px;
+  padding-bottom: 22px;
+  color: var(--quiet);
+  font-size: 12px;
+}
+.ribbon span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.light {
+  background: #f5f1e7;
+  color: #223b35;
+  padding-top: 80px;
+  padding-bottom: 80px;
+}
+.light .eyebrow {
+  color: #776039;
+}
+.heading {
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.15;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  max-width: 700px;
+}
+.lead {
+  max-width: 610px;
+  line-height: 1.8;
+  margin-top: 20px;
+  color: #5a6e65;
+}
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 44px;
+}
+.feature {
+  padding: 24px;
+  border-radius: 18px;
+  background: #fffaf0;
+  border: 1px solid #d8dfd5;
+}
+.feature:nth-child(2) {
+  background: #e1ebe2;
+}
+.feature:nth-child(3) {
+  background: #f1dfd4;
+}
+.feature svg {
+  color: #486b5c;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 20px;
+}
+.feature h3 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.feature p {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #52675c;
+}
+.story {
+  padding-top: 88px;
+  padding-bottom: 88px;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 44px;
+}
+.step {
+  border-top: 1px solid #79938b70;
+  padding-top: 22px;
+}
+.number {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  background: #f0c779;
+  color: #203b34;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+.step h3 {
+  font-size: 21px;
+  font-weight: 500;
+}
+.step p {
+  color: var(--quiet);
+  font-size: 14px;
+  line-height: 1.8;
+  margin-top: 12px;
+}
+.connectionNote {
+  padding: 28px;
+  border: 1px solid #ffffff20;
+  border-radius: 18px;
+  background: #1c3430;
+  margin-top: 40px;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  line-height: 1.8;
+  color: var(--quiet);
+}
+.connectionNote svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.philosophy {
+  background: #e9bb98;
+  color: #392b26;
+}
+.philosophyGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  padding-top: 70px;
+  padding-bottom: 70px;
+}
+.philosophy p {
+  line-height: 1.8;
+}
+.philosophy a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  margin-top: 16px;
+}
+.closing {
+  text-align: center;
+  padding-top: 88px;
+  padding-bottom: 88px;
+  background: radial-gradient(ellipse at 50% 100%, #2d4b3c, transparent 70%);
+}
+.closing h2 {
+  margin: auto;
+}
+.closing p {
+  color: var(--quiet);
+  margin: 20px auto 26px;
+}
+.footer {
+  border-top: 1px solid #ffffff20;
+  color: var(--quiet);
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .heroGrid {
+    grid-template-columns: 1fr;
+    gap: 48px;
+    padding-top: 60px;
+    padding-bottom: 54px;
+  }
+  .product {
+    max-width: 640px;
+  }
+  .features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .features,
+  .steps,
+  .philosophyGrid {
+    grid-template-columns: 1fr;
+  }
+  .philosophyGrid {
+    gap: 24px;
+  }
+  .features {
+    gap: 14px;
+  }
+  .hero h1 {
+    font-size: 48px;
+  }
+  .light,
+  .story,
+  .closing {
+    padding-top: 56px;
+    padding-bottom: 56px;
+  }
+  .ribbon {
+    gap: 12px 20px;
+  }
+  .connectionNote {
+    padding: 20px;
+  }
+}

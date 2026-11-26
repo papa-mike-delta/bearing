@@ -1,0 +1,369 @@
+// Single Bearing schema. Account is stored as "User"; Ledger as "OperationLedger".
+// Product tables keep their V1* names. Legacy content tables are not part of this schema.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Existing shared identity and immutable audit tables; V1 migration does not recreate them.
+model Account {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  totpSecret   String?
+  totpVerified Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  settings     Setting[]
+  ledger       Ledger[]
+
+  @@map("User")
+}
+
+model Setting {
+  id      String  @id
+  value   String
+  userId  String
+  account Account @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+}
+
+model Ledger {
+  id        String   @id @default(cuid())
+  actor     String
+  userId    String
+  account   Account  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  operation String
+  payload   String
+  status    String
+  receipt   String
+  createdAt DateTime @default(now())
+
+  @@index([actor, operation, status, createdAt])
+  @@index([userId, actor, operation, status, createdAt])
+  @@map("OperationLedger")
+}
+
+model Item {
+  id             String           @id @default(cuid())
+  userId         String
+  revision       Int              @default(0)
+  type           String
+  template       String
+  title          String
+  content        String           @default("")
+  status         String           @default("inbox")
+  priority       Int              @default(0)
+  metadata       Json             @default("{\"version\":1}") @db.JsonB
+  projectId      String?
+  project        Project?         @relation(fields: [userId, projectId], references: [userId, id], onDelete: Restrict)
+  delegateId     String?
+  delegate       Item?            @relation("Delegation", fields: [userId, delegateId], references: [userId, id], onDelete: Restrict)
+  delegatedTasks Item[]           @relation("Delegation")
+  dueAt          DateTime?        @db.Timestamptz(3)
+  scheduledAt    DateTime?        @db.Timestamptz(3)
+  startAt        DateTime?        @db.Timestamptz(3)
+  endAt          DateTime?        @db.Timestamptz(3)
+  followUpAt     DateTime?        @db.Timestamptz(3)
+  completedAt    DateTime?        @db.Timestamptz(3)
+  localDate      String?
+  timezone       String           @default("UTC")
+  demoBatchId    String?
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+  selfProfile    SelfProfile?
+  tags           ItemTag[]
+  linksFrom      Link[]           @relation("From")
+  linksTo        Link[]           @relation("To")
+  activities     Activity[]
+  moments        MomentItem[]
+  reviews        ReviewItem[]
+  recurrences    Recurrence[]
+  occurrences    TaskOccurrence[]
+  leases         Lease[]
+
+  @@unique([userId, id])
+  @@index([userId, type, status])
+  @@index([userId, dueAt])
+  @@index([userId, scheduledAt])
+  @@index([userId, localDate])
+  @@index([userId, startAt, endAt])
+  @@index([userId, projectId])
+  @@map("V1Item")
+}
+
+model SelfProfile {
+  userId String @id
+  itemId String @unique
+  item   Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+
+  @@unique([userId, itemId])
+  @@map("V1SelfProfile")
+}
+
+model Project {
+  id          String       @id @default(cuid())
+  userId      String
+  revision    Int          @default(0)
+  name        String
+  description String       @default("")
+  status      String       @default("active")
+  demoBatchId String?
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+  items       Item[]
+  tags        ProjectTag[]
+
+  @@unique([userId, id])
+  @@map("V1Project")
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  userId      String
+  name        String
+  kind        String       @default("tag")
+  demoBatchId String?
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  items       ItemTag[]
+  projects    ProjectTag[]
+
+  @@unique([userId, id])
+  @@unique([userId, kind, name])
+  @@map("V1Tag")
+}
+
+model ItemTag {
+  userId String
+  itemId String
+  tagId  String
+  item   Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [userId, tagId], references: [userId, id], onDelete: Restrict)
+
+  @@id([userId, itemId, tagId])
+  @@map("V1ItemTag")
+}
+
+model ProjectTag {
+  userId    String
+  projectId String
+  tagId     String
+  project   Project @relation(fields: [userId, projectId], references: [userId, id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [userId, tagId], references: [userId, id], onDelete: Restrict)
+
+  @@id([userId, projectId, tagId])
+  @@map("V1ProjectTag")
+}
+
+model Link {
+  id          String   @id @default(cuid())
+  userId      String
+  fromId      String
+  toId        String
+  type        String
+  note        String   @default("")
+  demoBatchId String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  from        Item     @relation("From", fields: [userId, fromId], references: [userId, id], onDelete: Cascade)
+  to          Item     @relation("To", fields: [userId, toId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([userId, fromId, toId, type])
+  @@index([userId, toId, type])
+  @@map("V1Link")
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  userId      String
+  clientId    String
+  kind        String
+  itemId      String?
+  item        Item?    @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+  occurredAt  DateTime @db.Timestamptz(3)
+  localDate   String
+  timezone    String
+  data        Json     @db.JsonB
+  demoBatchId String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, id])
+  @@unique([userId, clientId])
+  @@index([userId, occurredAt])
+  @@map("V1Activity")
+}
+
+model JournalMoment {
+  capturedAt        DateTime     @default(now()) @db.Timestamptz(3)
+  ingestHash        String?
+  id                String       @id @default(cuid())
+  userId            String
+  clientId          String
+  revision          Int          @default(0)
+  text              String
+  occurredAt        DateTime     @db.Timestamptz(3)
+  localDate         String
+  timezone          String
+  needsOrganization Boolean      @default(true)
+  intendedType      String?
+  demoBatchId       String?
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+  items             MomentItem[]
+
+  @@unique([userId, id])
+  @@unique([userId, clientId])
+  @@index([userId, localDate, occurredAt])
+  @@map("V1JournalMoment")
+}
+
+model MomentItem {
+  userId   String
+  momentId String
+  itemId   String
+  relation String        @default("mention")
+  moment   JournalMoment @relation(fields: [userId, momentId], references: [userId, id], onDelete: Cascade)
+  item     Item          @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+
+  @@id([userId, momentId, itemId, relation])
+  @@map("V1MomentItem")
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  userId      String
+  revision    Int          @default(0)
+  period      String
+  localDate   String
+  timezone    String
+  prompts     Json         @db.JsonB
+  demoBatchId String?
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+  items       ReviewItem[]
+
+  @@unique([userId, id])
+  @@unique([userId, period, localDate])
+  @@map("V1Review")
+}
+
+model ReviewItem {
+  userId   String
+  reviewId String
+  itemId   String
+  review   Review @relation(fields: [userId, reviewId], references: [userId, id], onDelete: Cascade)
+  item     Item   @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+
+  @@id([userId, reviewId, itemId])
+  @@map("V1ReviewItem")
+}
+
+model Recurrence {
+  id          String           @id @default(cuid())
+  userId      String
+  itemId      String
+  revision    Int              @default(0)
+  rule        Json             @db.JsonB
+  active      Boolean          @default(true)
+  demoBatchId String?
+  item        Item             @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+  occurrences TaskOccurrence[]
+
+  @@unique([userId, id])
+  @@unique([userId, itemId])
+  @@map("V1Recurrence")
+}
+
+model TaskOccurrence {
+  id           String     @id @default(cuid())
+  userId       String
+  recurrenceId String
+  itemId       String
+  scheduledAt  DateTime   @db.Timestamptz(3)
+  completedAt  DateTime?  @db.Timestamptz(3)
+  nextItemId   String?    @unique
+  demoBatchId  String?
+  recurrence   Recurrence @relation(fields: [userId, recurrenceId], references: [userId, id], onDelete: Cascade)
+  item         Item       @relation(fields: [userId, itemId], references: [userId, id], onDelete: Restrict)
+
+  @@unique([userId, id])
+  @@unique([userId, itemId])
+  @@unique([userId, recurrenceId, scheduledAt])
+  @@map("V1TaskOccurrence")
+}
+
+model Conversation {
+  id          String     @id @default(cuid())
+  userId      String
+  title       String
+  demoBatchId String?
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  messages    Message[]
+  proposals   Proposal[]
+
+  @@unique([userId, id])
+  @@map("V1Conversation")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  userId         String
+  conversationId String
+  role           String
+  content        String
+  demoBatchId    String?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  conversation   Conversation @relation(fields: [userId, conversationId], references: [userId, id], onDelete: Cascade)
+
+  @@map("V1Message")
+}
+
+model Proposal {
+  id             String       @id @default(cuid())
+  userId         String
+  conversationId String
+  revision       Int          @default(0)
+  status         String       @default("pending")
+  operations     Json         @db.JsonB
+  demoBatchId    String?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  conversation   Conversation @relation(fields: [userId, conversationId], references: [userId, id], onDelete: Cascade)
+
+  @@map("V1Proposal")
+}
+
+model Preference {
+  userId String
+  key    String
+  value  Json   @db.JsonB
+
+  @@id([userId, key])
+  @@map("V1Preference")
+}
+
+model Lease {
+  userId    String
+  itemId    String
+  token     String
+  expiresAt DateTime @db.Timestamptz(3)
+  item      Item     @relation(fields: [userId, itemId], references: [userId, id], onDelete: Cascade)
+
+  @@id([userId, itemId, token])
+  @@map("V1Lease")
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String
+  tokenHash  String    @unique
+  expiresAt  DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@map("V1Invitation")
+}

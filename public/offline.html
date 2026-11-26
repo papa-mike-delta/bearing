@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <title>Offline Journal · bearing.now</title>
+    <link rel="stylesheet" href="/bearing-offline.css" />
+    <script type="module" src="/bearing-offline.js"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/app/journal" class="brand">bearing.now</a
+      ><span>Offline Journal</span>
+    </header>
+    <main>
+      <p id="status" role="status">Checking this device…</p>
+      <section id="locked" hidden>
+        <h1>Connect to sign in</h1>
+        <p>
+          Offline capture becomes available after a signed-in visit. Entries
+          saved for other accounts stay separate.
+        </p>
+        <a href="/login">Sign in online</a>
+      </section>
+      <div id="workspace" hidden>
+        <h1>A line about your day</h1>
+        <p>
+          Text captures on this device sync after you reconnect. Structured
+          editing needs a connection.
+        </p>
+        <p id="account"></p>
+        <form id="capture">
+          <label for="text">Capture</label
+          ><textarea
+            id="text"
+            rows="7"
+            required
+            maxlength="200000"
+            placeholder="A thought, a Task, a line about your day…"
+          ></textarea>
+          <p>
+            /task Title · /mood 4 energy 3 · /place Name · plain text is welcome
+          </p>
+          <label for="occurred">Occurred at</label
+          ><input id="occurred" type="datetime-local" required /><button
+            type="submit"
+          >
+            Save on this device
+          </button>
+        </form>
+        <nav>
+          <button id="retry" type="button">Retry sync</button
+          ><a href="/app/journal">Open full Journal</a
+          ><button id="lock" type="button">Lock this device</button>
+        </nav>
+        <h2>Captures on this device</h2>
+        <label for="date">Journal date</label><input type="date" id="date" />
+        <div id="entries" aria-live="polite"></div>
+      </div>
+    </main>
+  </body>
+</html>
