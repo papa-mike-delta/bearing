@@ -33,8 +33,8 @@ This repository has one Prisma schema and one migration baseline, intended for a
 empty database.
 
 ```bash
-git clone https://github.com/papa-mike-delta/bearing-now.git
-cd bearing-now
+git clone https://github.com/papa-mike-delta/bearing.git
+cd bearing
 npm ci
 cp .env.example .env
 # Edit DATABASE_URL and set SESSION_SECRET to a unique random value (32+ characters).

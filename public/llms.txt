@@ -2,7 +2,7 @@
 
 Bearing is an open-source, self-hostable personal knowledge workspace.
 
-Repository: https://github.com/papa-mike-delta/bearing-now
+Repository: https://github.com/papa-mike-delta/bearing
 License: MIT
 Primary language: TypeScript
 Framework: Next.js
