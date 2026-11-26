@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { sessionCookie } from "@/lib/session";
 import { V1, Fault, parse, type Principal } from "@/lib/v1/service";
+import { V1Account } from "@/lib/v1/service/account";
 import { V1Backup } from "@/lib/v1/service/backup";
 import { V1Demo } from "@/lib/v1/service/demo";
 import { Workflow } from "@/lib/v1/workflow";
@@ -211,6 +213,11 @@ async function handle(
         body,
       );
       result = await V1Backup.restore(p, value.backup, value.confirmation);
+    } else if (resource === "account" && !recordId && method === "DELETE") {
+      result = await V1Account.delete(p, body);
+      const response = NextResponse.json(result);
+      response.headers.set("Set-Cookie", sessionCookie("", 0));
+      return response;
     } else if (resource === "reset" && !recordId && method === "POST")
       result = await V1Backup.reset(
         p,

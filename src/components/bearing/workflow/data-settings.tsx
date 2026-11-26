@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { deleteAccountConfirmation } from "@/lib/v1/contracts";
 import { SectionCard } from "../layout";
 import { fieldClass, request, useWorkspace } from "./context";
 
@@ -12,6 +13,8 @@ export function DataSettings() {
   const [error, setError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [password, setPassword] = useState("");
+  const [accountConfirmation, setAccountConfirmation] = useState("");
   async function run(label: string, action: () => Promise<string>) {
     if (lock.current) return;
     lock.current = true;
@@ -173,6 +176,64 @@ export function DataSettings() {
               Clear V1 data
             </Button>
           </div>
+        </div>
+      </SectionCard>
+      <SectionCard title="Delete account">
+        <p className="mb-3 text-sm text-muted-foreground">
+          Deletes this login and every record that belongs to it, including Me,
+          settings, invitations for this email, and audit receipts. This cannot
+          be undone.
+        </p>
+        <div className="space-y-3">
+          <label className="block text-sm">
+            Current password
+            <input
+              className={`${fieldClass} mt-1`}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              disabled={!!busy}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm">
+            Type {deleteAccountConfirmation}
+            <input
+              className={`${fieldClass} mt-1`}
+              value={accountConfirmation}
+              disabled={!!busy}
+              onChange={(e) => setAccountConfirmation(e.target.value)}
+              placeholder={deleteAccountConfirmation}
+              autoComplete="off"
+            />
+          </label>
+          <Button
+            variant="destructive"
+            disabled={
+              !!busy ||
+              password.length === 0 ||
+              accountConfirmation !== deleteAccountConfirmation
+            }
+            onClick={() =>
+              void run("Deleting account…", async () => {
+                const { outbox } = await import("@/lib/v1/outbox");
+                await request(userId, "account", {
+                  method: "DELETE",
+                  body: JSON.stringify({
+                    password,
+                    confirmation: accountConfirmation,
+                  }),
+                });
+                await outbox.lockAccount();
+                window.location.replace(
+                  new URL("/login", window.location.origin).href,
+                );
+                return "Account deleted.";
+              })
+            }
+          >
+            Delete account
+          </Button>
         </div>
       </SectionCard>
       <p role="status" aria-live="polite">
