@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DraftNotice, useItemDraft } from "../item-draft-session";
@@ -8,6 +8,7 @@ import { SectionCard } from "../layout";
 import { dateInZone } from "@/lib/v1/dates";
 import type { ReviewRecord } from "@/lib/v1/client-model";
 import { reviewInput } from "@/lib/v1/contracts";
+import { ReviewSlot } from "@/lib/v1/review-slot";
 import { fieldClass, useWorkspace } from "./context";
 const prompts = [
   ["wins", "Wins", "What went well?"],
@@ -43,34 +44,41 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
   );
   const key = review ? `review:${review.id}` : "review:new";
   const { owner, draft, data } = useItemDraft(key, seed);
-  const existing =
-    review ??
-    workspace.reviews.find(
-      (r) => r.period === data.period && r.localDate === data.localDate,
-    );
+  const slotRef = useRef({
+    period: data.period as string,
+    localDate: data.localDate as string,
+  });
+  const shown = ReviewSlot.match(
+    workspace.reviews,
+    data.period,
+    data.localDate,
+  );
   const change = (patch: Record<string, unknown>) => owner.change(key, patch);
-  function choose(
-    patch: { period?: string; localDate?: string },
-    form: HTMLFormElement | null,
-  ) {
-    const period =
-      patch.period ??
-      form?.querySelector<HTMLSelectElement>('[aria-label="Review period"]')
-        ?.value ??
-      data.period;
-    const localDate =
-      patch.localDate ??
-      form?.querySelector<HTMLInputElement>('[aria-label="Review date"]')
-        ?.value ??
-      data.localDate;
-    const match =
-      !review &&
-      workspace.reviews.find(
-        (r) => r.period === period && r.localDate === localDate,
-      );
-    if (match) owner.change(key, reviewSeed(match, timezone));
-    else change({ period, localDate });
+  function openMatch(match: ReviewRecord) {
+    const current = owner.get(key);
+    if (!ReviewSlot.canOpen(current?.dirtyFields ?? [], current?.pending))
+      return;
+    if (current?.dirtyFields.length) owner.discard(key);
+    owner.receive(key, reviewSeed(match, timezone));
   }
+  function choose(patch: { period?: string; localDate?: string }) {
+    const next = ReviewSlot.next(slotRef.current, patch);
+    slotRef.current = next;
+    const match = review
+      ? undefined
+      : ReviewSlot.match(workspace.reviews, next.period, next.localDate);
+    if (match) openMatch(match);
+    else owner.change(key, next);
+  }
+  useEffect(() => {
+    if (review) return;
+    const match = ReviewSlot.match(
+      workspace.reviews,
+      slotRef.current.period,
+      slotRef.current.localDate,
+    );
+    if (match) openMatch(match);
+  }, [workspace.reviews, review]);
   async function save() {
     const ticket = owner.beginSave(key);
     if (!ticket) return;
@@ -89,10 +97,19 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
         },
         itemIds: value.itemIds,
       });
-      const result = existing
+      const target = ReviewSlot.match(
+        workspace.reviews,
+        value.period,
+        value.localDate,
+      );
+      if ((shown?.id ?? null) !== (target?.id ?? null))
+        throw new Error(
+          "This reflection does not match the period and date in the form.",
+        );
+      const result = target
         ? await mutate(
-            `reviews/${existing.id}`,
-            { revision: existing.revision ?? 0, data: input },
+            `reviews/${target.id}`,
+            { revision: target.revision ?? 0, data: input },
             "PUT",
           )
         : await mutate("reviews", input);
@@ -124,9 +141,7 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
               aria-label="Review period"
               className={fieldClass}
               value={data.period}
-              onChange={(e) =>
-                choose({ period: e.target.value }, e.currentTarget.form)
-              }
+              onChange={(e) => choose({ period: e.target.value })}
             >
               {["daily", "weekly", "monthly"].map((period) => (
                 <option key={period} value={period}>
@@ -143,9 +158,7 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
               type="date"
               required
               value={data.localDate}
-              onChange={(e) =>
-                choose({ localDate: e.target.value }, e.currentTarget.form)
-              }
+              onChange={(e) => choose({ localDate: e.target.value })}
             />
           </label>
         </div>
@@ -199,10 +212,10 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
             ))}
           </div>
         </fieldset>
-        {existing && !review && (
+        {shown && !review && (
           <p role="status" className="text-sm">
             This period already has a reflection. The form opens it.{" "}
-            <Link className="underline" href={`/app/reviews/${existing.id}`}>
+            <Link className="underline" href={`/app/reviews/${shown.id}`}>
               Read saved Review
             </Link>
           </p>
@@ -211,20 +224,26 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
           <Button disabled={!!draft?.pending}>
             {draft?.pending
               ? "Saving reflection…"
-              : existing
+              : shown
                 ? "Update reflection"
                 : "Save reflection"}
           </Button>
-          {existing && (
+          {shown && (
             <Button
               type="button"
               variant="destructive"
               disabled={!!draft?.pending}
               onClick={() => {
                 if (!window.confirm("Delete this reflection?")) return;
+                const target = ReviewSlot.match(
+                  workspace.reviews,
+                  data.period,
+                  data.localDate,
+                );
+                if (!target || target.id !== shown.id) return;
                 void mutate(
-                  `reviews/${existing.id}`,
-                  { revision: existing.revision ?? 0 },
+                  `reviews/${target.id}`,
+                  { revision: target.revision ?? 0 },
                   "DELETE",
                 ).then(() => {
                   if (!review) router.push("/app/reviews");
