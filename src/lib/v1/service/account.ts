@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { db } from "@/lib/db";
 import { deleteAccountConfirmation } from "../contracts";
 import { clearData } from "./backup";
 import {
@@ -150,5 +151,101 @@ export class V1Account {
             Prisma.sql`SELECT count(*)::int AS n FROM ${Prisma.raw(`"${table}"`)} WHERE ${Prisma.raw(`"${column}"`)} = ${userId}`,
           );
     return Number(rows[0]?.n ?? 0);
+  }
+
+  static changePassword(p: Principal, raw: unknown) {
+    return write(
+      p,
+      "v1.account.password",
+      { id: p.userId, revision: 0 },
+      async (tx) => {
+        const input = parse(
+          z.strictObject({
+            currentPassword: z.string().min(1).max(200),
+            nextPassword: z.string().min(8).max(200),
+          }),
+          raw,
+        );
+        if (p.actor !== `user:${p.userId}`)
+          throw new Fault(403, "Explicit user confirmation required");
+        const account = await tx.account.findUnique({
+          where: { id: p.userId },
+        });
+        if (
+          !account ||
+          !(await bcrypt.compare(input.currentPassword, account.passwordHash))
+        )
+          throw new Fault(403, "Password does not match");
+        await tx.account.update({
+          where: { id: p.userId },
+          data: { passwordHash: await bcrypt.hash(input.nextPassword, 12) },
+        });
+        return { id: p.userId, revision: 0 };
+      },
+    );
+  }
+
+  static changeEmail(p: Principal, raw: unknown) {
+    return write(
+      p,
+      "v1.account.email",
+      { id: p.userId, revision: 0 },
+      async (tx) => {
+        const input = parse(
+          z.strictObject({
+            password: z.string().min(1).max(200),
+            email: z.email().transform((value) => value.toLowerCase()),
+          }),
+          raw,
+        );
+        if (p.actor !== `user:${p.userId}`)
+          throw new Fault(403, "Explicit user confirmation required");
+        const account = await tx.account.findUnique({
+          where: { id: p.userId },
+        });
+        if (
+          !account ||
+          !(await bcrypt.compare(input.password, account.passwordHash))
+        )
+          throw new Fault(403, "Password does not match");
+        const taken = await tx.account.findUnique({
+          where: { email: input.email },
+        });
+        if (taken && taken.id !== p.userId)
+          throw new Fault(409, "An account with this email already exists");
+        await tx.account.update({
+          where: { id: p.userId },
+          data: { email: input.email },
+        });
+        return { id: p.userId, revision: 0 };
+      },
+    );
+  }
+
+  static async ledger(userId: string, raw: unknown) {
+    const query = parse(
+      z.strictObject({
+        page: z.coerce.number().int().min(1).max(10_000).default(1),
+        limit: z.coerce.number().int().min(1).max(50).default(20),
+      }),
+      raw,
+    );
+    const where = { userId };
+    const [total, entries] = await Promise.all([
+      db.ledger.count({ where }),
+      db.ledger.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        select: {
+          id: true,
+          operation: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return { entries, page: query.page, limit: query.limit, total };
   }
 }

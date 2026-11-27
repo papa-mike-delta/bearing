@@ -5,7 +5,7 @@ process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 process.env.BEARING_COACH_MODEL = "fixture";
 process.env.SESSION_SECRET ||= "release-fixture-secret-at-least-32-characters";
 const specs =
-  /v1-(workflow|foundations|connected|coach|release|cleanup|link-proposals|theme|perspectives|account|delete|organize)\.spec\.ts/;
+  /v1-(workflow|foundations|connected|coach|release|cleanup|link-proposals|theme|perspectives|account-settings|account|delete|organize)\.spec\.ts/;
 export default defineConfig({
   testDir: "./e2e",
   workers: 1,

@@ -252,7 +252,16 @@ async function handle(
         body,
       );
       result = await V1Backup.restore(p, value.backup, value.confirmation);
-    } else if (resource === "account" && !recordId && method === "DELETE") {
+    } else if (resource === "account" && recordId === "password" && method === "PUT")
+      result = await V1Account.changePassword(p, body);
+    else if (resource === "account" && recordId === "email" && method === "PUT")
+      result = await V1Account.changeEmail(p, body);
+    else if (resource === "ledger" && !recordId && method === "GET")
+      result = await V1Account.ledger(
+        p.userId,
+        Object.fromEntries(new URL(req.url).searchParams),
+      );
+    else if (resource === "account" && !recordId && method === "DELETE") {
       result = await V1Account.delete(p, body);
       const response = NextResponse.json(result);
       response.headers.set("Set-Cookie", sessionCookie("", 0));

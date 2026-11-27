@@ -47,7 +47,9 @@
     "db:reset": "prisma migrate reset",
     "test:e2e": "playwright test",
     "test:integration": "vitest run --project integration",
-    "db:invite": "node --import tsx scripts/create-invitation.ts"
+    "db:invite": "node --import tsx scripts/create-invitation.ts",
+    "db:invitations": "node --import tsx scripts/list-invitations.ts",
+    "db:revoke-invitation": "node --import tsx scripts/revoke-invitation.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.78",
