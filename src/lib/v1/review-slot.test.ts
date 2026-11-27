@@ -33,6 +33,26 @@ it("opens the daily review when the date is chosen first, then leaves it for wee
   expect(ReviewSlot.match(reviews, weekly.period, weekly.localDate)).toBeUndefined();
 });
 
+it("follows the visible slot when a dirty draft switches onto a saved review", () => {
+  const slot = { period: "daily", localDate: "2026-11-01" };
+  const held = ReviewSlot.decide(slot, { localDate: "2026-10-24" }, reviews, true);
+  expect(held.action).toBe("hold");
+  expect(held.match?.id).toBe(daily.id);
+  expect(held.slot).toEqual({ period: "daily", localDate: "2026-10-24" });
+  const next = ReviewSlot.decide(held.slot, { period: "weekly" }, reviews, true);
+  expect(next.slot).toEqual({ period: "weekly", localDate: "2026-10-24" });
+  expect(next.action).toBe("edit");
+  expect(next.match).toBeUndefined();
+  const opened = ReviewSlot.decide(
+    slot,
+    { localDate: "2026-10-24" },
+    reviews,
+    false,
+  );
+  expect(opened.action).toBe("open");
+  expect(opened.slot).toEqual(held.slot);
+});
+
 it("opens a matching review on load and leaves an in-progress draft alone", () => {
   const slot = { period: "daily", localDate: "2026-10-24" };
   expect(ReviewSlot.match(reviews, slot.period, slot.localDate)?.id).toBe(daily.id);

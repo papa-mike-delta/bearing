@@ -54,21 +54,52 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
     data.localDate,
   );
   const change = (patch: Record<string, unknown>) => owner.change(key, patch);
-  function openMatch(match: ReviewRecord) {
+  const visible = {
+    period: String(data.period),
+    localDate: String(data.localDate),
+  };
+  const held =
+    !review &&
+    !!shown &&
+    !ReviewSlot.canOpen(draft?.dirtyFields ?? [], draft?.pending);
+  function reveal(match: ReviewRecord) {
+    slotRef.current = { period: match.period, localDate: match.localDate };
     const current = owner.get(key);
-    if (!ReviewSlot.canOpen(current?.dirtyFields ?? [], current?.pending))
-      return;
-    if (current?.dirtyFields.length) owner.discard(key);
+    if (current?.dirtyFields.length && !current.pending) owner.discard(key);
     owner.receive(key, reviewSeed(match, timezone));
   }
   function choose(patch: { period?: string; localDate?: string }) {
-    const next = ReviewSlot.next(slotRef.current, patch);
-    slotRef.current = next;
+    const current = owner.get(key);
+    const decision = ReviewSlot.decide(
+      slotRef.current,
+      patch,
+      review ? [] : workspace.reviews,
+      !ReviewSlot.canOpen(current?.dirtyFields ?? [], current?.pending),
+    );
+    if (decision.action === "open" && decision.match) {
+      reveal(decision.match);
+      return;
+    }
+    slotRef.current = decision.slot;
+    owner.change(key, decision.slot);
+  }
+  function discardDraft() {
+    const slot = { ...visible };
+    owner.discard(key);
     const match = review
       ? undefined
-      : ReviewSlot.match(workspace.reviews, next.period, next.localDate);
-    if (match) openMatch(match);
-    else owner.change(key, next);
+      : ReviewSlot.match(workspace.reviews, slot.period, slot.localDate);
+    if (match) {
+      reveal(match);
+      return;
+    }
+    slotRef.current = slot;
+    const after = owner.get(key);
+    if (
+      after &&
+      (after.data.period !== slot.period || after.data.localDate !== slot.localDate)
+    )
+      owner.change(key, slot);
   }
   useEffect(() => {
     if (review) return;
@@ -77,7 +108,13 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
       slotRef.current.period,
       slotRef.current.localDate,
     );
-    if (match) openMatch(match);
+    const current = owner.get(key);
+    if (
+      !match ||
+      !ReviewSlot.canOpen(current?.dirtyFields ?? [], current?.pending)
+    )
+      return;
+    reveal(match);
   }, [workspace.reviews, review]);
   async function save() {
     const ticket = owner.beginSave(key);
@@ -99,10 +136,17 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
       });
       const target = ReviewSlot.match(
         workspace.reviews,
-        value.period,
-        value.localDate,
+        visible.period,
+        visible.localDate,
       );
-      if ((shown?.id ?? null) !== (target?.id ?? null))
+      if (
+        !ReviewSlot.same(visible, slotRef.current) ||
+        !ReviewSlot.same(visible, {
+          period: String(value.period),
+          localDate: String(value.localDate),
+        }) ||
+        (shown?.id ?? null) !== (target?.id ?? null)
+      )
         throw new Error(
           "This reflection does not match the period and date in the form.",
         );
@@ -126,7 +170,7 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
         date to label the period you are reflecting on. One Review per period
         and date.
       </p>
-      <DraftNotice draft={draft} onDiscard={() => owner.discard(key)} />
+      <DraftNotice draft={draft} onDiscard={discardDraft} />
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -212,7 +256,13 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
             ))}
           </div>
         </fieldset>
-        {shown && !review && (
+        {held && (
+          <p role="status" className="text-sm">
+            A reflection already exists for this period. Discard your draft to
+            open it.
+          </p>
+        )}
+        {shown && !review && !held && (
           <p role="status" className="text-sm">
             This period already has a reflection. The form opens it.{" "}
             <Link className="underline" href={`/app/reviews/${shown.id}`}>
@@ -235,10 +285,11 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
               disabled={!!draft?.pending}
               onClick={() => {
                 if (!window.confirm("Delete this reflection?")) return;
+                if (!ReviewSlot.same(visible, slotRef.current)) return;
                 const target = ReviewSlot.match(
                   workspace.reviews,
-                  data.period,
-                  data.localDate,
+                  visible.period,
+                  visible.localDate,
                 );
                 if (!target || target.id !== shown.id) return;
                 void mutate(
