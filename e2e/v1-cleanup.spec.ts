@@ -107,10 +107,17 @@ test("daily weekly and monthly reflections are written through the UI and stay s
     .click();
   await navigate(page, "Reviews");
   for (const period of ["daily", "weekly", "monthly"]) {
-    await page
-      .getByRole("combobox", { name: "Review period", exact: true })
-      .selectOption(period);
+    const periodField = page.getByRole("combobox", {
+      name: "Review period",
+      exact: true,
+    });
+    await periodField.selectOption(period);
     await page.getByLabel("Review date", { exact: true }).fill("2026-10-24");
+    await periodField.selectOption(period);
+    await expect(periodField).toHaveValue(period);
+    await expect(
+      page.getByRole("button", { name: "Save reflection", exact: true }),
+    ).toBeEnabled();
     await page
       .getByLabel("Wins", { exact: true })
       .fill(`A ${period} pause to notice progress.`);

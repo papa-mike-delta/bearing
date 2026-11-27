@@ -49,13 +49,27 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
       (r) => r.period === data.period && r.localDate === data.localDate,
     );
   const change = (patch: Record<string, unknown>) => owner.change(key, patch);
-  function choose(patch: { period?: string; localDate?: string }) {
-    const next = { period: data.period, localDate: data.localDate, ...patch };
-    const match = workspace.reviews.find(
-      (r) => r.period === next.period && r.localDate === next.localDate,
-    );
-    if (match && !review) owner.change(key, reviewSeed(match, timezone));
-    else change(patch);
+  function choose(
+    patch: { period?: string; localDate?: string },
+    form: HTMLFormElement | null,
+  ) {
+    const period =
+      patch.period ??
+      form?.querySelector<HTMLSelectElement>('[aria-label="Review period"]')
+        ?.value ??
+      data.period;
+    const localDate =
+      patch.localDate ??
+      form?.querySelector<HTMLInputElement>('[aria-label="Review date"]')
+        ?.value ??
+      data.localDate;
+    const match =
+      !review &&
+      workspace.reviews.find(
+        (r) => r.period === period && r.localDate === localDate,
+      );
+    if (match) owner.change(key, reviewSeed(match, timezone));
+    else change({ period, localDate });
   }
   async function save() {
     const ticket = owner.beginSave(key);
@@ -110,7 +124,9 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
               aria-label="Review period"
               className={fieldClass}
               value={data.period}
-              onChange={(e) => choose({ period: e.target.value })}
+              onChange={(e) =>
+                choose({ period: e.target.value }, e.currentTarget.form)
+              }
             >
               {["daily", "weekly", "monthly"].map((period) => (
                 <option key={period} value={period}>
@@ -127,7 +143,9 @@ export function ReviewComposer({ review }: { review?: ReviewRecord }) {
               type="date"
               required
               value={data.localDate}
-              onChange={(e) => choose({ localDate: e.target.value })}
+              onChange={(e) =>
+                choose({ localDate: e.target.value }, e.currentTarget.form)
+              }
             />
           </label>
         </div>
